@@ -1,25 +1,66 @@
 :root {
   color-scheme: dark;
 
+  /* 面。手前にあるものほど明るい */
   --bg: #17181b;
   --panel: #1e1f24;
-  --line: #2c2d33;
-  --ink: #e9e7e2;
-  --muted: #8a8a8a;
-  --accent: #c584c0;
-
-  --user-bg: #565b64;
+  --header-bg: #1e1f24cc;
   --ai-bg: #232429;
-  --ai-line: #35363d;
+  --user-bg: #565b64;
   --input-bg: #26272c;
-  --input-line: #3a3b42;
+  --sheet-bg: #202126f2;
+  --menu-bg: #28292eea;
+  --float-bg: #27282dcc;
+  --float-bg-active: #303136e6;
 
+  /* 文字。--muted はどの面の上でもコントラスト比4.5以上を保つ値 */
+  --ink: #e9e7e2;
+  --muted: #98989d;
+  --on-accent: #17181b;
+  --on-fill: #fff;
+
+  /* 主色と状態色。緑と赤はHIGのsystemGreen / systemRed（ダーク） */
+  --accent: #c584c0;
+  --accent-soft: #d4a2d0;
+  --success: #30d158;
+  --danger: #ff453a;
+
+  /* 線 */
+  --line: #2c2d33;
+  --ai-line: #35363d;
+  --input-line: #3a3b42;
+  --separator: #ffffff12;
+  --separator-weak: #ffffff0d;
+
+  /* 白を透かした面 */
+  --fill-weak: #ffffff08;
+  --fill: #ffffff14;
+  --fill-strong: #ffffff28;
+  --scrim: #00000070;
+
+  /* 影 */
+  --shadow-avatar: 0 4px 20px #0008;
+  --shadow-float: 0 6px 18px #0005;
+  --shadow-menu: 0 12px 36px #0007;
+  --shadow-sheet: 0 -14px 40px #0005;
+
+  /* 角丸 */
+  --radius-xs: 4px;
   --radius-sm: 8px;
   --radius-md: 12px;
   --radius-lg: 14px;
+  --radius-xl: 16px;
+  --radius-sheet: 22px;
+  --radius-full: 999px;
 
+  /* 寸法。--tap-min はHIGの最小タップ領域 */
+  --tap-min: 44px;
   --chat-max-width: 860px;
   --input-max-height: 120px;
+
+  /* 動き */
+  --duration-fast: .15s;
+  --duration: .2s;
 }
 
 *,
@@ -88,8 +129,8 @@ header {
   padding-top: calc(6px + env(safe-area-inset-top));
   padding-left: max(14px, env(safe-area-inset-left));
 
-  border-bottom: 1px solid #ffffff12;
-  background: #1e1f24cc;
+  border-bottom: 1px solid var(--separator);
+  background: var(--header-bg);
   backdrop-filter: blur(20px) saturate(140%);
   -webkit-backdrop-filter: blur(20px) saturate(140%);
 }
@@ -109,7 +150,7 @@ header {
   object-fit: contain;
   object-position: center bottom;
   transform-origin: center bottom;
-  transition: opacity .2s ease;
+  transition: opacity var(--duration) ease;
 }
 
 .mini-avatar img.avatar-react {
@@ -135,7 +176,7 @@ header {
   display: flex;
   align-items: center;
   gap: 10px;
-  min-height: 44px;
+  min-height: var(--tap-min);
 
   border: 0;
   padding: 0;
@@ -152,7 +193,7 @@ header {
   border-radius: 50%;
   object-fit: cover;
   object-position: 50% 15%;
-  background: #000;
+  background: #000;  /* 画像が読めないときの下地 */
 }
 
 .h-av {
@@ -167,7 +208,7 @@ header {
   white-space: nowrap;
 
   font-size: 11px;
-  color: #777;
+  color: var(--muted);
 }
 
 /* ===== Chat ===== */
@@ -208,7 +249,7 @@ header {
   margin-top: 4px;
 
   text-align: right;
-  font-size: 10px;
+  font-size: 11px;
   color: var(--muted);
 }
 
@@ -216,13 +257,13 @@ header {
   align-self: flex-end;
   max-width: 84%;
 
-  border-bottom-right-radius: 4px;
+  border-bottom-right-radius: var(--radius-xs);
   background: var(--user-bg);
-  color: #fff;
+  color: var(--on-fill);
 }
 
 .user[data-time]::after {
-  color: #ffffffaa;
+  color: #ffffffaa;  /* 塗りつぶしの上なので白を透かす */
 }
 
 .ai-row {
@@ -240,7 +281,7 @@ header {
 
 .ai-row .msg {
   border: 1px solid var(--ai-line);
-  border-bottom-left-radius: 4px;
+  border-bottom-left-radius: var(--radius-xs);
   background: var(--ai-bg);
 }
 
@@ -254,7 +295,7 @@ header {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: #9a9aa0;
+  background: var(--muted);
   animation: typing-dot 1.2s infinite ease-in-out;
 }
 
@@ -285,8 +326,8 @@ header {
   padding: 4px 10px;
 
   border-radius: var(--radius-sm);
-  background: #ffffff14;
-  color: #999;
+  background: var(--fill);
+  color: var(--muted);
 
   font-size: 12px;
 }
@@ -339,7 +380,7 @@ textarea {
 
   padding: 10px 88px 10px 12px;
   border: 1px solid var(--input-line);
-  border-radius: 16px;
+  border-radius: var(--radius-xl);
   outline: none;
 
   background: var(--input-bg);
@@ -350,8 +391,8 @@ textarea {
   field-sizing: content;
 
   transition:
-    border-color .15s ease,
-    box-shadow .15s ease;
+    border-color var(--duration-fast) ease,
+    box-shadow var(--duration-fast) ease;
 }
 
 textarea:focus {
@@ -369,11 +410,11 @@ button {
 
 #gatebtn {
   min-width: 88px;
-  min-height: 44px;
+  min-height: var(--tap-min);
   padding: 0 18px;
   border-radius: var(--radius-md);
   background: var(--accent);
-  color: #1b1b1b;
+  color: var(--on-accent);
   font-weight: 600;
 }
 
@@ -389,7 +430,7 @@ button {
   display: grid;
   place-items: center;
   background: transparent;
-  color: #17181b;
+  color: var(--on-accent);
 }
 
 #send::before {
@@ -399,7 +440,7 @@ button {
   height: 32px;
   border-radius: 50%;
   background: var(--accent);
-  transition: opacity .15s ease, transform .1s ease;
+  transition: opacity var(--duration-fast) ease, transform .1s ease;
 }
 
 #send svg {
@@ -441,7 +482,7 @@ button {
   height: 32px;
   border-radius: 50%;
   background: transparent;
-  transition: background-color .15s ease, transform .1s ease;
+  transition: background-color var(--duration-fast) ease, transform .1s ease;
 }
 
 /* 送信は線画だが、受話器は細部が多く17pxだと潰れる。ここは塗りで描く。 */
@@ -458,11 +499,11 @@ button {
 #call .icon-hangup { display: none; }
 
 body.calling #call {
-  color: #fff;
+  color: var(--on-fill);
 }
 
 body.calling #call::before {
-  background: #ff453a;
+  background: var(--danger);
 }
 
 body.calling #call .icon-call { display: none; }
@@ -504,7 +545,7 @@ textarea:focus-visible {
   height: 150px;
 
   border: 3px solid var(--panel);
-  box-shadow: 0 4px 20px #0008;
+  box-shadow: var(--shadow-avatar);
 }
 
 #gate .t {
@@ -517,7 +558,7 @@ textarea:focus-visible {
   padding: 10px;
 
   border: 1px solid var(--input-line);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   outline: none;
 
   background: var(--input-bg);
@@ -529,7 +570,7 @@ textarea:focus-visible {
 
 #gateerr {
   min-height: 1.2em;
-  color: #d88;
+  color: var(--danger);
   font-size: 12px;
 }
 
@@ -553,7 +594,7 @@ textarea:focus-visible {
   gap: 5px;
   min-height: 14px;
   color: var(--muted);
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1.2;
 }
 
@@ -562,8 +603,8 @@ textarea:focus-visible {
   height: 6px;
   flex: none;
   border-radius: 50%;
-  background: #7fba83;
-  transition: background-color .2s ease, opacity .2s ease;
+  background: var(--success);
+  transition: background-color var(--duration) ease, opacity var(--duration) ease;
 }
 
 .status.thinking .status-dot {
@@ -572,12 +613,12 @@ textarea:focus-visible {
 }
 
 .status.offline .status-dot {
-  background: #777;
+  background: var(--muted);
   opacity: .7;
 }
 
 .status.calling .status-dot {
-  background: #30d158;
+  background: var(--success);
   animation: pulse 1.2s ease-in-out infinite;
 }
 
@@ -594,7 +635,7 @@ textarea:focus-visible {
   align-items: flex-end;
   justify-content: center;
   padding-top: calc(20px + env(safe-area-inset-top));
-  background: #00000070;
+  background: var(--scrim);
 }
 
 .overlay.open { display: flex; }
@@ -604,11 +645,11 @@ textarea:focus-visible {
   max-height: min(78dvh, 680px);
   overflow-y: auto;
   padding: 10px 16px calc(16px + env(safe-area-inset-bottom));
-  border: 1px solid #ffffff12;
+  border: 1px solid var(--separator);
   border-bottom: 0;
-  border-radius: 22px 22px 0 0;
-  background: #202126f2;
-  box-shadow: 0 -14px 40px #0005;
+  border-radius: var(--radius-sheet) var(--radius-sheet) 0 0;
+  background: var(--sheet-bg);
+  box-shadow: var(--shadow-sheet);
   backdrop-filter: blur(22px) saturate(135%);
   -webkit-backdrop-filter: blur(22px) saturate(135%);
 }
@@ -617,8 +658,8 @@ textarea:focus-visible {
   width: 36px;
   height: 5px;
   margin: 0 auto 14px;
-  border-radius: 999px;
-  background: #ffffff28;
+  border-radius: var(--radius-full);
+  background: var(--fill-strong);
 }
 
 .profile {
@@ -635,9 +676,9 @@ textarea:focus-visible {
 .sheet-section {
   overflow: hidden;
   margin-top: 10px;
-  border: 1px solid #ffffff0d;
-  border-radius: 14px;
-  background: #ffffff08;
+  border: 1px solid var(--separator-weak);
+  border-radius: var(--radius-lg);
+  background: var(--fill-weak);
 }
 
 .sheet-row {
@@ -648,14 +689,14 @@ textarea:focus-visible {
   justify-content: space-between;
   gap: 14px;
   padding: 0 14px;
-  border-bottom: 1px solid #ffffff0d;
+  border-bottom: 1px solid var(--separator-weak);
   background: transparent;
   color: var(--ink);
   text-align: left;
 }
 
 .sheet-row:last-child { border-bottom: 0; }
-.sheet-row.secondary { color: #d4a2d0; }
+.sheet-row.secondary { color: var(--accent-soft); }
 .sheet-value { color: var(--muted); font-size: 12px; }
 
 .context-menu {
@@ -665,10 +706,10 @@ textarea:focus-visible {
   overflow: hidden;
   display: none;
   padding: 5px;
-  border: 1px solid #ffffff16;
-  border-radius: 14px;
-  background: #28292eea;
-  box-shadow: 0 12px 36px #0007;
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-lg);
+  background: var(--menu-bg);
+  box-shadow: var(--shadow-menu);
   backdrop-filter: blur(18px) saturate(130%);
   -webkit-backdrop-filter: blur(18px) saturate(130%);
 }
@@ -677,19 +718,19 @@ textarea:focus-visible {
 
 .context-menu button {
   width: 100%;
-  min-height: 42px;
+  min-height: var(--tap-min);
   display: flex;
   align-items: center;
   gap: 9px;
   padding: 0 11px;
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--ink);
   font-size: 14px;
   text-align: left;
 }
 
-.context-menu button:active { background: #ffffff12; }
+.context-menu button:active { background: var(--fill); }
 .reaction-mark { margin-top: 4px; color: var(--muted); font-size: 11px; text-align: right; }
 body.hide-time .msg[data-time]::after { display: none; }
 
@@ -719,17 +760,17 @@ body.hide-time .msg[data-time]::after { display: none; }
   bottom: calc(78px + env(safe-area-inset-bottom));
   z-index: 12;
 
-  width: 38px;
-  height: 38px;
+  width: var(--tap-min);
+  height: var(--tap-min);
   display: grid;
   place-items: center;
 
-  border: 1px solid #ffffff14;
+  border: 1px solid var(--separator);
   border-radius: 50%;
-  background: #27282dcc;
+  background: var(--float-bg);
   color: var(--ink);
 
-  box-shadow: 0 6px 18px #0005;
+  box-shadow: var(--shadow-float);
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
 
@@ -738,9 +779,9 @@ body.hide-time .msg[data-time]::after { display: none; }
   transform: translateY(6px);
 
   transition:
-    opacity .15s ease,
-    transform .15s ease,
-    background-color .15s ease;
+    opacity var(--duration-fast) ease,
+    transform var(--duration-fast) ease,
+    background-color var(--duration-fast) ease;
 }
 
 #jumpBottom.show {
@@ -750,7 +791,7 @@ body.hide-time .msg[data-time]::after { display: none; }
 }
 
 #jumpBottom:active {
-  background: #303136e6;
+  background: var(--float-bg-active);
   transform: translateY(0) scale(.96);
 }
 
@@ -764,17 +805,15 @@ body.hide-time .msg[data-time]::after { display: none; }
   stroke-linejoin: round;
 }
 
+/* 線と控えめな文字だけを持ち上げる。色は変数の側で差し替える。 */
 @media (prefers-contrast: more) {
   :root {
     --line: #484950;
     --ai-line: #55565e;
     --input-line: #5e6068;
-    --ink: #fff;
+    --ink: var(--on-fill);
+    --muted: #b8b8bd;
   }
-
-  #mode,
-  .status,
-  .msg[data-time]::after { color: #b8b8bd; }
 
   textarea:focus {
     border-color: var(--accent);
