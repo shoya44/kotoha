@@ -1,0 +1,358 @@
+"""タスクトレイに住みつき、ことはと周りのツールの面倒を見る。
+
+画面を持たないので pythonw.exe から起動する。そうするとコンソールが1枚も
+出ない。本体（uvicorn）は子プロセスにして見張り、落ちたら上げ直す。画面から
+の再起動（終了コード42）も、これまで start.bat が見ていたのをここで引き取る。
+
+トレイまわりは ctypes で直に触っている。pystray と Pillow を入れれば短く
+書けるが、依存3つで動いている構成に10MB超を足す理由がない。
+"""
+
+import ctypes
+import ctypes.wintypes as w
+import os
+import subprocess
+import sys
+import threading
+import time
+import webbrowser
+
+from . import config
+from .serve.web import RESTART_EXIT_CODE
+
+ICON_PATH = config.BASE_DIR / "kotoha" / "serve" / "static" / "kotoha.ico"
+LOG_PATH = config.BASE_DIR / "data" / "tray.log"
+# 同じものを二重に常駐させない。名前は書き換えないこと。
+MUTEX_NAME = "kotoha-tray-single-instance"
+# 落ちたときに上げ直すまでの間。すぐ上げ直すと、壊れていたとき暴れ続ける。
+RESPAWN_WAIT = 5.0
+# 自分で上げていないことはを見守るときの、様子見の間隔。
+WATCH_WAIT = 5.0
+
+WM_DESTROY, WM_COMMAND, WM_TRAY = 0x0002, 0x0111, 0x0400 + 1
+WM_LBUTTONUP, WM_RBUTTONUP, WM_LBUTTONDBLCLK = 0x0202, 0x0205, 0x0203
+NIM_ADD, NIM_MODIFY, NIM_DELETE = 0, 1, 2
+NIF_MESSAGE, NIF_ICON, NIF_TIP, NIF_INFO = 0x01, 0x02, 0x04, 0x10
+MF_STRING, MF_SEPARATOR, MF_DEFAULT, MF_GRAYED = 0x0000, 0x0800, 0x1000, 0x0001
+TPM_RIGHTBUTTON, TPM_RETURNCMD = 0x0002, 0x0100
+IMAGE_ICON, LR_LOADFROMFILE, LR_DEFAULTSIZE = 1, 0x0010, 0x0040
+
+ID_OPEN, ID_STATUS, ID_RESTART, ID_QUIT = 1, 2, 3, 4
+
+user32 = ctypes.WinDLL("user32", use_last_error=True)
+kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+shell32 = ctypes.WinDLL("shell32", use_last_error=True)
+
+LRESULT = ctypes.c_ssize_t
+WNDPROC = ctypes.WINFUNCTYPE(LRESULT, w.HWND, w.UINT, w.WPARAM, w.LPARAM)
+
+
+class WNDCLASS(ctypes.Structure):
+    _fields_ = [("style", w.UINT), ("lpfnWndProc", WNDPROC), ("cbClsExtra", ctypes.c_int),
+                ("cbWndExtra", ctypes.c_int), ("hInstance", w.HINSTANCE), ("hIcon", w.HICON),
+                ("hCursor", w.HANDLE), ("hbrBackground", w.HBRUSH),
+                ("lpszMenuName", w.LPCWSTR), ("lpszClassName", w.LPCWSTR)]
+
+
+class NOTIFYICONDATA(ctypes.Structure):
+    _fields_ = [("cbSize", w.DWORD), ("hWnd", w.HWND), ("uID", w.UINT), ("uFlags", w.UINT),
+                ("uCallbackMessage", w.UINT), ("hIcon", w.HICON), ("szTip", w.WCHAR * 128),
+                ("dwState", w.DWORD), ("dwStateMask", w.DWORD), ("szInfo", w.WCHAR * 256),
+                ("uVersion", w.UINT), ("szInfoTitle", w.WCHAR * 64), ("dwInfoFlags", w.DWORD),
+                ("guidItem", ctypes.c_byte * 16), ("hBalloonIcon", w.HICON)]
+
+
+def _signature(func, restype, *argtypes):
+    func.restype = restype
+    func.argtypes = list(argtypes)
+
+
+_signature(user32.DefWindowProcW, LRESULT, w.HWND, w.UINT, w.WPARAM, w.LPARAM)
+_signature(user32.CreateWindowExW, w.HWND, w.DWORD, w.LPCWSTR, w.LPCWSTR, w.DWORD,
+           ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int,
+           w.HWND, w.HMENU, w.HINSTANCE, w.LPVOID)
+_signature(user32.LoadImageW, w.HANDLE, w.HINSTANCE, w.LPCWSTR, w.UINT,
+           ctypes.c_int, ctypes.c_int, w.UINT)
+_signature(user32.CreatePopupMenu, w.HMENU)
+_signature(user32.AppendMenuW, w.BOOL, w.HMENU, w.UINT, ctypes.c_size_t, w.LPCWSTR)
+_signature(user32.TrackPopupMenu, ctypes.c_int, w.HMENU, w.UINT, ctypes.c_int,
+           ctypes.c_int, ctypes.c_int, w.HWND, w.LPVOID)
+_signature(user32.DestroyMenu, w.BOOL, w.HMENU)
+_signature(user32.DestroyWindow, w.BOOL, w.HWND)
+_signature(user32.SetForegroundWindow, w.BOOL, w.HWND)
+_signature(user32.PostMessageW, w.BOOL, w.HWND, w.UINT, w.WPARAM, w.LPARAM)
+_signature(user32.FindWindowW, w.HWND, w.LPCWSTR, w.LPCWSTR)
+_signature(user32.RegisterWindowMessageW, w.UINT, w.LPCWSTR)
+_signature(user32.GetMessageW, w.BOOL, ctypes.POINTER(w.MSG), w.HWND, w.UINT, w.UINT)
+_signature(kernel32.GetModuleHandleW, w.HMODULE, w.LPCWSTR)
+_signature(kernel32.CreateMutexW, w.HANDLE, w.LPVOID, w.BOOL, w.LPCWSTR)
+_signature(shell32.Shell_NotifyIconW, w.BOOL, w.DWORD, ctypes.POINTER(NOTIFYICONDATA))
+
+
+def log(message: str) -> None:
+    """画面が無いので、起きたことはここに残す。"""
+    try:
+        LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with LOG_PATH.open("a", encoding="utf-8") as out:
+            out.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')}  {message}\n")
+    except OSError:
+        pass
+
+
+class Supervisor:
+    """ことは本体を動かし続ける。落ちたら上げ直し、42なら作り直す。"""
+
+    def __init__(self, on_change=None):
+        self.process = None
+        self.stopping = threading.Event()
+        self.on_change = on_change or (lambda: None)
+        self._thread = None
+
+    def mine(self) -> bool:
+        return self.process is not None and self.process.poll() is None
+
+    def serving(self) -> bool:
+        """誰かがことはを動かしているか。start.bat から上がっていることもある。"""
+        from .launcher import is_kotoha, local_url
+
+        url, _ = local_url(config.WEB_HOST, config.WEB_PORT)
+        return is_kotoha(url)
+
+    def alive(self) -> bool:
+        return self.mine() or self.serving()
+
+    def spawn(self):
+        # 起動時にブラウザーを開かない。開くのはトレイの役目になった。
+        environment = dict(os.environ, KOTOHA_BROWSER_AUTO_OPEN="false")
+        return subprocess.Popen(
+            [sys.executable, "-m", "kotoha.launcher"],
+            cwd=str(config.BASE_DIR),
+            env=environment,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+
+    def _loop(self):
+        while not self.stopping.is_set():
+            if self.serving():
+                # すでに動いている。start.bat から上げた本体を横取りしない。
+                # ここで子を作ると、ポートが塞がっていて即終了し、上げ直し続ける。
+                self.stopping.wait(WATCH_WAIT)
+                continue
+            try:
+                self.process = self.spawn()
+            except OSError as error:
+                log(f"本体を起動できない: {error}")
+                self.stopping.wait(RESPAWN_WAIT)
+                continue
+            self.on_change()
+            code = self.process.wait()
+            self.process = None
+            self.on_change()
+            if self.stopping.is_set():
+                return
+            if code == RESTART_EXIT_CODE:
+                log("再起動の合図を受けた")
+                continue
+            log(f"本体が終了した（コード {code}）。{RESPAWN_WAIT:.0f}秒後に上げ直す")
+            self.stopping.wait(RESPAWN_WAIT)
+
+    def start(self):
+        self._thread = threading.Thread(target=self._loop, daemon=True)
+        self._thread.start()
+
+    def restart(self):
+        """いま動いているものを止める。上げ直すのは見張りの仕事。"""
+        if self.mine():
+            self.process.terminate()
+
+    def stop(self):
+        self.stopping.set()
+        if self.mine():
+            self.process.terminate()
+            try:
+                self.process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                self.process.kill()
+
+
+class Tray:
+    def __init__(self, supervisor):
+        self.supervisor = supervisor
+        self.hwnd = None
+        self.icon = None
+        # WNDPROC は参照を持っておかないと回収され、落ちる。
+        self._proc = WNDPROC(self._on_message)
+        self._added = False
+        self._taskbar_created = user32.RegisterWindowMessageW("TaskbarCreated")
+
+    # ---- 窓とアイコン ----
+
+    def create(self):
+        instance = kernel32.GetModuleHandleW(None)
+        cls = WNDCLASS()
+        cls.lpfnWndProc = self._proc
+        cls.hInstance = instance
+        cls.lpszClassName = "KotohaTray"
+        if not user32.RegisterClassW(ctypes.byref(cls)):
+            raise OSError(f"窓の種別を登録できない: {ctypes.get_last_error()}")
+        self.hwnd = user32.CreateWindowExW(0, "KotohaTray", "ことは", 0, 0, 0, 0, 0,
+                                           None, None, instance, None)
+        if not self.hwnd:
+            raise OSError(f"窓を作れない: {ctypes.get_last_error()}")
+        self.icon = user32.LoadImageW(None, str(ICON_PATH), IMAGE_ICON, 0, 0,
+                                      LR_LOADFROMFILE | LR_DEFAULTSIZE)
+        self._notify(NIM_ADD)
+        self._added = True
+
+    def _data(self, flags):
+        data = NOTIFYICONDATA()
+        data.cbSize = ctypes.sizeof(NOTIFYICONDATA)
+        data.hWnd = self.hwnd
+        data.uID = 1
+        data.uFlags = flags
+        data.uCallbackMessage = WM_TRAY
+        data.hIcon = self.icon
+        return data
+
+    def _notify(self, action, flags=NIF_MESSAGE | NIF_ICON | NIF_TIP, **text):
+        data = self._data(flags)
+        data.szTip = text.get("tip", "ことは")
+        if flags & NIF_INFO:
+            data.szInfoTitle = text.get("title", "ことは")
+            data.szInfo = text.get("info", "")
+        shell32.Shell_NotifyIconW(action, ctypes.byref(data))
+
+    def balloon(self, title, body):
+        self._notify(NIM_MODIFY, NIF_INFO | NIF_ICON, title=title, info=body)
+
+    def refresh_tip(self):
+        state = "動作中" if self.supervisor.alive() else "停止中"
+        self._notify(NIM_MODIFY, NIF_ICON | NIF_TIP, tip=f"ことは（{state}）")
+
+    # ---- 操作 ----
+
+    def open_chat(self):
+        from .launcher import local_url
+
+        url, _ = local_url(config.WEB_HOST, config.WEB_PORT)
+        webbrowser.open(url)
+
+    def show_status(self):
+        from .launcher import aivis_is_up, ollama_is_up
+
+        mark = lambda ok: "動いている" if ok else "止まっている"
+        who = "" if self.supervisor.mine() else "（別に上がっているもの）"
+        lines = [
+            f"ことは: {mark(self.supervisor.alive())}{who if self.supervisor.alive() else ''}",
+            f"音声エンジン: {mark(aivis_is_up())}",
+            f"Ollama: {mark(ollama_is_up())}",
+        ]
+        self.balloon("いまの様子", "\n".join(lines))
+
+    def menu(self):
+        handle = user32.CreatePopupMenu()
+        user32.AppendMenuW(handle, MF_STRING | MF_DEFAULT, ID_OPEN, "ことはを開く")
+        user32.AppendMenuW(handle, MF_STRING, ID_STATUS, "いまの様子")
+        user32.AppendMenuW(handle, MF_SEPARATOR, 0, None)
+        user32.AppendMenuW(handle, MF_STRING, ID_RESTART, "入れ直す（再起動）")
+        user32.AppendMenuW(handle, MF_STRING, ID_QUIT, "終わる")
+
+        point = w.POINT()
+        user32.GetCursorPos(ctypes.byref(point))
+        # これを挟まないと、メニューの外を押しても閉じない。
+        user32.SetForegroundWindow(self.hwnd)
+        choice = user32.TrackPopupMenu(handle, TPM_RIGHTBUTTON | TPM_RETURNCMD,
+                                       point.x, point.y, 0, self.hwnd, None)
+        user32.PostMessageW(self.hwnd, 0, 0, 0)
+        user32.DestroyMenu(handle)
+        if choice:
+            self.command(choice)
+
+    def command(self, choice):
+        if choice == ID_OPEN:
+            self.open_chat()
+        elif choice == ID_STATUS:
+            self.show_status()
+        elif choice == ID_RESTART:
+            self.balloon("ことは", "入れ直しています…")
+            self.supervisor.restart()
+        elif choice == ID_QUIT:
+            user32.DestroyWindow(self.hwnd)
+
+    # ---- 窓からの知らせ ----
+
+    def _on_message(self, hwnd, message, wparam, lparam):
+        if message == WM_TRAY:
+            if lparam in (WM_LBUTTONDBLCLK, WM_LBUTTONUP):
+                self.open_chat()
+            elif lparam == WM_RBUTTONUP:
+                self.menu()
+            return 0
+        if message == WM_COMMAND:
+            self.command(wparam & 0xFFFF)
+            return 0
+        if message == self._taskbar_created and self._added:
+            # エクスプローラーが再起動すると、アイコンごと消える。置き直す。
+            self._notify(NIM_ADD)
+            return 0
+        if message == WM_DESTROY:
+            self.remove()
+            user32.PostQuitMessage(0)
+            return 0
+        return user32.DefWindowProcW(hwnd, message, wparam, lparam)
+
+    def remove(self):
+        if self._added:
+            shell32.Shell_NotifyIconW(NIM_DELETE, ctypes.byref(self._data(0)))
+            self._added = False
+
+    def loop(self):
+        message = w.MSG()
+        while user32.GetMessageW(ctypes.byref(message), None, 0, 0) > 0:
+            user32.TranslateMessage(ctypes.byref(message))
+            user32.DispatchMessageW(ctypes.byref(message))
+
+
+def already_running() -> bool:
+    """二重常駐を防ぐ。掴んだ印はプロセスが終わるまで持ったままにする。
+
+    同時に立ち上がると印の取り合いになるので、窓の有無も見る。どちらかが
+    見つかれば、もう1つは黙って引き下がる。
+    """
+    global _mutex
+    _mutex = kernel32.CreateMutexW(None, False, MUTEX_NAME)
+    if ctypes.get_last_error() == 183:  # ERROR_ALREADY_EXISTS
+        return True
+    return bool(user32.FindWindowW("KotohaTray", None))
+
+
+_mutex = None
+
+
+def main():
+    if sys.platform != "win32":
+        raise SystemExit("トレイ常駐はWindows専用です。")
+    os.chdir(config.BASE_DIR)
+    if already_running():
+        log("すでに常駐しているので、何もしない")
+        return
+    log("常駐をはじめる")
+
+    supervisor = Supervisor()
+    tray = Tray(supervisor)
+    tray.create()
+    supervisor.on_change = tray.refresh_tip
+    supervisor.start()
+    tray.refresh_tip()
+    try:
+        tray.loop()
+    finally:
+        supervisor.stop()
+        tray.remove()
+        log("常駐を終えた")
+
+
+if __name__ == "__main__":
+    main()
