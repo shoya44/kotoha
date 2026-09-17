@@ -50,21 +50,86 @@ def _normalize_tag(tag: str) -> str:
     return " ".join(str(tag).strip().split())[:24]
 
 
-def _existing_block(conn, messages) -> str:
-    text = "\n".join(m["text"] for m in messages)
+def _tagged_ids(conn, text):
     hits = retrieve.match_tags(text, retrieve.load_tag_dict(conn))
     if not hits:
-        return ""
+        return []
     ph = ",".join("?" * len(hits))
-    rows = conn.execute(
-        f"SELECT n.id, n.layer, n.kind, n.text FROM memory_tags t "
-        f"JOIN memory_nodes n ON n.id = t.node_id WHERE t.tag IN ({ph}) LIMIT 10",
-        hits,
-    ).fetchall()
-    if not rows:
+    return [
+        r["node_id"]
+        for r in conn.execute(
+            f"SELECT DISTINCT node_id FROM memory_tags WHERE tag IN ({ph}) LIMIT 10", hits
+        )
+    ]
+
+
+def _nearby_ids(conn, text, limit=5):
+    """意味の近い記憶。新しく作られる記憶は、会話の終わり際に重なりやすい。"""
+    if not (config.EMBED_ENABLED and embed.available()):
+        return []
+    vectors = embed.load_all(conn)
+    if not vectors:
+        return []
+    try:
+        query = embed.embed([text[-config.EMBED_MAX_CHARS :]])[0]
+    except embed.EmbedError:
+        return []
+    return [node_id for _, node_id in embed.nearest(vectors, query, limit)]
+
+
+def _existing_block(conn, messages) -> str:
+    """既存の記憶を見せて、同じものを二度作らせない。
+
+    タグの一致だけで選んでいたので、言い回しの違う重複を見落としていた。
+    意味の近いものを先に混ぜる。件数は変えないのでプロンプトは太らない。
+    """
+    text = "\n".join(m["text"] for m in messages)
+    ids = list(dict.fromkeys(_nearby_ids(conn, text) + _tagged_ids(conn, text)))[:10]
+    if not ids:
         return ""
+    ph = ",".join("?" * len(ids))
+    rows = conn.execute(
+        f"SELECT id, layer, kind, text FROM memory_nodes WHERE id IN ({ph})", ids
+    ).fetchall()
+    order = {node_id: i for i, node_id in enumerate(ids)}
+    rows = sorted(rows, key=lambda r: order[r["id"]])
     lines = "\n".join(f"- [id:{r['id']}][{r['layer']}/{r['kind']}] {r['text']}" for r in rows)
     return f"既存の記憶（参考。同じ意味は重複登録しない）:\n{lines}"
+
+
+def _merge_targets(conn, specs):
+    """既存と言い方が違うだけの候補を見つける。{候補の位置: 既存のid}
+
+    同じ出来事が何件にも分かれると、想起の6枠が同じ話で埋まる。実測では
+    記憶76件のうち29件が何かと重なっていた。
+
+    ただし近いだけで別の事実ということもある（「Rocket Now」と「出前館」は
+    0.85で近いが、別の店）。取り違えると情報が消えて戻らないので、しきい値は
+    言い直しだけを拾う高さに置く。
+    """
+    if not (config.EMBED_ENABLED and config.EMBED_MERGE_FLOOR) or not embed.available():
+        return {}
+    texts = {}
+    for i, spec in enumerate(specs):
+        if isinstance(spec, dict):
+            text = (spec.get("text") or "").strip()
+            if text:
+                texts[i] = text
+    if not texts:
+        return {}
+    vectors = embed.load_all(conn)
+    if not vectors:
+        return {}
+    try:
+        made = embed.embed(list(texts.values()))
+    except embed.EmbedError:
+        return {}
+    found = {}
+    for idx, vector in zip(texts, made):
+        hit = embed.nearest(vectors, vector, 1, config.EMBED_MERGE_FLOOR)
+        if hit:
+            found[idx] = hit[0][1]
+    return found
 
 
 def _build_prompt(conn, messages, pending_nodes) -> str:
@@ -103,6 +168,8 @@ def _validate_and_save(conn, data, messages) -> int:
     specs = specs[:MAX_NEW_NODES]
     new_ids = [None] * len(specs)
     created = 0
+    merge = _merge_targets(conn, specs)
+    merged_ids = []
 
     for idx, spec in enumerate(specs):
         if not isinstance(spec, dict):
@@ -122,6 +189,15 @@ def _validate_and_save(conn, data, messages) -> int:
             continue
         src = [i for i in spec.get("source_message_ids", []) if isinstance(i, int) and i in msg_ids]
         if not src:
+            continue
+        if idx in merge:
+            # 作らずに既存へ寄せる。どの会話で確かめたかは残す。
+            merged_ids.append(merge[idx])
+            for mid in src:
+                conn.execute(
+                    "INSERT OR IGNORE INTO memory_sources(node_id, message_id) VALUES (?,?)",
+                    (merge[idx], mid),
+                )
             continue
         tags = []
         for t in spec.get("tags", [])[:3]:
@@ -167,16 +243,17 @@ def _validate_and_save(conn, data, messages) -> int:
                 (fid, tid),
             )
 
-    # 再確認 (reconfirm)
+    # 再確認 (reconfirm)。重複として作らなかったぶんも、ここで確かめ直す。
     reconfirm = data.get("reconfirm_ids", [])
-    if isinstance(reconfirm, list):
-        now = db.now_utc()
-        for nid in reconfirm:
-            if isinstance(nid, int):
-                conn.execute(
-                    f"UPDATE memory_nodes SET confirmed_at = ?, {db.EXTEND_EXPIRES} WHERE id = ?",
-                    (now, *db.extend_args(), nid),
-                )
+    if not isinstance(reconfirm, list):
+        reconfirm = []
+    now = db.now_utc()
+    for nid in dict.fromkeys(list(reconfirm) + merged_ids):
+        if isinstance(nid, int):
+            conn.execute(
+                f"UPDATE memory_nodes SET confirmed_at = ?, {db.EXTEND_EXPIRES} WHERE id = ?",
+                (now, *db.extend_args(), nid),
+            )
 
     # 更新 (updates)
     updates = data.get("updates", [])
@@ -203,7 +280,7 @@ def _validate_and_save(conn, data, messages) -> int:
             # 本文が変わったのでベクトルも古い。捨てておけば次の巡回で作り直される。
             embed.drop(conn, nid)
 
-    return created
+    return created, len(merged_ids)
 
 
 def run(conn) -> str:
@@ -230,11 +307,17 @@ def run(conn) -> str:
     except json.JSONDecodeError:
         raise llm.LLMError("整理結果をJSONとして解析できなかった。")
         
-    created = _validate_and_save(conn, data, messages)
+    created, merged = _validate_and_save(conn, data, messages)
     
     if messages:
         db.set_state(conn, "last_processed_message_id", messages[-1]["id"])
     db.set_state(conn, "last_consolidation_at", db.now_utc())
     db.set_pending_ids(conn, []) # 処理完了としてクリア
     conn.commit()
-    return f"整理完了: 新規 {created} 件 / 再固定化 {len(pending_nodes)} 件"
+    linked = embed.link_similar(conn)
+    summary = f"整理完了: 新規 {created} 件 / 再固定化 {len(pending_nodes)} 件"
+    if merged:
+        summary += f" / 既存へ寄せた {merged} 件"
+    if linked:
+        summary += f" / 連結 {linked} 本"
+    return summary

@@ -264,5 +264,69 @@ class PeriodicJobTests(MemoryFixture, unittest.TestCase):
         self.assertEqual(len(engine.calls[0]["input"]), config.EMBED_BATCH)
 
 
+class LinkTests(MemoryFixture, unittest.TestCase):
+    """意味の近い記憶どうしを結ぶ。想起の「1本たどる」がずっと空振りしていた。"""
+
+    def setUp(self):
+        super().setUp()
+        for name, value in (("EMBED_ENABLED", True), ("EMBED_LINK_FLOOR", 0.80),
+                            ("EMBED_LINK_LIMIT", 3)):
+            self.addCleanup(setattr, config, name, getattr(config, name))
+            setattr(config, name, value)
+
+    def put(self, text, *values):
+        """記憶と、その座標を置く。座標は長さ1にそろえておく。"""
+        node_id = self.add_memory(text=text, key=text)
+        total = sum(v * v for v in values) ** 0.5
+        embed.store(self.conn, [(node_id, array.array("f", [v / total for v in values]))])
+        return node_id
+
+    def edges(self):
+        return {(r[0], r[1]) for r in
+                self.conn.execute("SELECT from_id, to_id FROM memory_edges")}
+
+    def test_near_memories_get_connected(self):
+        a = self.put("朝会がつらい", 1.0, 0.0)
+        b = self.put("朝会の反応が微妙だった", 0.99, 0.14)
+        embed.link_similar(self.conn)
+        self.assertIn((b, a), self.edges())
+
+    def test_far_memories_are_left_alone(self):
+        self.put("朝会がつらい", 1.0, 0.0)
+        self.put("ポキ丼を食べた", 0.0, 1.0)
+        embed.link_similar(self.conn)
+        self.assertEqual(self.edges(), set())
+
+    def test_a_memory_is_not_linked_to_itself(self):
+        node = self.put("ひとりだけ", 1.0, 0.0)
+        embed.link_similar(self.conn)
+        self.assertNotIn((node, node), self.edges())
+
+    def test_only_the_closest_few_are_kept(self):
+        config.EMBED_LINK_LIMIT = 2
+        for i in range(5):
+            self.put(f"似た記憶{i}", 1.0, i * 0.01)
+        embed.link_similar(self.conn)
+        counts = {}
+        for a, _ in self.edges():
+            counts[a] = counts.get(a, 0) + 1
+        self.assertTrue(all(n <= 2 for n in counts.values()), counts)
+
+    def test_already_seen_memories_are_not_redone(self):
+        self.put("朝会がつらい", 1.0, 0.0)
+        self.put("朝会の反応が微妙だった", 0.99, 0.14)
+        first = embed.link_similar(self.conn)
+        again = embed.link_similar(self.conn)
+        self.assertTrue(first)
+        self.assertEqual(again, 0)
+
+    def test_switched_off_makes_no_edges(self):
+        config.EMBED_LINK_LIMIT = 0
+        self.put("朝会がつらい", 1.0, 0.0)
+        self.put("朝会の反応が微妙だった", 0.99, 0.14)
+        self.assertEqual(embed.link_similar(self.conn), 0)
+        self.assertEqual(self.edges(), set())
+
+
 if __name__ == "__main__":
     unittest.main()

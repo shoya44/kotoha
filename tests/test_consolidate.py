@@ -1,5 +1,6 @@
 """固定化のバッチ切り出しの検証。一時DBだけを使い、LLMは呼ばない。"""
 
+import array
 import tempfile
 import unittest
 from pathlib import Path
@@ -10,7 +11,7 @@ from kotoha import config
 _TMP = tempfile.TemporaryDirectory(prefix="kotoha consolidate ")
 config.DB_PATH = Path(_TMP.name) / "test.sqlite3"
 
-from kotoha.memory import consolidate, db  # noqa: E402
+from kotoha.memory import consolidate, db, embed  # noqa: E402
 
 
 def tearDownModule():
@@ -73,6 +74,105 @@ class ClipTests(unittest.TestCase):
         clipped = consolidate._clip("う" * (config.BATCH_CHARS + 5000))
         self.assertLess(len(clipped), config.BATCH_CHARS + 100)
         self.assertTrue(clipped.endswith("（以下省略）"))
+
+
+class MergeTests(unittest.TestCase):
+    """言い直しただけの記憶を作らせない。同じ話で想起の6枠が埋まるのを防ぐ。"""
+
+    def setUp(self):
+        if config.DB_PATH.exists():
+            config.DB_PATH.unlink()
+        self.conn = db.connect()
+        self.addCleanup(self.conn.close)
+        db.init(self.conn)
+        for name, value in (("EMBED_ENABLED", True), ("EMBED_MERGE_FLOOR", 0.90)):
+            self.addCleanup(setattr, config, name, getattr(config, name))
+            setattr(config, name, value)
+        self.addCleanup(setattr, embed, "embed", embed.embed)
+        self.addCleanup(setattr, embed, "available", embed.available)
+        self.addCleanup(setattr, embed, "link_similar", embed.link_similar)
+        embed.link_similar = lambda conn: 0
+        db.insert_message(self.conn, 1, "user", "通院の話")
+        self.conn.commit()
+        self.messages = self.conn.execute(
+            "SELECT id, text, created_at FROM messages"
+        ).fetchall()
+
+    def existing(self, text, *values):
+        cur = self.conn.execute(
+            "INSERT INTO memory_nodes(layer, kind, text, occurred_at, confirmed_at, "
+            "last_used_at, expires_at, pinned, source_key) "
+            "VALUES ('episode','event',?,?,?,?,NULL,0,?)",
+            (text, "2026-09-01", "2026-09-01T00:00:00Z", "2026-09-01T00:00:00Z", text),
+        )
+        total = sum(v * v for v in values) ** 0.5
+        embed.store(self.conn, [(cur.lastrowid, array.array("f", [v / total for v in values]))])
+        return cur.lastrowid
+
+    def use(self, *values):
+        """これから作る候補の座標を決める。"""
+        total = sum(v * v for v in values) ** 0.5
+        vector = array.array("f", [v / total for v in values])
+        embed.embed = lambda texts, timeout=None: [vector] * len(texts)
+
+    def save(self, text):
+        return consolidate._validate_and_save(self.conn, {"new_nodes": [{
+            "layer": "episode", "text": text,
+            "source_message_ids": [self.messages[0]["id"]],
+        }]}, self.messages)
+
+    def texts(self):
+        return [r[0] for r in self.conn.execute("SELECT text FROM memory_nodes")]
+
+    def test_a_restatement_is_not_stored_twice(self):
+        self.existing("9月17日の午後に通院する予定だと話した。", 1.0, 0.0)
+        self.use(1.0, 0.02)
+        created, merged = self.save("9月17日の午後に病院へ行く予定だと話した。")
+        self.assertEqual((created, merged), (0, 1))
+        self.assertEqual(len(self.texts()), 1)
+
+    def test_the_existing_memory_is_reconfirmed_instead(self):
+        node = self.existing("通院する予定だと話した。", 1.0, 0.0)
+        before = self.conn.execute(
+            "SELECT confirmed_at FROM memory_nodes WHERE id = ?", (node,)
+        ).fetchone()[0]
+        self.use(1.0, 0.02)
+        self.save("病院へ行く予定だと話した。")
+        after = self.conn.execute(
+            "SELECT confirmed_at FROM memory_nodes WHERE id = ?", (node,)
+        ).fetchone()[0]
+        self.assertGreater(after, before)
+
+    def test_the_source_is_attached_to_the_existing_memory(self):
+        """どの会話で確かめたかを失わない。"""
+        node = self.existing("通院する予定だと話した。", 1.0, 0.0)
+        self.use(1.0, 0.02)
+        self.save("病院へ行く予定だと話した。")
+        linked = self.conn.execute(
+            "SELECT COUNT(*) FROM memory_sources WHERE node_id = ?", (node,)
+        ).fetchone()[0]
+        self.assertEqual(linked, 1)
+
+    def test_a_different_fact_is_still_stored(self):
+        """近いだけで別の事実のことがある。取り違えると情報が消えて戻らない。"""
+        self.existing("Rocket Nowの出前にはまっている。", 1.0, 0.0)
+        self.use(1.0, 0.5)   # 0.89 ほど。しきい値のすぐ下
+        created, merged = self.save("出前館もたまに利用している。")
+        self.assertEqual((created, merged), (1, 0))
+        self.assertEqual(len(self.texts()), 2)
+
+    def test_engine_down_stores_everything_as_before(self):
+        self.existing("通院する予定だと話した。", 1.0, 0.0)
+        embed.available = lambda: False
+        created, merged = self.save("病院へ行く予定だと話した。")
+        self.assertEqual((created, merged), (1, 0))
+
+    def test_switched_off_stores_everything_as_before(self):
+        self.existing("通院する予定だと話した。", 1.0, 0.0)
+        config.EMBED_MERGE_FLOOR = 0
+        self.use(1.0, 0.0)
+        created, merged = self.save("病院へ行く予定だと話した。")
+        self.assertEqual((created, merged), (1, 0))
 
 
 if __name__ == "__main__":

@@ -16,6 +16,7 @@ import time
 import httpx
 
 from .. import config
+from . import db
 
 _client = None
 
@@ -144,3 +145,49 @@ def load_all(conn):
         "SELECT node_id, vector FROM memory_vectors WHERE model = ?",
         (config.EMBED_MODEL,),
     ).fetchall()
+
+
+def nearest(vectors, query, limit, floor=0.0, exclude=()):
+    """近い順に [(近さ, id), ...] を返す。vectors は load_all の結果。"""
+    scored = []
+    for r in vectors:
+        node_id = r["node_id"]
+        if node_id in exclude:
+            continue
+        score = similarity(query, unpack(r["vector"]))
+        if score >= floor:
+            scored.append((score, node_id))
+    scored.sort(reverse=True)
+    return scored[:limit]
+
+
+def link_similar(conn):
+    """新しく座標がついた記憶を、意味の近い記憶と結ぶ。
+
+    タグが当たったときに「1本たどった先」を足す処理は前からあるが、
+    memory_edges を作る側が無く、ずっと空振りしていた。ここで埋める。
+
+    一度見た記憶は二度見ない。あとから来た記憶が古い記憶へ結ぶので、
+    たどる側が双方向を見ている以上、片側だけ張れば足りる。
+    """
+    if not (config.EMBED_ENABLED and config.EMBED_LINK_LIMIT):
+        return 0
+    last = int(db.get_state(conn, "last_linked_node_id", "0") or 0)
+    fresh = [r for r in load_all(conn) if r["node_id"] > last]
+    if not fresh:
+        return 0
+    vectors = load_all(conn)
+    made = 0
+    for r in sorted(fresh, key=lambda x: x["node_id"]):
+        node_id = r["node_id"]
+        found = nearest(vectors, unpack(r["vector"]), config.EMBED_LINK_LIMIT,
+                        config.EMBED_LINK_FLOOR, exclude={node_id})
+        for _, other in found:
+            made += conn.execute(
+                "INSERT OR IGNORE INTO memory_edges(from_id, to_id, relation) "
+                "VALUES (?,?,'related_to')",
+                (node_id, other),
+            ).rowcount
+        db.set_state(conn, "last_linked_node_id", node_id)
+    conn.commit()
+    return made

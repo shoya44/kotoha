@@ -82,6 +82,7 @@ def run_vector_jobs() -> None:
             [r["text"] for r in rows], timeout=config.EMBED_BUILD_TIMEOUT_SECONDS
         )
         embed.store(conn, zip((r["id"] for r in rows), made))
+        embed.link_similar(conn)
     except embed.EmbedError:
         pass  # 声と同じで、無くても会話は続けられる。
     finally:
