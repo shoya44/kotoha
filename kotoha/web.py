@@ -2,11 +2,11 @@ import threading
 import time
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import chat, config, consolidate, db, llm
+from . import chat, config, consolidate, db, llm, voice
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
@@ -103,3 +103,19 @@ def api_chat(request: Request, payload: dict):
         finally:
             conn.close()
     return {"reply": reply, "mode": mode}
+
+
+@app.post("/api/speak")
+def api_speak(request: Request, payload: dict):
+    """返答を声にする。対話とは独立していて、失敗しても会話は続く。"""
+    _check_token(request)
+    if not config.VOICE_ENABLED:
+        raise HTTPException(status_code=503, detail="読み上げは無効")
+    text = (payload.get("text") or "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="入力が空")
+    try:
+        wav = voice.speak(text)
+    except voice.VoiceError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    return Response(content=wav, media_type="audio/wav")

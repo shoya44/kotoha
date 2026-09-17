@@ -834,6 +834,10 @@
           <span>メッセージ時刻</span>
           <span class="sheet-value" id="timeValue">表示</span>
         </button>
+        <button class="sheet-row" id="toggleVoice" type="button">
+          <span>声で話す</span>
+          <span class="sheet-value" id="voiceValue">オフ</span>
+        </button>
         <button class="sheet-row secondary" id="changeToken" type="button">
           <span>接続トークンを変更</span>
           <span aria-hidden="true">›</span>
@@ -866,6 +870,8 @@
       settingsOverlay: $("settingsOverlay"),
       toggleTime: $("toggleTime"),
       timeValue: $("timeValue"),
+      toggleVoice: $("toggleVoice"),
+      voiceValue: $("voiceValue"),
       changeToken: $("changeToken"),
       contextMenu: $("contextMenu"),
     };
@@ -879,6 +885,7 @@
 
     const preferences = {
       showTime: localStorage.getItem("kotoha_show_time") !== "0",
+      voice: localStorage.getItem("kotoha_voice") === "1",
     };
 
     // ===== Mini avatar =====
@@ -992,6 +999,38 @@
     }
     
     
+    // ===== Voice =====
+    // 読み上げは会話とは独立させる。エンジンが止まっていても会話は続ける。
+    let currentAudio = null;
+
+    function stopSpeaking() {
+      if (!currentAudio) return;
+      currentAudio.pause();
+      URL.revokeObjectURL(currentAudio.src);
+      currentAudio = null;
+    }
+
+    async function speak(text) {
+      if (!preferences.voice || !text) return;
+      stopSpeaking();
+      try {
+        const response = await api("/api/speak", { method: "POST", body: { text } });
+        if (!response.ok) {
+          const error = await response.json().catch(() => ({}));
+          setStatus(error.detail || "声を出せない");
+          return;
+        }
+        const audio = new Audio(URL.createObjectURL(await response.blob()));
+        currentAudio = audio;
+        audio.addEventListener("ended", () => {
+          if (currentAudio === audio) stopSpeaking();
+        });
+        await audio.play();
+      } catch {
+        // 読み上げの失敗で会話を止めない。
+      }
+    }
+
     // ===== Date / Time =====
     let lastDateKey = null;
 
@@ -1108,6 +1147,7 @@
     function applyPreferences() {
       document.body.classList.toggle("hide-time", !preferences.showTime);
       elements.timeValue.textContent = preferences.showTime ? "表示" : "非表示";
+      elements.voiceValue.textContent = preferences.voice ? "オン" : "オフ";
     }
 
     function isNearBottom(threshold = 80) {
@@ -1377,6 +1417,7 @@
         reactAvatar();
         elements.mode.textContent = data.mode || "";
         setStatus("いるよ");
+        speak(data.reply);
       } catch {
         typingRow?.remove();
         addMessage("system", "[エラー] 通信失敗");
@@ -1404,6 +1445,13 @@
       // ===== Initialize =====
     applyPreferences();
       updateJumpButton();
+    });
+
+    elements.toggleVoice.addEventListener("click", () => {
+      preferences.voice = !preferences.voice;
+      localStorage.setItem("kotoha_voice", preferences.voice ? "1" : "0");
+      if (!preferences.voice) stopSpeaking();
+      applyPreferences();
     });
 
     elements.changeToken.addEventListener("click", () => {
