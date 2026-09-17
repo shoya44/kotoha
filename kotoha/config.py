@@ -66,6 +66,14 @@ VOICE_ENABLED = _boolean("KOTOHA_VOICE_ENABLED")
 VOICE_BASE_URL = _text("KOTOHA_VOICE_BASE_URL").rstrip("/")
 VOICE_STYLE_ID = _number("KOTOHA_VOICE_STYLE_ID", minimum=0)
 VOICE_TIMEOUT_SECONDS = _number("KOTOHA_VOICE_TIMEOUT_SECONDS", float, minimum=0.1)
+AIVIS_AUTO_START = _boolean("KOTOHA_AIVIS_AUTO_START")
+_aivis_path = _text("KOTOHA_AIVIS_DIR", allow_empty=True)
+AIVIS_DIR = (
+    Path(_aivis_path) if _aivis_path
+    else Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "AivisSpeech"
+)
+if not AIVIS_DIR.is_absolute():
+    AIVIS_DIR = BASE_DIR / AIVIS_DIR
 BROWSER_AUTO_OPEN = _boolean("KOTOHA_BROWSER_AUTO_OPEN")
 TAILSCALE_AUTO_START = _boolean("KOTOHA_TAILSCALE_AUTO_START")
 TAILSCALE_SERVE_ENABLED = _boolean("KOTOHA_TAILSCALE_SERVE_ENABLED")

@@ -9,6 +9,7 @@ import subprocess
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import webbrowser
 
@@ -71,6 +72,57 @@ def start_tailscale(quiet=False):
         pass
     if not quiet:
         print("Tailscale: 接続できません。インストール・ログイン状態を確認してください。")
+
+
+def aivis_is_up():
+    """音声エンジンが応じるか。起動済みなら二重に立ち上げない。"""
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    try:
+        with opener.open(config.VOICE_BASE_URL + "/version", timeout=1) as response:
+            return response.status == 200
+    except (OSError, ValueError, urllib.error.URLError):
+        return False
+
+
+def start_aivis(quiet=False):
+    """音声エンジンを起こす。GUIは使わず run.exe だけを画面なしで動かす。
+
+    立ち上がりにはモデル読み込みぶんの時間がかかるが、待たない。
+    間に合わなければ読み上げが静かなだけで、会話はそのまま続けられる。
+    """
+    if not config.AIVIS_AUTO_START:
+        return
+    if aivis_is_up():
+        if not quiet:
+            print("AivisSpeech: 起動済み")
+        return
+
+    exe = config.AIVIS_DIR / "AivisSpeech-Engine" / "run.exe"
+    if not exe.is_file():
+        if not quiet:
+            print("AivisSpeech: 実行ファイルが見つかりません。settings.batで配置先を確認してください。")
+        return
+
+    parsed = urllib.parse.urlsplit(config.VOICE_BASE_URL)
+    command = [str(exe)]
+    if parsed.hostname:
+        command += ["--host", parsed.hostname]
+    if parsed.port:
+        command += ["--port", str(parsed.port)]
+    try:
+        subprocess.Popen(
+            command,
+            cwd=str(exe.parent),
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    except OSError:
+        if not quiet:
+            print("AivisSpeech: 起動できませんでした。実行権限を確認してください。")
+        return
+    if not quiet:
+        print("AivisSpeech: 起動しました（声が出せるまで少しかかります）")
 
 
 class ServeError(Exception):
@@ -235,6 +287,7 @@ def main():
             raise SystemExit("指定ポートは使用中です。別アプリ、または異なる設定のことはを確認してください。")
         if config.TAILSCALE_AUTO_START:
             start_tailscale(quiet=True)
+        start_aivis(quiet=True)
         try:
             publish_and_open(url, threading.Event())
         except ServeError as error:
@@ -250,6 +303,7 @@ def main():
 
     if config.TAILSCALE_AUTO_START:
         start_tailscale(quiet=True)
+    start_aivis()
     print("ことは 起動中…")
     print("終了: Ctrl+C")
     import uvicorn

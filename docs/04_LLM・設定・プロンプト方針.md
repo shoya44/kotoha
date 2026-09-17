@@ -13,7 +13,7 @@
 | `GEMINI_MODEL` | `gemini-3.5-flash-lite` |
 | `KOTOHA_MAX_OUTPUT_TOKENS` | 1024 |
 | `KOTOHA_TIMEOUT_SECONDS` | 60 |
-| `KOTOHA_TEMPERATURE` | 0.7 |
+| `KOTOHA_TEMPERATURE` | 0.8 |
 
 モデルは会話・Fast・Slow・整理で共通です。別モデルへの自動フォールバックはありません。モデル名は実装上の既定値であり、API側の提供状況やアカウントでの利用可否を保証するものではありません。
 

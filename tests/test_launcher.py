@@ -14,8 +14,12 @@ from unittest.mock import Mock, patch
 ROOT = Path(__file__).resolve().parents[1]
 
 
-class LauncherTests(unittest.TestCase):
+class LauncherFixture:
+    """偽の config を差し込んで launcher だけを読み込む。"""
+
     def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(prefix="kotoha launcher ")
+        self.addCleanup(self.tmp.cleanup)
         # 実際の.envを読まず、依存関係も起動しない。
         self.config = types.ModuleType("kotoha.config")
         self.config.BASE_DIR = ROOT
@@ -29,6 +33,9 @@ class LauncherTests(unittest.TestCase):
         self.config.DEBUG = False
         self.config.BROWSER_AUTO_OPEN = True
         self.config.STARTUP_TIMEOUT_SECONDS = 30
+        self.config.VOICE_BASE_URL = "http://127.0.0.1:10101"
+        self.config.AIVIS_AUTO_START = True
+        self.config.AIVIS_DIR = Path(self.tmp.name) / "AivisSpeech"
         self.config.require_keys = Mock()
         package = types.ModuleType("kotoha")
         package.config = self.config
@@ -39,6 +46,8 @@ class LauncherTests(unittest.TestCase):
         self.addCleanup(self.modules.stop)
         spec.loader.exec_module(self.launcher)
 
+
+class LauncherTests(LauncherFixture, unittest.TestCase):
     def test_wildcard_and_ipv6_browser_urls(self):
         self.assertEqual(self.launcher.local_url("0.0.0.0", 8000), ("http://127.0.0.1:8000", "127.0.0.1"))
         self.assertEqual(self.launcher.local_url("::", 9000), ("http://[::1]:9000", "::1"))
@@ -112,6 +121,7 @@ class LauncherTests(unittest.TestCase):
              patch.object(self.launcher.socket, "create_connection", return_value=connection), \
              patch.object(self.launcher, "is_kotoha", return_value=True), \
              patch.object(self.launcher, "start_tailscale"), \
+             patch.object(self.launcher, "start_aivis"), \
              patch.object(self.launcher, "open_browser") as browser, \
              patch("builtins.print"):
             self.launcher.main()
@@ -140,6 +150,7 @@ class LauncherTests(unittest.TestCase):
         }), patch.object(self.launcher.importlib.util, "find_spec", return_value=True), \
              patch.object(self.launcher.socket, "create_connection", side_effect=OSError), \
              patch.object(self.launcher, "start_tailscale"), \
+             patch.object(self.launcher, "start_aivis"), \
              patch.object(self.launcher.threading, "Thread", return_value=watcher), \
              patch.object(self.launcher.threading, "Event", return_value=stopped), \
              patch("builtins.print"):
@@ -239,6 +250,55 @@ class LauncherTests(unittest.TestCase):
                 )
                 self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
                 self.assertIn("Run setup.bat first", result.stdout)
+
+
+class AivisStartTests(LauncherFixture, unittest.TestCase):
+    """音声エンジンは画面を出さずに起こす。失敗しても会話は続ける。"""
+
+    def make_engine(self):
+        engine = self.config.AIVIS_DIR / "AivisSpeech-Engine"
+        engine.mkdir(parents=True, exist_ok=True)
+        exe = engine / "run.exe"
+        exe.write_bytes(b"")
+        return exe
+
+    def test_starts_the_engine_without_a_window(self):
+        exe = self.make_engine()
+        with patch.object(self.launcher, "aivis_is_up", return_value=False),              patch.object(self.launcher.subprocess, "Popen") as popen,              patch("builtins.print"):
+            self.launcher.start_aivis()
+        command = popen.call_args.args[0]
+        self.assertEqual(command[0], str(exe))
+        self.assertIn("--host", command)
+        self.assertIn("127.0.0.1", command)
+        self.assertIn("--port", command)
+        self.assertIn("10101", command)
+        self.assertEqual(popen.call_args.kwargs["creationflags"],
+                         getattr(subprocess, "CREATE_NO_WINDOW", 0))
+
+    def test_does_not_start_twice(self):
+        self.make_engine()
+        with patch.object(self.launcher, "aivis_is_up", return_value=True),              patch.object(self.launcher.subprocess, "Popen") as popen,              patch("builtins.print"):
+            self.launcher.start_aivis()
+        popen.assert_not_called()
+
+    def test_missing_engine_is_only_reported(self):
+        with patch.object(self.launcher, "aivis_is_up", return_value=False),              patch.object(self.launcher.subprocess, "Popen") as popen,              patch("builtins.print") as printed:
+            self.launcher.start_aivis()
+        popen.assert_not_called()
+        self.assertTrue(printed.called)
+
+    def test_disabled_does_nothing(self):
+        self.make_engine()
+        self.config.AIVIS_AUTO_START = False
+        with patch.object(self.launcher, "aivis_is_up") as up,              patch.object(self.launcher.subprocess, "Popen") as popen:
+            self.launcher.start_aivis()
+        popen.assert_not_called()
+        up.assert_not_called()
+
+    def test_failure_to_launch_does_not_raise(self):
+        self.make_engine()
+        with patch.object(self.launcher, "aivis_is_up", return_value=False),              patch.object(self.launcher.subprocess, "Popen", side_effect=OSError),              patch("builtins.print"):
+            self.launcher.start_aivis()   # 例外が出ないこと
 
 
 if __name__ == "__main__":
