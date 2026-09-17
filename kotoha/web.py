@@ -30,6 +30,28 @@ def _unprocessed_turns(conn) -> int:
     return row["n"]
 
 
+def run_periodic_jobs(conn) -> None:
+    """整理・バックアップ・忘却を、頃合いになったものだけ回す。
+
+    順番に意味がある。バックアップは忘却より先に取らないと、
+    消えた直後の状態しか残らない。前段の失敗で後段を止めない。
+    """
+    unprocessed = _unprocessed_turns(conn)
+    idle = db.seconds_since(db.get_state(conn, "last_conversation_at")) > config.IDLE_SECONDS
+    if unprocessed >= config.CONSOLIDATE_TURNS or (unprocessed > 0 and idle):
+        try:
+            consolidate.run(conn)
+        except Exception:
+            pass  # 整理の失敗で忘却まで止めない。
+    if db.seconds_since(db.get_state(conn, "last_backup_at")) > config.BACKUP_INTERVAL_SECONDS:
+        try:
+            db.run_backup(conn)
+        except Exception:
+            pass  # 保存先の不調で忘却まで止めない。
+    if db.seconds_since(db.get_state(conn, "last_forget_at")) > config.MAINTENANCE_SECONDS:
+        db.run_maintenance(conn)
+
+
 def _bg_loop() -> None:
     """時計: アイドル整理と日次メンテナンスを裏で回す。"""
     while True:
@@ -38,15 +60,7 @@ def _bg_loop() -> None:
             with _turn_lock:
                 conn = db.connect()
                 try:
-                    n = _unprocessed_turns(conn)
-                    idle = db.seconds_since(db.get_state(conn, "last_conversation_at")) > config.IDLE_SECONDS
-                    if n >= config.CONSOLIDATE_TURNS or (n > 0 and idle):
-                        try:
-                            consolidate.run(conn)
-                        except Exception:
-                            pass  # 整理の失敗で忘却まで止めない。
-                    if db.seconds_since(db.get_state(conn, "last_forget_at")) > config.MAINTENANCE_SECONDS:
-                        db.run_maintenance(conn)
+                    run_periodic_jobs(conn)
                 finally:
                     conn.close()
         except Exception:

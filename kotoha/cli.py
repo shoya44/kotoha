@@ -13,18 +13,11 @@ def _status(conn) -> None:
 
 
 def _backup() -> None:
-    from datetime import datetime
-    if not config.DB_PATH.exists():
+    dest = db.run_backup()
+    if dest is None:
         print("DBが見つかりません。")
         return
-    bdir = config.DB_PATH.parent / "backups"
-    bdir.mkdir(parents=True, exist_ok=True)
-    dst = bdir / f"kotoha_{datetime.now().strftime('%Y%m%d_%H%M%S')}.sqlite3"
-    db.backup(dst)
-    olds = sorted(bdir.glob("kotoha_*.sqlite3"))
-    for old in olds[:-config.BACKUP_KEEP]:
-        old.unlink()
-    print(f"バックアップ完了: {dst}（最新{config.BACKUP_KEEP}件を保持）")
+    print(f"バックアップ完了: {dest}（最新{config.BACKUP_KEEP}件を保持）")
 
 
 def _unprocessed_turns(conn) -> int:
@@ -163,7 +156,14 @@ def _start() -> None:
         print(f"ことは> {reply}")
         _maybe_consolidate(conn)
 
-    # 終了時にメンテナンス実行
+    # 終了時にメンテナンス実行。バックアップは忘却より先に取る。
+    if db.seconds_since(db.get_state(conn, "last_backup_at")) > config.BACKUP_INTERVAL_SECONDS:
+        try:
+            dest = db.run_backup(conn)
+            if dest:
+                print(f"[バックアップ] {dest.name}")
+        except OSError as e:
+            print(f"[バックアップ失敗] {e}")
     forgotten = db.run_maintenance(conn)
     if forgotten > 0:
         print(f"[忘却] {forgotten} 件の古い記憶を削除しました。")

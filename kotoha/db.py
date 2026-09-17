@@ -237,3 +237,27 @@ def backup(dest_path) -> None:
         src.backup(dst)
     dst.close()
     src.close()
+
+
+def backup_dir():
+    return config.DB_PATH.parent / "backups"
+
+
+def run_backup(conn=None):
+    """世代付きのバックアップを1本取り、古い世代を消す。
+
+    DBがまだ無ければ何もせず None を返す。conn を渡すと実行時刻を記録し、
+    次の自動バックアップまでの間隔を数えられるようにする。
+    """
+    if not config.DB_PATH.exists():
+        return None
+    folder = backup_dir()
+    folder.mkdir(parents=True, exist_ok=True)
+    dest = folder / f"kotoha_{datetime.now().strftime('%Y%m%d_%H%M%S')}.sqlite3"
+    backup(dest)
+    for old in sorted(folder.glob("kotoha_*.sqlite3"))[: -config.BACKUP_KEEP]:
+        old.unlink()
+    if conn is not None:
+        set_state(conn, "last_backup_at", now_utc())
+        conn.commit()
+    return dest
