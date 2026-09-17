@@ -252,9 +252,15 @@ REACH_OUT_CLOSING = (
     "返事を求めすぎない。責めない。"
 )
 
+BRIEFING_CLOSING = (
+    "朝いちばん。今日のことを短く伝える。\n"
+    "日付にひとこと触れ、空模様があれば傘と服装まで言ってやる。\n"
+    "三行まで。天気予報の読み上げにはしない。いつもの調子で。"
+)
 
-def reach_out(conn):
-    """ことはのほうから一声かける。返した文は画面にも通知にも出る。
+
+def speak(conn, closing: str, extra: str = ""):
+    """ことはのほうから口を開く。作った文は履歴に残し、それを返す。
 
     話しかけられていないので「今回の発言」が無い。そこだけ差し替えて、
     人格も記憶も時刻も、普段と同じものを渡す。
@@ -262,7 +268,9 @@ def reach_out(conn):
     recent = db.fetch_recent(conn, config.RECENT_TURNS, config.RECENT_CHARS)
     seed = "\n".join(r["text"] for r in recent[-4:])
     pinned, related = retrieve.retrieve(conn, seed, "")
-    prompt = build_prompt(conn, "", recent, pinned, related, closing=REACH_OUT_CLOSING)
+    if extra:
+        closing = f"{extra}\n\n{closing}"
+    prompt = build_prompt(conn, "", recent, pinned, related, closing=closing)
     raw = llm.chat(prompt)
     clean, ids = parse_used_ids(raw)
     clean, mood = parse_mood(clean)
@@ -270,14 +278,24 @@ def reach_out(conn):
     clean = clean.strip()
     if not clean:
         return ""
+    remember(conn, clean, ids, mood)
+    return clean
+
+
+def remember(conn, text: str, ids=(), mood: str = ""):
+    """ことはの独り言を、会話と同じ場所に残す。開けば並んでいる。"""
     turn_id = db.next_turn_id(conn)
-    db.insert_message(conn, turn_id, "assistant", clean)
+    db.insert_message(conn, turn_id, "assistant", text)
     if mood:
         db.set_state(conn, "mood", mood)
         db.set_state(conn, "mood_at", db.now_utc())
     db.update_usage(conn, ids, turn_id)
     conn.commit()
-    return clean
+
+
+def reach_out(conn):
+    """暇なときの一声。"""
+    return speak(conn, REACH_OUT_CLOSING)
 
 
 def run_turn(conn, user_text: str):

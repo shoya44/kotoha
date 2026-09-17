@@ -4,3 +4,6 @@ data/
 __pycache__/
 *.pyc
 prompts/*.bak
+
+# 素材の画像。26MBあり、アイコンは生成ずみなので追わない
+img/

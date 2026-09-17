@@ -10,7 +10,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .. import config, notify
 from ..memory import consolidate, db, embed
-from ..talk import chat, llm, presence
+from ..talk import chat, llm, presence, weather
 from . import admin, voice
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -64,7 +64,8 @@ def run_periodic_jobs(conn) -> None:
             pass  # 保存先の不調で忘却まで止めない。
     if db.seconds_since(db.get_state(conn, "last_forget_at")) > config.MAINTENANCE_SECONDS:
         db.run_maintenance(conn)
-    # 暇なときの声かけ。会話が5時間途切れた前提なので、ここで待たせても困らない。
+    # 朝の一言と、暇なときの声かけ。どちらも滅多に鳴らないので、ここで待たせてよい。
+    maybe_briefing(conn)
     maybe_reach_out(conn)
 
 
@@ -92,6 +93,31 @@ def _tool_probes():
     return {"音声エンジン": aivis_is_up, "Ollama": ollama_is_up}
 
 
+def announce(conn, closing: str, plain: str = "", extra: str = "") -> str:
+    """ことはのほうから何か言う。言ったことが、そのまま通知になる。
+
+    通知はすべてここを通す。言わずに鳴らすことはしない。開いても何も
+    無い通知ほど不親切なものはないし、あとから会話を辿れなくなる。
+
+    plain は、文を作れなかったときに代わりに言わせる一言。見張りのように
+    「黙るくらいなら定型でも伝えたい」用がある。声かけのように、言えない
+    なら黙っていればよいものは空のままでよい。
+    """
+    if not notify.ready():
+        return ""
+    text = ""
+    try:
+        text = chat.speak(conn, closing, extra)
+    except Exception as error:
+        notify.log(f"言えなかった: {error!r}")
+    if not text and plain:
+        text = plain
+        chat.remember(conn, text)     # 定型でも、言った以上は残す
+    if text:
+        notify.push("ことは", text)
+    return text
+
+
 def run_watch_jobs() -> None:
     """管理人としての見張り。落ちたときと、空きが減ったときだけ知らせる。
 
@@ -108,13 +134,17 @@ def run_watch_jobs() -> None:
             now = "1" if probe() else "0"
             # 立ち上がりでは知らせない。落ちた瞬間だけ。
             if before == "1" and now == "0":
-                notify.push("ことは", f"{label}が止まったみたい")
+                announce(conn, f"{label}が止まったことに気づいた。一行で知らせる。",
+                         plain=f"{label}が止まったみたい")
             db.set_state(conn, key, now)
         for letter, free, _used in presence.disks():
             key = f"disk:{letter}"
             low = "1" if free < config.DISK_WARN_GB else "0"
             if db.get_state(conn, key) == "0" and low == "1":
-                notify.push("ことは", f"{letter}ドライブの空き、{free:.0f}GBしかないよ")
+                announce(conn,
+                         f"{letter}ドライブの空きが{free:.0f}GBまで減っている。"
+                         "一行で知らせる。",
+                         plain=f"{letter}ドライブの空き、{free:.0f}GBしかないよ")
             db.set_state(conn, key, low)
         conn.commit()
     except Exception as error:
@@ -142,13 +172,32 @@ def maybe_reach_out(conn) -> None:
         return
     db.set_state(conn, "last_reach_out_at", db.now_utc())
     conn.commit()
-    try:
-        text = chat.reach_out(conn)
-    except Exception as error:
-        notify.log(f"声をかけられなかった: {error!r}")
+    announce(conn, chat.REACH_OUT_CLOSING)
+
+
+def maybe_briefing(conn) -> None:
+    """朝いちばんの一言。その日まだ出していなければ、一度だけ。
+
+    8時にPCが寝ていたら、起きたときに出す。ただし遅れすぎたら黙る。
+    夕方に「おはよう」と言われても困る。
+    """
+    if not (config.BRIEFING_ENABLED and notify.ready()):
         return
-    if text:
-        notify.push("ことは", text)
+    now = datetime.now()
+    today = now.strftime("%Y-%m-%d")
+    if db.get_state(conn, "last_briefing_on") == today:
+        return
+    if now.hour < config.BRIEFING_HOUR:
+        return
+    if now.hour >= config.BRIEFING_HOUR + config.BRIEFING_GRACE_HOURS:
+        db.set_state(conn, "last_briefing_on", today)   # 今日はもう見送る
+        conn.commit()
+        return
+    # 先に印を付ける。作るのに失敗しても、何度も試させない。
+    db.set_state(conn, "last_briefing_on", today)
+    conn.commit()
+    # 空模様が取れなくても挨拶はする。外が落ちて朝が消えるのは違う。
+    announce(conn, chat.BRIEFING_CLOSING, extra=weather.block(weather.today()))
 
 
 def run_vector_jobs() -> None:

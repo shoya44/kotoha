@@ -104,12 +104,13 @@ class ReachOutTests(unittest.TestCase):
         self.addCleanup(setattr, notify, "ready", notify.ready)
         self.addCleanup(setattr, notify, "push", notify.push)
         self.addCleanup(setattr, notify, "log", notify.log)
-        self.addCleanup(setattr, chat, "reach_out", chat.reach_out)
+        self.addCleanup(setattr, chat, "speak", chat.speak)
         notify.log = lambda text: None   # 本物のログに書き込まない
         notify.ready = lambda: True
         self.pushed = []
         notify.push = lambda title, body, *a, **k: self.pushed.append(body) or True
-        chat.reach_out = lambda conn: "そういえばあれ、どうなった？"
+        # 本物のGeminiを叩かせない。
+        chat.speak = lambda conn, closing, extra="": "そういえばあれ、どうなった？"
 
     def quiet_for(self, hours):
         long_ago = f"{datetime.now().year - 1}-01-01T00:00:00Z"
@@ -146,10 +147,15 @@ class ReachOutTests(unittest.TestCase):
         self.assertEqual(self.pushed, [])
 
     def test_a_failure_to_write_does_not_escape(self):
-        chat.reach_out = lambda conn: 1 / 0
+        chat.speak = self.explode
         self.quiet_for(10)
         web.maybe_reach_out(self.conn)     # 例外が出ないこと
         self.assertEqual(self.pushed, [])
+
+
+    @staticmethod
+    def explode(conn, closing, extra=""):
+        raise ZeroDivisionError("わざと")
 
 
 class WatchTests(unittest.TestCase):
@@ -165,8 +171,13 @@ class WatchTests(unittest.TestCase):
         self.addCleanup(setattr, notify, "push", notify.push)
         self.addCleanup(setattr, notify, "log", notify.log)
         self.addCleanup(setattr, presence, "disks", presence.disks)
+        self.addCleanup(setattr, chat, "speak", chat.speak)
+        self.addCleanup(setattr, chat, "remember", chat.remember)
         notify.log = lambda text: None   # 本物のログに書き込まない
         notify.ready = lambda: True
+        # 見張りも announce を通る。本物のGeminiは叩かせない。
+        chat.speak = lambda conn, closing, extra="": ""
+        chat.remember = lambda conn, text, ids=(), mood="": None
         self.pushed = []
         notify.push = lambda title, body, *a, **k: self.pushed.append(body) or True
         presence.disks = lambda: []
