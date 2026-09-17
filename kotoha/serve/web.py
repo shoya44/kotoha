@@ -17,6 +17,8 @@ STATIC_DIR = Path(__file__).resolve().parent / "static"
 RESTART_EXIT_CODE = 42
 # 通話中の端末はこの間隔より短く生存を知らせる。途絶えたら通話は終わったとみなす。
 CALL_STALE_SECONDS = 120
+# 記憶本文の上限。整理が作るときのエピソード側に合わせてある。
+MEMORY_TEXT_LIMIT = 400
 
 app = FastAPI(title="kotoha")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
@@ -180,6 +182,103 @@ def api_restart(request: Request):
     # 先に応答を返しきってから落とす。DBへの書き込みはその都度コミットしてある。
     threading.Timer(0.4, lambda: os._exit(RESTART_EXIT_CODE)).start()
     return {"restarting": True}
+
+
+MEMORY_LISTS = {
+    "semantic": ("layer = 'semantic'", "confirmed_at DESC"),
+    "episode": ("layer = 'episode'", "occurred_at DESC"),
+    "pinned": ("pinned = 1", "confirmed_at DESC"),
+}
+MEMORY_LIST_LIMIT = 40
+
+
+@app.get("/api/memories")
+def memories_list(request: Request, kind: str = "semantic"):
+    _check_token(request)
+    if kind not in MEMORY_LISTS:
+        raise HTTPException(status_code=400, detail="その一覧はありません")
+    where, order = MEMORY_LISTS[kind]
+    conn = db.connect()
+    try:
+        rows = conn.execute(
+            f"SELECT id, layer, kind, text, occurred_at, confirmed_at, expires_at, pinned "
+            f"FROM memory_nodes WHERE {where} ORDER BY {order} LIMIT ?",
+            (MEMORY_LIST_LIMIT,),
+        ).fetchall()
+        return {"memories": [dict(r) for r in rows]}
+    finally:
+        conn.close()
+
+
+@app.get("/api/memories/{node_id}")
+def memory_detail(request: Request, node_id: int):
+    _check_token(request)
+    conn = db.connect()
+    try:
+        row = conn.execute("SELECT * FROM memory_nodes WHERE id = ?", (node_id,)).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="その記憶はありません")
+        tags = [
+            r["tag"] for r in
+            conn.execute("SELECT tag FROM memory_tags WHERE node_id = ? ORDER BY tag", (node_id,))
+        ]
+        sources = [
+            r["message_id"] for r in
+            conn.execute("SELECT message_id FROM memory_sources WHERE node_id = ?", (node_id,))
+        ]
+        return {"memory": dict(row), "tags": tags, "sources": sources}
+    finally:
+        conn.close()
+
+
+@app.put("/api/memories/{node_id}")
+def memory_update(request: Request, node_id: int, payload: dict):
+    """本文を直す。整理の updates と同じく、確認日時を進めて期限も延ばす。"""
+    _check_token(request)
+    text = (payload.get("text") or "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="本文が空")
+    if len(text) > MEMORY_TEXT_LIMIT:
+        raise HTTPException(status_code=400, detail=f"{MEMORY_TEXT_LIMIT}字までにしてください")
+    conn = db.connect()
+    try:
+        changed = conn.execute(
+            f"UPDATE memory_nodes SET text = ?, confirmed_at = ?, {db.EXTEND_EXPIRES} WHERE id = ?",
+            (text, db.now_utc(), *db.extend_args(), node_id),
+        ).rowcount
+        if not changed:
+            raise HTTPException(status_code=404, detail="その記憶はありません")
+        # 手で直したものは、想起の近道をいったん解く。
+        conn.execute("UPDATE memory_tags SET use_count = 0 WHERE node_id = ?", (node_id,))
+        conn.commit()
+        return {"saved": True}
+    finally:
+        conn.close()
+
+
+@app.put("/api/memories/{node_id}/pinned")
+def memory_pin(request: Request, node_id: int, payload: dict):
+    _check_token(request)
+    conn = db.connect()
+    try:
+        if not db.set_pinned(conn, node_id, bool(payload.get("pinned"))):
+            raise HTTPException(status_code=404, detail="その記憶はありません")
+        return {"pinned": bool(payload.get("pinned"))}
+    finally:
+        conn.close()
+
+
+@app.delete("/api/memories/{node_id}")
+def memory_delete(request: Request, node_id: int):
+    """保護されていても消す。CUI の /forget と同じ扱い。"""
+    _check_token(request)
+    conn = db.connect()
+    try:
+        if not db.forget_node(conn, node_id):
+            raise HTTPException(status_code=404, detail="その記憶はありません")
+        return {"deleted": True}
+    finally:
+        conn.close()
 
 
 @app.get("/api/prompts")

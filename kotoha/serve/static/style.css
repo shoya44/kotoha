@@ -116,6 +116,13 @@ textarea {
   font: inherit;
 }
 
+/* iOSは入力欄に独自の枠と角丸を足すので、こちらの枠と二重に見える。 */
+input,
+textarea {
+  appearance: none;
+  -webkit-appearance: none;
+}
+
 /* ===== Header / Avatar ===== */
 header {
   flex: none;
@@ -843,6 +850,82 @@ textarea:focus-visible {
 }
 
 .setting-row input:focus { border-color: var(--accent); }
+
+.memory-item {
+  width: 100%;
+  min-height: var(--tap-min);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--separator-weak);
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+}
+
+.memory-item:last-child { border-bottom: 0; }
+
+.memory-item .body {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  font-size: 15px;
+  line-height: 1.45;
+}
+
+.memory-item .meta {
+  flex: none;
+  color: var(--muted);
+  font-size: 11px;
+  text-align: right;
+}
+
+.memory-item .pin {
+  flex: none;
+  color: var(--accent);
+  font-size: 11px;
+}
+
+#memoryText {
+  display: block;
+  width: 100%;
+  height: min(26dvh, 200px);
+  padding: 12px;
+  border: 1px solid var(--input-line);
+  border-radius: var(--radius-md);
+  outline: none;
+  resize: none;
+
+  background: var(--input-bg);
+  color: var(--ink);
+
+  font-size: 16px;
+  line-height: 1.6;
+  scrollbar-width: none;
+}
+
+#memoryText::-webkit-scrollbar { display: none; }
+#memoryText:focus { border-color: var(--accent); }
+
+.memory-facts {
+  margin-top: 10px;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 12px;
+  font-size: 12px;
+}
+
+.memory-facts dt { color: var(--muted); }
+.memory-facts dd { overflow-wrap: anywhere; }
+
+.sheet-button.danger {
+  background: transparent;
+  color: var(--danger);
+}
 
 .sheet-note {
   margin: 10px 2px 0;

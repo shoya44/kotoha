@@ -120,6 +120,10 @@
           <span>設定を変える</span>
           <span aria-hidden="true">›</span>
         </button>
+        <button class="sheet-row" data-open="memories" type="button">
+          <span>記憶を見る</span>
+          <span aria-hidden="true">›</span>
+        </button>
       </div>
 
       <div class="sheet-section">
@@ -156,6 +160,47 @@
         <div class="sheet-actions">
           <button class="sheet-button" id="promptRevert" type="button">ひとつ前に戻す</button>
           <button class="sheet-button primary" id="promptSave" type="button">保存</button>
+        </div>
+      </section>
+
+      <section class="sheet-page" data-page="memories" aria-label="記憶を見る">
+        <div class="sheet-nav">
+          <button class="sheet-back" data-back type="button">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path d="M15 5l-7 7 7 7"></path>
+            </svg>
+            <span>戻る</span>
+          </button>
+          <span class="sheet-nav-title">記憶を見る</span>
+        </div>
+        <div class="segmented" id="memoryTabs" role="tablist">
+          <button type="button" data-kind="semantic" aria-selected="true">覚えたこと</button>
+          <button type="button" data-kind="episode" aria-selected="false">できごと</button>
+          <button type="button" data-kind="pinned" aria-selected="false">保護</button>
+        </div>
+        <div id="memoryList"></div>
+        <p class="sheet-note" id="memoryNote"></p>
+      </section>
+
+      <section class="sheet-page" data-page="memory" aria-label="記憶の中身">
+        <div class="sheet-nav">
+          <button class="sheet-back" data-back-to="memories" type="button">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path d="M15 5l-7 7 7 7"></path>
+            </svg>
+            <span>一覧</span>
+          </button>
+          <span class="sheet-nav-title">記憶の中身</span>
+        </div>
+        <textarea id="memoryText" spellcheck="false" aria-label="本文"></textarea>
+        <dl class="memory-facts" id="memoryFacts"></dl>
+        <p class="sheet-note" id="memoryDetailNote"></p>
+        <div class="sheet-actions">
+          <button class="sheet-button" id="memoryPin" type="button">保護する</button>
+          <button class="sheet-button primary" id="memorySave" type="button">保存</button>
+        </div>
+        <div class="sheet-actions">
+          <button class="sheet-button danger" id="memoryDelete" type="button">この記憶を消す</button>
         </div>
       </section>
 

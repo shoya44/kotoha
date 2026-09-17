@@ -34,6 +34,15 @@ const elements = {
   endRemoteCall: $("endRemoteCall"),
   restartApp: $("restartApp"),
   remoteCallValue: $("remoteCallValue"),
+  memoryTabs: $("memoryTabs"),
+  memoryList: $("memoryList"),
+  memoryNote: $("memoryNote"),
+  memoryText: $("memoryText"),
+  memoryFacts: $("memoryFacts"),
+  memoryDetailNote: $("memoryDetailNote"),
+  memoryPin: $("memoryPin"),
+  memorySave: $("memorySave"),
+  memoryDelete: $("memoryDelete"),
   contextMenu: $("contextMenu"),
 };
 
@@ -48,7 +57,7 @@ const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 const preferences = {
   showTime: localStorage.getItem("kotoha_show_time") !== "0",
-  voice: localStorage.getItem("kotoha_voice") !== "0",
+  voice: localStorage.getItem("kotoha_voice") === "1",
 };
 
 // ===== Settings sheet =====
@@ -225,6 +234,139 @@ async function saveSettings() {
     setNote(elements.settingsNote, "保存できませんでした。", true);
   } finally {
     elements.settingsSave.disabled = false;
+  }
+}
+
+// ===== 記憶を見る =====
+const MEMORY_KIND_LABEL = { event: "できごと", fact: "事実", preference: "好み",
+                            open_topic: "続いている話", procedure: "やりかた" };
+let memoryKind = "semantic";
+let openMemory = null;
+
+async function loadMemories(kind = memoryKind) {
+  memoryKind = kind;
+  for (const tab of elements.memoryTabs.children) {
+    tab.setAttribute("aria-selected", tab.dataset.kind === kind ? "true" : "false");
+  }
+  setNote(elements.memoryNote, "読み込んでいます…");
+  let items;
+  try {
+    const response = await api(`/api/memories?kind=${kind}`);
+    if (!response.ok) throw new Error();
+    items = (await response.json()).memories;
+  } catch {
+    setNote(elements.memoryNote, "読み込めませんでした。", true);
+    return;
+  }
+  elements.memoryList.replaceChildren(...items.map(item => {
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = "memory-item";
+
+    const body = document.createElement("span");
+    body.className = "body";
+    body.textContent = item.text;
+
+    const meta = document.createElement("span");
+    meta.className = "meta";
+    const stamp = (item.layer === "episode" ? item.occurred_at : item.confirmed_at) || "";
+    meta.textContent = stamp.slice(0, 10);
+
+    row.append(body, meta);
+    if (item.pinned) {
+      const pin = document.createElement("span");
+      pin.className = "pin";
+      pin.textContent = "保護";
+      row.append(pin);
+    }
+    row.addEventListener("click", () => showMemory(item.id));
+    return row;
+  }));
+  setNote(elements.memoryNote, items.length ? `${items.length}件` : "まだありません。");
+}
+
+async function showMemory(id) {
+  showSheetPage("memory");
+  elements.memoryText.value = "";
+  elements.memoryFacts.replaceChildren();
+  setNote(elements.memoryDetailNote, "読み込んでいます…");
+  try {
+    const response = await api(`/api/memories/${id}`);
+    if (!response.ok) throw new Error();
+    openMemory = await response.json();
+  } catch {
+    setNote(elements.memoryDetailNote, "読み込めませんでした。", true);
+    return;
+  }
+  const m = openMemory.memory;
+  elements.memoryText.value = m.text;
+  const facts = [
+    ["種類", MEMORY_KIND_LABEL[m.kind] || m.kind],
+    [m.layer === "episode" ? "あった日" : "確かめた日",
+     (m.layer === "episode" ? m.occurred_at : m.confirmed_at || "").slice(0, 10)],
+    ["消える日", (m.expires_at || "").slice(0, 10) || "期限なし"],
+    ["ことば", openMemory.tags.join("、") || "なし"],
+    ["もとの発言", openMemory.sources.length ? openMemory.sources.join("、") : "なし"],
+  ];
+  elements.memoryFacts.replaceChildren(...facts.flatMap(([key, value]) => {
+    const dt = document.createElement("dt");
+    dt.textContent = key;
+    const dd = document.createElement("dd");
+    dd.textContent = value;
+    return [dt, dd];
+  }));
+  elements.memoryPin.textContent = m.pinned ? "保護をやめる" : "保護する";
+  resetMemoryDelete();
+  setNote(elements.memoryDetailNote, m.pinned ? "保護中は自動で消えません。" : "");
+}
+
+async function saveMemory() {
+  if (!openMemory) return;
+  elements.memorySave.disabled = true;
+  try {
+    const response = await api(`/api/memories/${openMemory.memory.id}`, {
+      method: "PUT", body: { text: elements.memoryText.value },
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      setNote(elements.memoryDetailNote, data.detail || "保存できませんでした。", true);
+      return;
+    }
+    openMemory.memory.text = elements.memoryText.value.trim();
+    setNote(elements.memoryDetailNote, "保存しました。");
+  } catch {
+    setNote(elements.memoryDetailNote, "保存できませんでした。", true);
+  } finally {
+    elements.memorySave.disabled = false;
+  }
+}
+
+async function toggleMemoryPin() {
+  if (!openMemory) return;
+  const next = !openMemory.memory.pinned;
+  try {
+    const response = await api(`/api/memories/${openMemory.memory.id}/pinned`, {
+      method: "PUT", body: { pinned: next },
+    });
+    if (!response.ok) throw new Error();
+    openMemory.memory.pinned = next ? 1 : 0;
+    elements.memoryPin.textContent = next ? "保護をやめる" : "保護する";
+    setNote(elements.memoryDetailNote, next ? "保護しました。自動では消えません。" : "保護をやめました。");
+  } catch {
+    setNote(elements.memoryDetailNote, "切り替えられませんでした。", true);
+  }
+}
+
+async function deleteMemory() {
+  if (!openMemory) return;
+  try {
+    const response = await api(`/api/memories/${openMemory.memory.id}`, { method: "DELETE" });
+    if (!response.ok) throw new Error();
+    openMemory = null;
+    showSheetPage("memories");
+    loadMemories();
+  } catch {
+    setNote(elements.memoryDetailNote, "消せませんでした。", true);
   }
 }
 
@@ -1112,12 +1254,27 @@ for (const row of document.querySelectorAll("[data-open]")) {
     showSheetPage(name);
     if (name === "prompts") loadPrompts();
     if (name === "settings") loadSettings();
+    if (name === "memories") loadMemories();
   });
 }
 
 for (const back of document.querySelectorAll("[data-back]")) {
   back.addEventListener("click", () => showSheetPage("main"));
 }
+
+for (const back of document.querySelectorAll("[data-back-to]")) {
+  back.addEventListener("click", () => showSheetPage(back.dataset.backTo));
+}
+
+for (const tab of elements.memoryTabs.children) {
+  tab.addEventListener("click", () => loadMemories(tab.dataset.kind));
+}
+
+elements.memorySave.addEventListener("click", saveMemory);
+elements.memoryPin.addEventListener("click", toggleMemoryPin);
+const resetMemoryDelete = armOnce(
+  elements.memoryDelete, "この記憶を消す", "もう一度押すと消える", deleteMemory
+);
 
 elements.promptSave.addEventListener("click", savePrompt);
 elements.promptRevert.addEventListener("click", revertPrompt);
