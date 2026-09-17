@@ -34,8 +34,9 @@ def chat(prompt: str, max_tokens: int | None = None) -> str:
         if resp.status_code in (400, 401):
             raise LLMError(f"認証またはモデルエラー ({resp.status_code})。キーやモデル名を確認して。")
         if resp.status_code == 429:
-            last_error = LLMError("レート制限。少し待って再試行して。", retryable=True)
-            continue
+            # 間を置かずに投げ直しても、分あたりの枠は空いていないので必ず失敗する。
+            # 失敗したぶんも枠を食うので、ここでは諦めて呼び出し側に返す。
+            raise LLMError("いま混み合っているみたい。少し待ってからもう一度送って。")
         if resp.status_code >= 500:
             last_error = LLMError(f"サーバーエラー ({resp.status_code})。", retryable=True)
             continue

@@ -95,6 +95,55 @@ class TimeBlockTests(unittest.TestCase):
         self.assertIn("たった今", self.time_lines()[1])
 
 
+class MemoryLineTests(unittest.TestCase):
+    """記憶1件の書き方。ラベルが長いとプロンプトを無駄に食う。"""
+
+    def row(self, **over):
+        base = {
+            "id": 12, "layer": "semantic", "kind": "fact",
+            "occurred_at": "2026-03-01", "confirmed_at": "2026-09-17T00:00:00Z",
+            "text": "しょうやはフルリモートで働いている",
+        }
+        base.update(over)
+        return base
+
+    def test_layer_is_left_out(self):
+        """層は種類から決まるので書かない。"""
+        line = chat._mem_line(self.row())
+        self.assertIn("[fact]", line)
+        self.assertNotIn("semantic", line)
+
+    def test_year_is_left_out_for_this_year(self):
+        year = datetime.now().year
+        line = chat._mem_line(self.row(confirmed_at=f"{year}-09-17T00:00:00Z"))
+        self.assertIn("[09-17]", line)
+        self.assertNotIn(str(year), line)
+
+    def test_year_is_kept_for_other_years(self):
+        line = chat._mem_line(self.row(confirmed_at="2020-09-17T00:00:00Z"))
+        self.assertIn("[2020-09-17]", line)
+
+    def test_id_stays_readable(self):
+        """[USED:] で返してもらうので、idは形を変えない。"""
+        self.assertIn("[id:12]", chat._mem_line(self.row()))
+
+    def test_episode_uses_the_date_it_happened(self):
+        year = datetime.now().year
+        line = chat._mem_line(self.row(
+            layer="episode", kind="event",
+            occurred_at=f"{year}-03-01", confirmed_at=f"{year}-09-17T00:00:00Z",
+        ))
+        self.assertIn("[03-01]", line)
+        self.assertIn("[event]", line)
+
+    def test_label_is_shorter_than_before(self):
+        """以前は - [id:12][2026-09-17][semantic/fact] で36字あった。"""
+        line = chat._mem_line(self.row(confirmed_at=f"{datetime.now().year}-09-17T00:00:00Z"))
+        label = line.split("] ", 2)[0] + "] "
+        self.assertLess(len(line) - len(self.row()["text"]), 25)
+        self.assertTrue(label.startswith("- [id:12]"))
+
+
 class TagStrippingTests(unittest.TestCase):
     """内部制御タグが本文に残るとユーザーに見えてしまう。"""
 

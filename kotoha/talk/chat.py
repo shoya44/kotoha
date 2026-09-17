@@ -90,8 +90,14 @@ def _read(name: str) -> str:
 
 
 def _mem_line(r) -> str:
-    date = (r["occurred_at"] if r["layer"] == "episode" else r["confirmed_at"])[:10]
-    return f"- [id:{r['id']}][{date}][{r['layer']}/{r['kind']}] {r['text']}"
+    """記憶1件の書き方。ラベルが本文と同じ量を占めていたので削ってある。
+
+    層は種類から決まるので書かない（event なら出来事、ほかは意味記憶）。
+    年も今年なら省く。id は [USED:] で返してもらうため、そのまま残す。
+    """
+    stamp = (r["occurred_at"] if r["layer"] == "episode" else r["confirmed_at"])[:10]
+    date = stamp[5:] if stamp[:4] == str(datetime.now().year) else stamp
+    return f"- [id:{r['id']}][{date}][{r['kind']}] {r['text']}"
 
 
 def _tag_pattern(name: str) -> str:
