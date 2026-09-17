@@ -30,6 +30,8 @@ const elements = {
   promptNote: $("promptNote"),
   promptSave: $("promptSave"),
   promptRevert: $("promptRevert"),
+  machineList: $("machineList"),
+  machineNote: $("machineNote"),
   settingsList: $("settingsList"),
   settingsNote: $("settingsNote"),
   settingsSave: $("settingsSave"),
@@ -237,6 +239,84 @@ async function saveSettings() {
   } finally {
     elements.settingsSave.disabled = false;
   }
+}
+
+// ===== 通知の「あとで」 =====
+function readIds(name) {
+  const asked = new URLSearchParams(location.search).get(name);
+  if (!asked) return [];
+  // 押した跡はURLから消す。読み込み直すたびに効いては困る。
+  history.replaceState(null, "", location.pathname);
+  return asked.split(",").map(one => parseInt(one, 10)).filter(Number.isInteger);
+}
+
+async function snoozeNow(ids) {
+  try {
+    const response = await api("/api/remind/snooze", { method: "POST", body: { ids } });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      addMessage("system", "[あとで] 置き直せませんでした");
+      return false;
+    }
+    addMessage("system", `[あとで] ${data.due_at} にもう一度言ってもらいます`);
+    return true;
+  } catch {
+    addMessage("system", "[あとで] 置き直せませんでした");
+    return false;
+  }
+}
+
+// iPhoneは通知にボタンを出せない（Safariが対応していない）ので、
+// 通知から開いたこの画面に、一度だけ押せる形で出す。
+function offerSnooze() {
+  const ids = readIds("remind");
+  if (!ids.length) return;
+  const bubble = addMessage("system", "");
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "snooze-offer";
+  button.textContent = "あとでもう一度言ってもらう";
+  button.addEventListener("click", async () => {
+    button.disabled = true;
+    if (!await snoozeNow(ids)) button.disabled = false;
+    else button.remove();
+  });
+  bubble.append(button);
+}
+
+// Chrome の通知ボタンから来たときは、開いた時点でもう押されている。
+async function handleSnoozeLink() {
+  const ids = readIds("snooze");
+  if (ids.length) await snoozeNow(ids);
+}
+
+// ===== PCの様子 =====
+async function loadMachine() {
+  setNote(elements.machineNote, "調べています…");
+  let rows;
+  try {
+    const response = await api("/api/machine");
+    if (!response.ok) throw new Error();
+    rows = (await response.json()).rows;
+  } catch {
+    setNote(elements.machineNote, "読み込めませんでした。", true);
+    return;
+  }
+  elements.machineList.replaceChildren(...rows.map(row => {
+    const line = document.createElement("div");
+    line.className = "setting-row";
+    const label = document.createElement("div");
+    label.className = "setting-label";
+    const name = document.createElement("b");
+    name.textContent = row.label;
+    label.append(name);
+    const value = document.createElement("div");
+    value.className = "machine-value";
+    value.textContent = row.value;
+    line.append(label, value);
+    return line;
+  }));
+  setNote(elements.machineNote, "開いたときの様子です。見るだけで、何も変わりません。");
 }
 
 // ===== 記憶を見る =====
@@ -1289,6 +1369,7 @@ for (const row of document.querySelectorAll("[data-open]")) {
     if (name === "prompts") loadPrompts();
     if (name === "settings") loadSettings();
     if (name === "memories") loadMemories();
+    if (name === "machine") loadMachine();
   });
 }
 
@@ -1527,6 +1608,8 @@ setInterval(updateMiniAvatar, 30 * 60 * 1000);
       setStatus("いるよ");
       elements.input.focus();
       setupPush();
+      handleSnoozeLink();      // Chromeの通知ボタンから開かれたとき
+      offerSnooze();           // 頼まれごとの通知から開かれたとき
       return;
     }
   } catch {

@@ -116,5 +116,66 @@ class PresenceTests(unittest.TestCase):
         self.assertNotIn("つけっぱなし", presence.describe(self.conn))
 
 
+class SnapshotTests(unittest.TestCase):
+    """画面に出す「いまの様子」。実機のAPIは叩かない。"""
+
+    def setUp(self):
+        if config.DB_PATH.exists():
+            config.DB_PATH.unlink()
+        self.conn = db.connect()
+        self.addCleanup(self.conn.close)
+        db.init(self.conn)
+        self.addCleanup(setattr, config, "PRESENCE_ENABLED", config.PRESENCE_ENABLED)
+        config.PRESENCE_ENABLED = True
+        for name, value in (("enabled", lambda: config.PRESENCE_ENABLED),
+                            ("uptime_hours", lambda: 6.4),
+                            ("disks", lambda: [("C", 98.4, 72)]),
+                            ("memory", lambda: (61, 12.5)),
+                            ("cpu", lambda: 23),
+                            ("gpu", lambda: None)):
+            self.addCleanup(setattr, presence, name, getattr(presence, name))
+            setattr(presence, name, value)
+
+    def rows(self):
+        with patch.object(presence, "foreground_app", return_value="VS Code"):
+            return dict(presence.snapshot(self.conn))
+
+    def sample_many(self, app, times):
+        with patch.object(presence, "foreground_app", return_value=app):
+            for _ in range(times):
+                presence.sample(self.conn)
+        self.conn.commit()
+
+    def test_it_shows_what_the_conversation_already_uses(self):
+        self.sample_many("VS Code", presence.MIN_SAMPLES)
+        rows = self.rows()
+        self.assertEqual(rows["起動してから"], "6時間")
+        self.assertEqual(rows["いま前面"], "VS Code")
+        self.assertIn("VS Code", rows["この1時間"])
+        self.assertIn("98GB", rows["Cドライブ"])
+        self.assertIn("61%", rows["メモリ"])
+        self.assertEqual(rows["CPU"], "23%")
+
+    def test_what_cannot_be_read_is_left_out(self):
+        presence.memory = lambda: None
+        presence.cpu = lambda: None
+        rows = self.rows()
+        self.assertNotIn("メモリ", rows)
+        self.assertNotIn("CPU", rows)
+        self.assertNotIn("GPU", rows)
+        self.assertIn("Cドライブ", rows)
+
+    def test_a_fresh_machine_is_counted_in_minutes(self):
+        presence.uptime_hours = lambda: 0.5
+        self.assertEqual(self.rows()["起動してから"], "30分")
+
+    def test_it_never_reads_a_window_title(self):
+        """覗き見の範囲を広げていないことを、見出しの並びで確かめる。"""
+        self.sample_many("VS Code", presence.MIN_SAMPLES)
+        for label in self.rows():
+            self.assertNotIn("タイトル", label)
+            self.assertNotIn("題名", label)
+
+
 if __name__ == "__main__":
     unittest.main()

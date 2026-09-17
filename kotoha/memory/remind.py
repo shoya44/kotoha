@@ -81,6 +81,25 @@ def drop(conn, reminder_id: int) -> bool:
     return cursor.rowcount > 0
 
 
+def snooze(conn, ids, minutes: int):
+    """一度言ったことを、もう一度あとで言う。用件はそのまま持ち越す。
+
+    通知から頼まれる。畳んだあとの行からも読めるようにしてあるのは、
+    言った時点で done になっているため。新しい1件として入れ直す。
+    """
+    due = datetime.now() + timedelta(minutes=minutes)
+    moved = 0
+    for one in ids:
+        row = conn.execute("SELECT text FROM reminders WHERE id = ?", (one,)).fetchone()
+        if not row:
+            continue
+        add(conn, due, row["text"])
+        moved += 1
+    if moved:
+        conn.commit()
+    return moved, due
+
+
 def block(conn) -> str:
     """プロンプトに載せる一行。無ければ空。"""
     rows = pending(conn)

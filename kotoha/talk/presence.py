@@ -237,6 +237,42 @@ def details() -> str:
     return "、".join(parts)
 
 
+def _hours_text(hours: float) -> str:
+    if hours < 1:
+        return f"{int(hours * 60)}分"
+    return f"{int(hours)}時間"
+
+
+def snapshot(conn):
+    """画面に出す「いまの様子」。(見出し, 値) を並べて返す。
+
+    新しく覗くものは足していない。会話で使っている値をそのまま並べるだけで、
+    details() と同じく、見に来られたときにだけ調べる。窓の題名は読まない。
+    """
+    rows = []
+    hours = uptime_hours()
+    if hours is not None:
+        rows.append(("起動してから", _hours_text(hours)))
+    app = foreground_app()
+    if app:
+        rows.append(("いま前面", app))
+    busy = busy_with(conn)
+    if busy:
+        rows.append(("この1時間", f"{busy[0]}（{busy[1]}分ほど）"))
+    for letter, free, used in disks():
+        rows.append((f"{letter}ドライブ", f"空き{free:.0f}GB（{used}%使用）"))
+    found = memory()
+    if found:
+        rows.append(("メモリ", f"{found[0]}%使用（空き{found[1]:.1f}GB）"))
+    load = cpu()
+    if load is not None:
+        rows.append(("CPU", f"{load}%"))
+    card = gpu()
+    if card:
+        rows.append(("GPU", f"{card[0]}%・VRAM{card[1]:.1f}/{card[2]:.0f}GB・{card[3]}℃"))
+    return rows
+
+
 def sample(conn) -> None:
     """巡回から1分ごとに呼ぶ。いま前面のアプリを1つ数える。"""
     cpu_tick()

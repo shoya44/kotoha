@@ -42,7 +42,8 @@ def ready() -> bool:
     return bool(config.PUSH_ENABLED and config.ONESIGNAL_APP_ID and config.ONESIGNAL_API_KEY)
 
 
-def push(title: str, body: str, quiet_body: str = "ことはから") -> bool:
+def push(title: str, body: str, quiet_body: str = "ことはから", buttons=None,
+         url: str = "") -> bool:
     """通知を送る。送れたかどうかを返す。
 
     本文をそのまま載せるかは設定で選べる。載せると OneSignal を通るので、
@@ -57,8 +58,10 @@ def push(title: str, body: str, quiet_body: str = "ことはから") -> bool:
         "headings": {"en": title},
         # 言語別に入れる決まりで、en は必ず要る。日本語をそのまま入れてよい。
         "contents": {"en": shown},
-        "url": config.PUSH_OPEN_URL or None,
+        "url": url or config.PUSH_OPEN_URL or None,
     }
+    if buttons:
+        payload["web_buttons"] = buttons
     payload = {key: value for key, value in payload.items() if value is not None}
     try:
         response = _http().post(

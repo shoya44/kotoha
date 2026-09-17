@@ -1,3 +1,4 @@
+import json
 import os
 import threading
 import time
@@ -66,10 +67,21 @@ def run_periodic_jobs(conn) -> None:
         db.run_maintenance(conn)
     # 朝の一言、頼まれごと、見守り、暇なときの声かけ。
     # どれも滅多に鳴らないので、ここで待たせてよい。
-    maybe_reminders(conn)
-    maybe_briefing(conn)
-    maybe_lookout(conn)
-    maybe_reach_out(conn)
+    # この巡回のあいだは鳴らさずに預かる。朝の一言と頼まれごとが同じ分に
+    # 重なることがあり、2通に分けると同じ人から立て続けに届く。
+    global _collecting
+    _collecting = True
+    try:
+        maybe_reminders(conn)
+        maybe_briefing(conn)
+        maybe_lookout(conn)
+        maybe_reach_out(conn)
+    finally:
+        _collecting = False
+    try:
+        flush_held(conn)
+    except Exception as error:
+        notify.log(f"まとめて言えなかった: {error!r}")
 
 
 def _wake_embedder() -> None:
@@ -96,12 +108,100 @@ def _tool_probes():
     return {"音声エンジン": aivis_is_up, "Ollama": ollama_is_up}
 
 
+# 巡回のあいだ立てる印。ここが True の間、announce は鳴らさずに預かる。
+# 触るのは裏の巡回だけで、会話（/api/chat）はここを通らない。
+_collecting = False
+
+# まとめ待ちの置き場。DBに置くので、落ちても預かったものは消えない。
+HELD_KEY = "held_announcements"
+# 預かったことを呼び出し側へ伝える印。空文字（言えなかった）とは区別する。
+HELD = "あとでまとめて言う"
+# 長く溜め込んでも困る。一度に言える量には限りがある。
+HELD_LIMIT = 8
+
+
+def _held(conn):
+    try:
+        items = json.loads(db.get_state(conn, HELD_KEY) or "[]")
+    except ValueError:
+        return []
+    return [i for i in items if isinstance(i, dict)] if isinstance(items, list) else []
+
+
+def _too_soon(conn) -> bool:
+    """前に鳴らしてから、まだ間が空いていない。"""
+    if config.NOTIFY_GAP_MINUTES <= 0:
+        return False
+    return db.seconds_since(db.get_state(conn, "last_notify_at")) < config.NOTIFY_GAP_MINUTES * 60
+
+
+def _with_ids(name, ids) -> str:
+    """開く先に番号だけを足す。用件は載せない。通知の道はOneSignalを通る。"""
+    joiner = "&" if "?" in config.PUSH_OPEN_URL else "?"
+    return f"{config.PUSH_OPEN_URL}{joiner}{name}=" + ",".join(str(i) for i in ids)
+
+
+def _snooze_ready(ids) -> bool:
+    return bool(ids and config.SNOOZE_MINUTES > 0 and config.PUSH_OPEN_URL)
+
+
+def _snooze_buttons(ids):
+    """通知そのものに付ける「あとで」。
+
+    ⚠️ Safari は通知のボタンに対応していない。iPhoneのPWAには出ないので、
+    こちらは Chrome で見たときのための道。iPhone では開いた画面で押す。
+    """
+    if not _snooze_ready(ids):
+        return None
+    return [{"id": "snooze", "text": f"{config.SNOOZE_MINUTES}分後にもう一度",
+             "url": _with_ids("snooze", ids)}]
+
+
+def _say(conn, items) -> str:
+    """預かったぶんも含めて、ひと続きの言葉にして鳴らす。
+
+    2つを2通に分けると、同じ人から立て続けに届く。1通にまとめるのは
+    体裁の問題ではなく、向こうに居るのが1人だからで、言い方はことはに任せる。
+    """
+    closings = [i["closing"] for i in items if i.get("closing")]
+    if len(closings) > 1:
+        reasons = "\n".join(f"- {c}" for c in closings)
+        closing = ("いくつか言うことがある。次のことを、ひと続きの短い言葉にまとめて言う。"
+                   "箇条書きにはしない。\n" + reasons)
+    else:
+        closing = closings[0] if closings else ""
+    extra = "\n".join(i["extra"] for i in items if i.get("extra"))
+    keep = any(i.get("keep", True) for i in items)
+    text = ""
+    try:
+        text = chat.speak(conn, closing, extra, keep)
+    except Exception as error:
+        notify.log(f"言えなかった: {error!r}")
+    if not text:
+        plains = [i["plain"] for i in items if i.get("plain")]
+        if plains:
+            text = "。".join(plains)
+            chat.remember(conn, text, keep=keep)   # 定型でも、言った以上は残す
+    if text:
+        db.set_state(conn, "last_notify_at", db.now_utc())
+        conn.commit()
+        ids = [i for item in items for i in item.get("remind_ids") or ()]
+        # 開く先にも番号を載せる。ボタンの出ない iPhone では、開いた画面に出す。
+        url = _with_ids("remind", ids) if _snooze_ready(ids) else ""
+        notify.push("ことは", text, buttons=_snooze_buttons(ids), url=url)
+    return text
+
+
 def announce(conn, closing: str, plain: str = "", extra: str = "",
-             keep: bool = True) -> str:
+             keep: bool = True, remind_ids=()) -> str:
     """ことはのほうから何か言う。言ったことが、そのまま通知になる。
 
     通知はすべてここを通す。言わずに鳴らすことはしない。開いても何も
     無い通知ほど不親切なものはないし、あとから会話を辿れなくなる。
+
+    前の通知から間が空いていなければ、ここでは鳴らさずに預かる。巡回が
+    間をおいてから、溜まったぶんをまとめて1通にして言う。預かったときは
+    HELD を返すので、呼び出し側から見れば「言えた」と同じ扱いでよい。
 
     plain は、文を作れなかったときに代わりに言わせる一言。見張りのように
     「黙るくらいなら定型でも伝えたい」用がある。声かけのように、言えない
@@ -109,17 +209,34 @@ def announce(conn, closing: str, plain: str = "", extra: str = "",
     """
     if not notify.ready():
         return ""
-    text = ""
-    try:
-        text = chat.speak(conn, closing, extra, keep)
-    except Exception as error:
-        notify.log(f"言えなかった: {error!r}")
-    if not text and plain:
-        text = plain
-        chat.remember(conn, text, keep=keep)   # 定型でも、言った以上は残す
-    if text:
-        notify.push("ことは", text)
-    return text
+    if _collecting or _too_soon(conn):
+        items = _held(conn)
+        if len(items) >= HELD_LIMIT:
+            notify.log(f"預かりきれないので古いぶんを捨てた: {items[0].get('plain') or ''}"[:120])
+            items = items[1:]
+        items.append({"closing": closing, "plain": plain, "extra": extra, "keep": keep,
+                      "remind_ids": list(remind_ids)})
+        db.set_state(conn, HELD_KEY, json.dumps(items, ensure_ascii=False))
+        conn.commit()
+        return HELD
+    return _say(conn, [{"closing": closing, "plain": plain, "extra": extra, "keep": keep,
+                        "remind_ids": list(remind_ids)}])
+
+
+def flush_held(conn) -> str:
+    """預かったぶんを、間が空いてからまとめて言う。
+
+    先に置き場を空にする。ここで失敗しても、同じものを抱えたまま毎分
+    やり直すことにはしない。
+    """
+    if not notify.ready():
+        return ""
+    items = _held(conn)
+    if not items or _too_soon(conn):
+        return ""
+    db.set_state(conn, HELD_KEY, "[]")
+    conn.commit()
+    return _say(conn, items)
 
 
 def run_watch_jobs() -> None:
@@ -216,7 +333,7 @@ def maybe_reminders(conn) -> None:
     for row in remind.due(conn):
         spoken = announce(conn, f"前に「{row['text']}」を思い出させてほしいと頼まれていた。"
                                 "その時刻になった。一行で伝える。",
-                          plain=f"{row['text']}の時間だよ")
+                          plain=f"{row['text']}の時間だよ", remind_ids=[row["id"]])
         if spoken:
             remind.done(conn, row["id"])
             conn.commit()
@@ -518,6 +635,43 @@ def memory_delete(request: Request, node_id: int):
         return {"deleted": True}
     finally:
         conn.close()
+
+
+@app.post("/api/remind/snooze")
+def remind_snooze(request: Request, payload: dict):
+    """通知の「あとで」から呼ばれる。同じ用件を、少し先へ置き直す。"""
+    _check_token(request)
+    ids = [i for i in payload.get("ids") or [] if isinstance(i, int)]
+    if not ids:
+        raise HTTPException(status_code=400, detail="番号がない")
+    conn = db.connect()
+    try:
+        moved, due = remind.snooze(conn, ids, config.SNOOZE_MINUTES)
+    finally:
+        conn.close()
+    if not moved:
+        raise HTTPException(status_code=404, detail="その頼まれごとはありません")
+    return {"moved": moved, "due_at": due.strftime(remind.STAMP)}
+
+
+@app.get("/api/machine")
+def machine_view(request: Request):
+    """いまのPCの様子。見るだけで、ここからは何も変えない。
+
+    会話のときに使っている値をそのまま並べる。道具が生きているかは、
+    止まっていると1秒待たされるので最後に置く。
+    """
+    _check_token(request)
+    conn = db.connect()
+    try:
+        rows = [{"label": label, "value": value} for label, value in presence.snapshot(conn)]
+        owner = _call_owner(conn)
+        rows.append({"label": "通話", "value": owner or "していない"})
+    finally:
+        conn.close()
+    for label, probe in _tool_probes().items():
+        rows.append({"label": label, "value": "動いている" if probe() else "止まっている"})
+    return {"rows": rows}
 
 
 @app.get("/api/prompts")

@@ -108,6 +108,50 @@ class KeepingTests(unittest.TestCase):
         self.assertEqual(remind.block(self.conn), "")
 
 
+class SnoozeTests(unittest.TestCase):
+    """通知の「あとで」。同じ用件を、少し先へ置き直す。"""
+
+    def setUp(self):
+        if config.DB_PATH.exists():
+            config.DB_PATH.unlink()
+        self.conn = db.connect()
+        self.addCleanup(self.conn.close)
+        db.init(self.conn)
+
+    def spoken(self, text="歯医者"):
+        """一度言い終わった状態（done）にしてから返す。"""
+        remind.add(self.conn, datetime.now() - timedelta(minutes=1), text)
+        self.conn.commit()
+        row = remind.due(self.conn)[0]
+        remind.done(self.conn, row["id"])
+        self.conn.commit()
+        return row["id"]
+
+    def test_it_says_the_same_thing_again_later(self):
+        moved, due = remind.snooze(self.conn, [self.spoken()], 30)
+        self.assertEqual(moved, 1)
+        held = remind.pending(self.conn)
+        self.assertEqual([r["text"] for r in held], ["歯医者"])
+        self.assertEqual(held[0]["due_at"], due.strftime(remind.STAMP))
+
+    def test_it_moves_everything_that_was_said_together(self):
+        ids = [self.spoken("歯医者"), self.spoken("ゴミ出し")]
+        moved, _ = remind.snooze(self.conn, ids, 30)
+        self.assertEqual(moved, 2)
+        self.assertEqual(sorted(r["text"] for r in remind.pending(self.conn)),
+                         ["ゴミ出し", "歯医者"])
+
+    def test_a_number_that_is_not_there_moves_nothing(self):
+        moved, _ = remind.snooze(self.conn, [999], 30)
+        self.assertEqual(moved, 0)
+        self.assertEqual(remind.pending(self.conn), [])
+
+    def test_the_old_one_stays_folded(self):
+        """置き直しても、元のぶんが二重に鳴ることはない。"""
+        remind.snooze(self.conn, [self.spoken()], 30)
+        self.assertEqual(len(remind.pending(self.conn)), 1)
+
+
 class FiringTests(unittest.TestCase):
     """時刻が来たら、会話として言い、そのまま通知になる。"""
 
@@ -271,6 +315,56 @@ class StreakTests(unittest.TestCase):
 
     def test_nothing_measured_yet_is_not_a_streak(self):
         self.assertIsNone(presence.streak(self.conn))
+
+
+class SnoozeApiTests(unittest.TestCase):
+    """通知の「あとで」を押して開いた画面から呼ばれる入口。"""
+
+    def setUp(self):
+        from fastapi.testclient import TestClient
+
+        if config.DB_PATH.exists():
+            config.DB_PATH.unlink()
+        self.conn = db.connect()
+        self.addCleanup(self.conn.close)
+        db.init(self.conn)
+        for name, value in (("WEB_TOKEN", "testtoken"), ("SNOOZE_MINUTES", 30)):
+            self.addCleanup(setattr, config, name, getattr(config, name))
+            setattr(config, name, value)
+        self.client = TestClient(web.app)
+        self.headers = {"X-Kotoha-Token": "testtoken"}
+
+    def kept(self, text="歯医者"):
+        remind.add(self.conn, datetime.now() - timedelta(minutes=1), text)
+        self.conn.commit()
+        return remind.pending(self.conn)[-1]["id"]
+
+    def test_it_puts_the_errand_further_off(self):
+        response = self.client.post("/api/remind/snooze",
+                                    json={"ids": [self.kept()]}, headers=self.headers)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["moved"], 1)
+        self.assertEqual([r["text"] for r in remind.pending(self.conn)], ["歯医者", "歯医者"])
+
+    def test_an_unknown_number_is_a_miss(self):
+        response = self.client.post("/api/remind/snooze",
+                                    json={"ids": [999]}, headers=self.headers)
+        self.assertEqual(response.status_code, 404)
+
+    def test_nothing_to_move_is_refused(self):
+        response = self.client.post("/api/remind/snooze", json={"ids": []}, headers=self.headers)
+        self.assertEqual(response.status_code, 400)
+
+    def test_rubbish_is_not_taken_as_a_number(self):
+        response = self.client.post("/api/remind/snooze",
+                                    json={"ids": ["'; DROP TABLE reminders; --"]},
+                                    headers=self.headers)
+        self.assertEqual(response.status_code, 400)
+
+    def test_a_wrong_token_is_refused(self):
+        response = self.client.post("/api/remind/snooze", json={"ids": [self.kept()]},
+                                    headers={"X-Kotoha-Token": "wrong"})
+        self.assertEqual(response.status_code, 401)
 
 
 if __name__ == "__main__":

@@ -2,7 +2,7 @@
 
 import tempfile
 import unittest
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import httpx
@@ -14,7 +14,7 @@ _TMP = tempfile.TemporaryDirectory(prefix="kotoha notify ")
 config.DB_PATH = Path(_TMP.name) / "test.sqlite3"
 
 from kotoha import notify  # noqa: E402
-from kotoha.memory import db  # noqa: E402
+from kotoha.memory import db, remind  # noqa: E402
 from kotoha.serve import web  # noqa: E402
 from kotoha.talk import chat, presence  # noqa: E402
 
@@ -220,6 +220,209 @@ class WatchTests(unittest.TestCase):
         web.run_watch_jobs()
         self.assertEqual(len(self.pushed), 1)
         self.assertIn("Cドライブ", self.pushed[0])
+
+
+class TogetherTests(unittest.TestCase):
+    """立て続けに鳴らさない。同じ巡回で出たものは、1通にまとめて言う。"""
+
+    def setUp(self):
+        if config.DB_PATH.exists():
+            config.DB_PATH.unlink()
+        self.conn = db.connect()
+        self.addCleanup(self.conn.close)
+        db.init(self.conn)
+        self.addCleanup(setattr, config, "NOTIFY_GAP_MINUTES", config.NOTIFY_GAP_MINUTES)
+        config.NOTIFY_GAP_MINUTES = 10
+        for name in ("ready", "push", "log"):
+            self.addCleanup(setattr, notify, name, getattr(notify, name))
+        self.addCleanup(setattr, chat, "speak", chat.speak)
+        self.addCleanup(setattr, chat, "remember", chat.remember)
+        self.addCleanup(setattr, web, "_collecting", False)
+        notify.log = lambda text: None      # 本物のログに書き込まない
+        notify.ready = lambda: True
+        self.pushed = []
+        notify.push = lambda title, body, *a, **k: self.pushed.append(body) or True
+        # 本物のGeminiは叩かせない。渡された指示をそのまま返して中身を見る。
+        self.asked = []
+        chat.speak = lambda conn, closing, extra="", keep=True: (
+            self.asked.append((closing, extra, keep)) or "うん、わかった")
+        chat.remember = lambda conn, text, ids=(), mood="", keep=True: None
+
+    def pass_of(self, *closings):
+        """1回の巡回のまね。announce はこの間、鳴らさずに預かる。"""
+        web._collecting = True
+        try:
+            for closing in closings:
+                web.announce(self.conn, closing)
+        finally:
+            web._collecting = False
+        return web.flush_held(self.conn)
+
+    def test_two_things_in_one_round_become_one_message(self):
+        self.pass_of("空きが減ったと伝える。", "歯医者の時間だと伝える。")
+        self.assertEqual(len(self.pushed), 1)
+        closing = self.asked[0][0]
+        self.assertIn("空きが減った", closing)
+        self.assertIn("歯医者", closing)
+
+    def test_one_thing_is_asked_for_as_it_is(self):
+        """1つだけのときは、まとめる指示で言葉を濁さない。"""
+        self.pass_of("歯医者の時間だと伝える。")
+        self.assertEqual(self.asked[0][0], "歯医者の時間だと伝える。")
+        self.assertEqual(self.pushed, ["うん、わかった"])
+
+    def test_the_next_one_waits_for_the_gap(self):
+        self.pass_of("ひとつめ。")
+        self.assertEqual(len(self.pushed), 1)
+        self.pass_of("ふたつめ。")
+        self.assertEqual(len(self.pushed), 1)    # まだ間が空いていない
+        self.assertEqual(len(web._held(self.conn)), 1)
+
+    def test_it_speaks_again_once_the_gap_has_passed(self):
+        self.pass_of("ひとつめ。")
+        db.set_state(self.conn, "last_notify_at", f"{datetime.now().year - 1}-01-01T00:00:00Z")
+        self.conn.commit()
+        self.pass_of("ふたつめ。")
+        self.assertEqual(len(self.pushed), 2)
+
+    def test_what_was_held_survives_a_restart(self):
+        """預かりはDBに置く。落ちても、頼まれごとが消えない。"""
+        self.pass_of("ひとつめ。")
+        self.pass_of("ふたつめ。")
+        other = db.connect()
+        try:
+            self.assertEqual(len(web._held(other)), 1)
+        finally:
+            other.close()
+
+    def test_switching_the_gap_off_speaks_at_once(self):
+        config.NOTIFY_GAP_MINUTES = 0
+        web.announce(self.conn, "ひとつめ。")
+        web.announce(self.conn, "ふたつめ。")
+        self.assertEqual(len(self.pushed), 2)
+
+    def test_it_does_not_hold_more_than_it_can_say(self):
+        self.pass_of("さいしょ。")
+        for i in range(web.HELD_LIMIT + 3):
+            web.announce(self.conn, f"{i}番目。")
+        self.assertEqual(len(web._held(self.conn)), web.HELD_LIMIT)
+
+    def test_a_broken_note_is_not_carried_around(self):
+        db.set_state(self.conn, web.HELD_KEY, "こわれている")
+        self.conn.commit()
+        self.assertEqual(web._held(self.conn), [])
+
+    def test_a_held_errand_is_not_asked_for_twice(self):
+        """預かられても「言えた」扱いにする。でないと毎分積み増してしまう。"""
+        remind.add(self.conn, datetime.now() - timedelta(minutes=1), "歯医者")
+        self.conn.commit()
+        self.pass_of("さいしょ。")              # ここで間を埋める
+        web._collecting = True
+        try:
+            web.maybe_reminders(self.conn)
+            web.maybe_reminders(self.conn)
+        finally:
+            web._collecting = False
+        self.assertEqual(len(web._held(self.conn)), 1)
+        self.assertEqual(remind.pending(self.conn), [])
+
+    def test_the_round_sends_what_was_held(self):
+        """巡回の配線。預かったものが、次の巡回で出ていく。"""
+        for name, value in (("PRESENCE_ENABLED", False), ("BRIEFING_ENABLED", False),
+                            ("LOOKOUT_ENABLED", False), ("REACH_OUT_ENABLED", False),
+                            ("BACKUP_INTERVAL_SECONDS", 10 ** 9),
+                            ("MAINTENANCE_SECONDS", 10 ** 9)):
+            self.addCleanup(setattr, config, name, getattr(config, name))
+            setattr(config, name, value)
+        web._collecting = True
+        try:
+            web.announce(self.conn, "預かったこと。")
+        finally:
+            web._collecting = False
+        web.run_periodic_jobs(self.conn)
+        self.assertEqual(self.pushed, ["うん、わかった"])
+        self.assertEqual(web._held(self.conn), [])
+
+
+class SnoozeButtonTests(unittest.TestCase):
+    """頼まれごとの通知にだけ「あとで」を付ける。用件はURLに載せない。"""
+
+    def setUp(self):
+        if config.DB_PATH.exists():
+            config.DB_PATH.unlink()
+        self.conn = db.connect()
+        self.addCleanup(self.conn.close)
+        db.init(self.conn)
+        for name, value in (("SNOOZE_MINUTES", 30),
+                            ("PUSH_OPEN_URL", "https://pc.example.ts.net"),
+                            ("NOTIFY_GAP_MINUTES", 0)):
+            self.addCleanup(setattr, config, name, getattr(config, name))
+            setattr(config, name, value)
+        for name in ("ready", "push", "log"):
+            self.addCleanup(setattr, notify, name, getattr(notify, name))
+        self.addCleanup(setattr, chat, "speak", chat.speak)
+        notify.log = lambda text: None
+        notify.ready = lambda: True
+        self.sent = []
+        notify.push = lambda title, body, *a, **k: self.sent.append(
+            (body, k.get("buttons"), k.get("url"))) or True
+        chat.speak = lambda conn, closing, extra="", keep=True: "歯医者の時間だよー"
+
+    def fire(self, text="歯医者"):
+        remind.add(self.conn, datetime.now() - timedelta(minutes=1), text)
+        self.conn.commit()
+        web.maybe_reminders(self.conn)
+
+    def test_an_errand_gets_a_later_button(self):
+        self.fire()
+        buttons = self.sent[0][1]
+        self.assertEqual(len(buttons), 1)
+        self.assertIn("30分後", buttons[0]["text"])
+
+    def test_the_link_carries_only_the_number(self):
+        """通知はOneSignalを通る。用件そのものは渡さない。"""
+        self.fire("心療内科の予約")
+        url = self.sent[0][1][0]["url"]
+        self.assertNotIn("心療内科", url)
+        self.assertIn("snooze=", url)
+
+    def test_other_notices_have_no_button(self):
+        web.announce(self.conn, "空きが減ったと伝える。")
+        self.assertIsNone(self.sent[0][1])
+
+    def test_switching_it_off_removes_the_button(self):
+        config.SNOOZE_MINUTES = 0
+        self.fire()
+        self.assertIsNone(self.sent[0][1])
+
+    def test_without_a_url_there_is_nowhere_to_press(self):
+        config.PUSH_OPEN_URL = ""
+        self.fire()
+        self.assertIsNone(self.sent[0][1])
+
+    def test_the_notice_itself_opens_where_it_can_be_moved(self):
+        """iPhoneは通知にボタンを出せない。開いた画面で押せるよう、番号を渡す。"""
+        self.fire()
+        self.assertRegex(self.sent[0][2], r"remind=\d+$")
+
+    def test_other_notices_open_the_usual_place(self):
+        web.announce(self.conn, "空きが減ったと伝える。")
+        self.assertEqual(self.sent[0][2], "")
+
+    def test_errands_said_together_are_moved_together(self):
+        """まとめて言ったぶんは、まとめて置き直せるようにする。"""
+        config.NOTIFY_GAP_MINUTES = 10
+        for text in ("歯医者", "ゴミ出し"):
+            remind.add(self.conn, datetime.now() - timedelta(minutes=1), text)
+        self.conn.commit()
+        web._collecting = True
+        try:
+            web.maybe_reminders(self.conn)
+        finally:
+            web._collecting = False
+        web.flush_held(self.conn)
+        url = self.sent[0][1][0]["url"]
+        self.assertRegex(url, r"snooze=\d+,\d+")
 
 
 if __name__ == "__main__":

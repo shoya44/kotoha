@@ -854,6 +854,25 @@ textarea:focus-visible {
 
 .setting-row input:focus { border-color: var(--accent); }
 
+.snooze-offer {
+  background: var(--fill);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--ink);
+  cursor: pointer;
+  font: inherit;
+  padding: 8px 18px;
+}
+
+.snooze-offer:disabled { opacity: .5; }
+
+.machine-value {
+  color: var(--muted);
+  font-size: 14px;
+  text-align: right;
+  white-space: nowrap;
+}
+
 .memory-item {
   width: 100%;
   min-height: var(--tap-min);
