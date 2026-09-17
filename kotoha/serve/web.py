@@ -41,7 +41,9 @@ def run_periodic_jobs(conn) -> None:
     """
     unprocessed = _unprocessed_turns(conn)
     idle = db.seconds_since(db.get_state(conn, "last_conversation_at")) > config.IDLE_SECONDS
-    if unprocessed >= config.CONSOLIDATE_TURNS or (unprocessed > 0 and idle):
+    # 会話が途切れてからにする。整理は会話と同じ順番待ちに並ぶので、話している
+    # 最中に走ると返答が数秒止まる。通話だとそのまま黙り込んで聞こえる。
+    if unprocessed > 0 and idle:
         try:
             consolidate.run(conn)
         except Exception:

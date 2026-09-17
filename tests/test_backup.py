@@ -161,5 +161,55 @@ class PeriodicJobOrderTests(unittest.TestCase):
         self.assertEqual(rescued[0], "消える記憶")
 
 
+class ConsolidationTimingTests(unittest.TestCase):
+    """整理を始める頃合い。巡回は会話と同じ順番待ちに並ぶ。"""
+
+    def setUp(self):
+        if config.DB_PATH.exists():
+            config.DB_PATH.unlink()
+        self.conn = db.connect()
+        self.addCleanup(self.conn.close)
+        db.init(self.conn)
+
+        from kotoha.serve import web
+
+        self.web = web
+        original = web.consolidate.run
+        self.runs = []
+        web.consolidate.run = lambda conn: self.runs.append(conn)
+        self.addCleanup(setattr, web.consolidate, "run", original)
+
+    def add_turns(self, count, last_spoken_at):
+        for turn in range(1, count + 1):
+            db.insert_message(self.conn, turn, "user", "はなしかけ")
+            db.insert_message(self.conn, turn, "assistant", "へんじ")
+        db.set_state(self.conn, "last_conversation_at", last_spoken_at)
+        # 忘却やバックアップに気を取られないようにしておく
+        db.set_state(self.conn, "last_forget_at", db.now_utc())
+        db.set_state(self.conn, "last_backup_at", db.now_utc())
+        self.conn.commit()
+
+    def test_not_while_still_talking(self):
+        """会話中に整理が走ると、その数秒ぶん返答が止まって聞こえる。"""
+        self.add_turns(config.CONSOLIDATE_TURNS + 5, db.now_utc())
+        self.web.run_periodic_jobs(self.conn)
+        self.assertEqual(self.runs, [])
+
+    def test_runs_once_the_talking_stops(self):
+        idle = datetime.now(timezone.utc) - timedelta(seconds=config.IDLE_SECONDS + 60)
+        self.add_turns(2, idle.strftime("%Y-%m-%dT%H:%M:%SZ"))
+        self.web.run_periodic_jobs(self.conn)
+        self.assertEqual(len(self.runs), 1)
+
+    def test_nothing_to_do_when_everything_is_processed(self):
+        idle = datetime.now(timezone.utc) - timedelta(seconds=config.IDLE_SECONDS + 60)
+        self.add_turns(2, idle.strftime("%Y-%m-%dT%H:%M:%SZ"))
+        last = self.conn.execute("SELECT MAX(id) FROM messages").fetchone()[0]
+        db.set_state(self.conn, "last_processed_message_id", last)
+        self.conn.commit()
+        self.web.run_periodic_jobs(self.conn)
+        self.assertEqual(self.runs, [])
+
+
 if __name__ == "__main__":
     unittest.main()
