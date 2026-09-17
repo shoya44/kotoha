@@ -110,7 +110,7 @@ class ReachOutTests(unittest.TestCase):
         self.pushed = []
         notify.push = lambda title, body, *a, **k: self.pushed.append(body) or True
         # 本物のGeminiを叩かせない。
-        chat.speak = lambda conn, closing, extra="": "そういえばあれ、どうなった？"
+        chat.speak = lambda conn, closing, extra="", keep=True: "そういえばあれ、どうなった？"
 
     def quiet_for(self, hours):
         long_ago = f"{datetime.now().year - 1}-01-01T00:00:00Z"
@@ -154,7 +154,7 @@ class ReachOutTests(unittest.TestCase):
 
 
     @staticmethod
-    def explode(conn, closing, extra=""):
+    def explode(conn, closing, extra="", keep=True):
         raise ZeroDivisionError("わざと")
 
 
@@ -176,8 +176,8 @@ class WatchTests(unittest.TestCase):
         notify.log = lambda text: None   # 本物のログに書き込まない
         notify.ready = lambda: True
         # 見張りも announce を通る。本物のGeminiは叩かせない。
-        chat.speak = lambda conn, closing, extra="": ""
-        chat.remember = lambda conn, text, ids=(), mood="": None
+        chat.speak = lambda conn, closing, extra="", keep=True: ""
+        chat.remember = lambda conn, text, ids=(), mood="", keep=True: None
         self.pushed = []
         notify.push = lambda title, body, *a, **k: self.pushed.append(body) or True
         presence.disks = lambda: []

@@ -93,7 +93,8 @@ def _tool_probes():
     return {"音声エンジン": aivis_is_up, "Ollama": ollama_is_up}
 
 
-def announce(conn, closing: str, plain: str = "", extra: str = "") -> str:
+def announce(conn, closing: str, plain: str = "", extra: str = "",
+             keep: bool = True) -> str:
     """ことはのほうから何か言う。言ったことが、そのまま通知になる。
 
     通知はすべてここを通す。言わずに鳴らすことはしない。開いても何も
@@ -107,12 +108,12 @@ def announce(conn, closing: str, plain: str = "", extra: str = "") -> str:
         return ""
     text = ""
     try:
-        text = chat.speak(conn, closing, extra)
+        text = chat.speak(conn, closing, extra, keep)
     except Exception as error:
         notify.log(f"言えなかった: {error!r}")
     if not text and plain:
         text = plain
-        chat.remember(conn, text)     # 定型でも、言った以上は残す
+        chat.remember(conn, text, keep=keep)   # 定型でも、言った以上は残す
     if text:
         notify.push("ことは", text)
     return text
@@ -197,7 +198,8 @@ def maybe_briefing(conn) -> None:
     db.set_state(conn, "last_briefing_on", today)
     conn.commit()
     # 空模様が取れなくても挨拶はする。外が落ちて朝が消えるのは違う。
-    announce(conn, chat.BRIEFING_CLOSING, extra=weather.block(weather.today()))
+    # keep=False: その日の天気を長期記憶に溜めない。画面には残る。
+    announce(conn, chat.BRIEFING_CLOSING, extra=weather.block(weather.today()), keep=False)
 
 
 def run_vector_jobs() -> None:

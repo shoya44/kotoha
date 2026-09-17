@@ -185,7 +185,11 @@ def build_prompt(conn, user_text: str, recent, pinned, related, fast: bool = Fal
         # 毎回は渡さない。150字ほどあるうえ、ほとんどの会話では要らない。
         inside = presence.details()
         machine_block = "\n".join(
-            part for part in (f"PCの中身: {inside}" if inside else "", actions.offer())
+            part for part in (
+                f"いま見えているPCの中身（聞かれたら隠さず答えてよい）: {inside}"
+                if inside else "",
+                actions.offer(),
+            )
             if part
         )
 
@@ -259,7 +263,7 @@ BRIEFING_CLOSING = (
 )
 
 
-def speak(conn, closing: str, extra: str = ""):
+def speak(conn, closing: str, extra: str = "", keep: bool = True):
     """ことはのほうから口を開く。作った文は履歴に残し、それを返す。
 
     話しかけられていないので「今回の発言」が無い。そこだけ差し替えて、
@@ -278,14 +282,18 @@ def speak(conn, closing: str, extra: str = ""):
     clean = clean.strip()
     if not clean:
         return ""
-    remember(conn, clean, ids, mood)
+    remember(conn, clean, ids, mood, keep)
     return clean
 
 
-def remember(conn, text: str, ids=(), mood: str = ""):
-    """ことはの独り言を、会話と同じ場所に残す。開けば並んでいる。"""
+def remember(conn, text: str, ids=(), mood: str = "", keep: bool = True):
+    """ことはの独り言を、会話と同じ場所に残す。開けば並んでいる。
+
+    keep=False は、画面には残すが長期記憶には昇格させない。天気のように
+    その日限りのものを毎朝1件ずつ溜めても、後から邪魔になるだけ。
+    """
     turn_id = db.next_turn_id(conn)
-    db.insert_message(conn, turn_id, "assistant", text)
+    db.insert_message(conn, turn_id, "assistant", text, extractable=1 if keep else 0)
     if mood:
         db.set_state(conn, "mood", mood)
         db.set_state(conn, "mood_at", db.now_utc())

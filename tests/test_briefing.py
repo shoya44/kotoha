@@ -109,7 +109,7 @@ class BriefingTests(unittest.TestCase):
         self.pushed = []
         notify.push = lambda title, body, *a, **k: self.pushed.append(body) or True
         self.given = []
-        chat.speak = lambda conn, closing, extra="": (
+        chat.speak = lambda conn, closing, extra="", keep=True: (
             self.given.append(extra) or "おはよ。傘いるよ。")
         web.weather = FakeSky()
 
@@ -171,15 +171,41 @@ class BriefingTests(unittest.TestCase):
         self.assertEqual(len(self.pushed), 1)       # 挨拶は出る
         self.assertEqual(self.given[0], "")         # 空模様だけ抜ける
 
+    def speaks_for_real(self):
+        """文だけ替えて、残すところは本物に通す。"""
+        def speak(conn, closing, extra="", keep=True):
+            chat.remember(conn, "おはよ", keep=keep)
+            return "おはよ"
+
+        chat.speak = speak
+
+    def kept(self):
+        row = self.conn.execute(
+            "SELECT extractable FROM messages WHERE role = 'assistant'").fetchone()
+        return row["extractable"]
+
+    def test_the_weather_is_not_kept_forever(self):
+        """今日の天気を毎朝1件ずつ溜めても、あとから邪魔になるだけ。"""
+        self.speaks_for_real()
+        self.at(8)
+        web.maybe_briefing(self.conn)
+        self.assertEqual(self.kept(), 0)   # 画面には残るが、記憶には昇格しない
+
+    def test_what_it_says_out_of_the_blue_is_still_remembered(self):
+        """天気と違い、ふだんの声かけは会話の流れの一部なので覚える。"""
+        self.speaks_for_real()
+        web.announce(self.conn, "何か言う")
+        self.assertEqual(self.kept(), 1)
+
     def test_a_failure_does_not_repeat_all_morning(self):
         """文を作れなくても、毎分やり直さない。APIを空回りさせない。"""
-        def explode(conn, closing, extra=""):
+        def explode(conn, closing, extra="", keep=True):
             raise RuntimeError("だめ")
 
         chat.speak = explode
         self.at(8)
         web.maybe_briefing(self.conn)
-        chat.speak = lambda conn, closing, extra="": "おはよ"
+        chat.speak = lambda conn, closing, extra="", keep=True: "おはよ"
         web.maybe_briefing(self.conn)
         self.assertEqual(self.pushed, [])
 
@@ -206,7 +232,7 @@ class AnnounceTests(unittest.TestCase):
                 self.conn.execute("SELECT text FROM messages WHERE role = 'assistant'")]
 
     def test_what_it_says_is_what_it_sends(self):
-        chat.speak = lambda conn, closing, extra="": "ねえ、聞いてる？"
+        chat.speak = lambda conn, closing, extra="", keep=True: "ねえ、聞いてる？"
         web.announce(self.conn, "何か言う")
         self.assertEqual(self.pushed, ["ねえ、聞いてる？"])
 
@@ -219,7 +245,7 @@ class AnnounceTests(unittest.TestCase):
 
     def test_it_falls_back_to_plain_words(self):
         """文を作れなくても、伝えたいことは伝える。"""
-        def explode(conn, closing, extra=""):
+        def explode(conn, closing, extra="", keep=True):
             raise RuntimeError("だめ")
 
         chat.speak = explode
@@ -228,7 +254,7 @@ class AnnounceTests(unittest.TestCase):
         self.assertEqual(self.said(), ["音声エンジンが止まったみたい"])
 
     def test_without_plain_words_it_stays_silent(self):
-        def explode(conn, closing, extra=""):
+        def explode(conn, closing, extra="", keep=True):
             raise RuntimeError("だめ")
 
         chat.speak = explode
@@ -238,7 +264,7 @@ class AnnounceTests(unittest.TestCase):
 
     def test_it_does_nothing_when_push_is_not_set_up(self):
         notify.ready = lambda: False
-        chat.speak = lambda conn, closing, extra="": "おーい"
+        chat.speak = lambda conn, closing, extra="", keep=True: "おーい"
         web.announce(self.conn, "何か言う")
         self.assertEqual(self.pushed, [])
         self.assertEqual(self.said(), [])
