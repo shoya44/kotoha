@@ -195,7 +195,7 @@ async function loadSettings() {
   if (!data) return;
   const items = data.settings;
   elements.settingsList.replaceChildren(...items.map(item => {
-    const row = document.createElement("div");
+    const row = document.createElement(item.type === "bool" ? "button" : "div");
     row.className = "setting-row";
 
     const label = document.createElement("div");
@@ -205,6 +205,23 @@ async function loadSettings() {
     const note = document.createElement("small");
     note.textContent = item.note;
     label.append(name, note);
+
+    if (item.type === "bool") {
+      // 同じ「切り替え」なので、いちばん上の「声で話す」と同じ見た目にする。
+      row.type = "button";
+      const value = document.createElement("span");
+      value.className = "sheet-value";
+      const paint = () => { value.textContent = row.dataset.on === "true" ? "オン" : "オフ"; };
+      row.dataset.key = item.key;
+      row.dataset.on = String(item.value).trim().toLowerCase() === "true";
+      paint();
+      row.addEventListener("click", () => {
+        row.dataset.on = row.dataset.on === "true" ? "false" : "true";
+        paint();
+      });
+      row.append(label, value);
+      return row;
+    }
 
     const input = document.createElement("input");
     input.type = "number";
@@ -226,6 +243,9 @@ async function saveSettings() {
   const values = {};
   for (const input of elements.settingsList.querySelectorAll("input[data-key]")) {
     values[input.dataset.key] = input.value;
+  }
+  for (const row of elements.settingsList.querySelectorAll("button[data-key]")) {
+    values[row.dataset.key] = row.dataset.on;
   }
   elements.settingsSave.disabled = true;
   try {

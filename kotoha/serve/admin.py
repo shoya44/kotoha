@@ -38,6 +38,13 @@ SETTINGS = [
     {"key": "KOTOHA_VOICE_STYLE_ID", "label": "声の種類（スタイルID）", "type": "int",
      "min": 0, "max": 2147483647,
      "note": "音声エンジンの /speakers で調べた番号"},
+    # ことはのほうから声をかけるもの。外出先からも止められるようにしておく。
+    {"key": "KOTOHA_BRIEFING_ENABLED", "label": "朝のひとこと", "type": "bool",
+     "note": "毎朝、日付と空模様をひとこと"},
+    {"key": "KOTOHA_LOOKOUT_ENABLED", "label": "見守り", "type": "bool",
+     "note": "根を詰めすぎ・夜更かしに気づいたら声をかける"},
+    {"key": "KOTOHA_REACH_OUT_ENABLED", "label": "暇なときの声かけ", "type": "bool",
+     "note": "しばらく間が空いたら、ことはのほうから"},
 ]
 _BY_KEY = {item["key"]: item for item in SETTINGS}
 
@@ -99,6 +106,11 @@ def _clean(key, raw) -> str:
     item = _BY_KEY.get(key)
     if item is None:
         raise AdminError(f"{key} は画面から変えられません。")
+    if item["type"] == "bool":
+        text = str(raw).strip().lower()
+        if text not in ("true", "false"):
+            raise AdminError(f"{item['label']}: オンかオフで入れてください。")
+        return text
     try:
         number = float(str(raw).strip())
     except ValueError:

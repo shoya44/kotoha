@@ -817,6 +817,21 @@ textarea:focus-visible {
 
 .setting-row:last-child { border-bottom: 0; }
 
+/* 切り替えの行はボタン。ブラウザ既定の見た目を消して、ほかの行と同じ形にする。 */
+button.setting-row {
+  width: 100%;
+  min-height: var(--tap-min);
+  border: 0;
+  border-bottom: 1px solid var(--separator-weak);
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+button.setting-row:last-child { border-bottom: 0; }
+
 .setting-label {
   min-width: 0;
   display: flex;

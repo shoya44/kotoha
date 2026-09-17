@@ -154,5 +154,36 @@ class SettingsTests(AdminTestCase):
         self.assertEqual(self.values()["KOTOHA_TEMPERATURE"], "0.7")
 
 
+class ToggleSettingTests(AdminTestCase):
+    """オン・オフで持つ設定。外出先から声かけを止められるように。"""
+
+    def test_it_is_written_as_true_or_false(self):
+        admin.write_settings({"KOTOHA_LOOKOUT_ENABLED": "false"})
+        self.assertIn("KOTOHA_LOOKOUT_ENABLED=false", self.env.read_text(encoding="utf-8"))
+        admin.write_settings({"KOTOHA_LOOKOUT_ENABLED": "true"})
+        self.assertIn("KOTOHA_LOOKOUT_ENABLED=true", self.env.read_text(encoding="utf-8"))
+
+    def test_upper_case_is_accepted(self):
+        admin.write_settings({"KOTOHA_BRIEFING_ENABLED": "TRUE"})
+        self.assertIn("KOTOHA_BRIEFING_ENABLED=true", self.env.read_text(encoding="utf-8"))
+
+    def test_anything_else_is_refused(self):
+        for bad in ("1", "はい", "", "onn"):
+            with self.subTest(bad=bad):
+                with self.assertRaises(admin.AdminError):
+                    admin.write_settings({"KOTOHA_REACH_OUT_ENABLED": bad})
+
+    def test_a_number_is_still_a_number(self):
+        """切り替えを足しても、数値の検査は変わらない。"""
+        with self.assertRaises(admin.AdminError):
+            admin.write_settings({"KOTOHA_TEMPERATURE": "true"})
+
+    def test_the_screen_gets_the_type(self):
+        """画面は type を見て、入力欄か切り替えかを決める。"""
+        kinds = {item["key"]: item["type"] for item in admin.read_settings()}
+        self.assertEqual(kinds["KOTOHA_LOOKOUT_ENABLED"], "bool")
+        self.assertEqual(kinds["KOTOHA_TEMPERATURE"], "number")
+
+
 if __name__ == "__main__":
     unittest.main()
