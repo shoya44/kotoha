@@ -308,7 +308,7 @@ class TogetherTests(unittest.TestCase):
         self.assertEqual(len(web._held(self.conn)), web.HELD_LIMIT)
 
     def test_a_broken_note_is_not_carried_around(self):
-        db.set_state(self.conn, web.HELD_KEY, "こわれている")
+        db.set_state(self.conn, db.HELD_ANNOUNCEMENTS, "こわれている")
         self.conn.commit()
         self.assertEqual(web._held(self.conn), [])
 

@@ -289,20 +289,20 @@ class StreakTests(unittest.TestCase):
         db.init(self.conn)
 
     def began(self, when):
-        db.set_state(self.conn, presence.STREAK_FROM_KEY, when)
+        db.set_state(self.conn, db.FRONT_STREAK_FROM, when)
 
     def test_staying_on_one_app_keeps_the_count_running(self):
         presence._mark_streak(self.conn, "ブラウザ")
         self.began("2026-09-17T00:00:00Z")          # 始まりを昔にずらす
         presence._mark_streak(self.conn, "ブラウザ")
-        self.assertEqual(db.get_state(self.conn, presence.STREAK_FROM_KEY),
+        self.assertEqual(db.get_state(self.conn, db.FRONT_STREAK_FROM),
                          "2026-09-17T00:00:00Z")    # 触られていない
 
     def test_switching_apps_starts_the_count_over(self):
         presence._mark_streak(self.conn, "ブラウザ")
         self.began("2026-09-17T00:00:00Z")
         presence._mark_streak(self.conn, "エディタ")
-        self.assertNotEqual(db.get_state(self.conn, presence.STREAK_FROM_KEY),
+        self.assertNotEqual(db.get_state(self.conn, db.FRONT_STREAK_FROM),
                             "2026-09-17T00:00:00Z")
 
     def test_it_measures_the_hours(self):

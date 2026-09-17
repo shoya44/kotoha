@@ -21,11 +21,7 @@ from datetime import datetime
 from .. import config
 from ..memory import db
 
-# 数えた結果を持つ場所。1時間ごとに捨てて数え直す。
-TALLY_KEY = "front_tally"
-STREAK_APP_KEY = "front_streak_app"
-STREAK_FROM_KEY = "front_streak_from"
-TALLY_HOUR_KEY = "front_tally_hour"
+# 数えた結果の置き場は db にまとめてある（1時間ごとに捨てて数え直す）。
 # 1時間ぶん数えても、これ未満のアプリは「触っている」と言わない。
 MIN_SAMPLES = 5
 
@@ -283,30 +279,30 @@ def sample(conn) -> None:
         return
     hour = datetime.now().strftime("%Y-%m-%d %H")
     tally = {}
-    if db.get_state(conn, TALLY_HOUR_KEY) == hour:
+    if db.get_state(conn, db.FRONT_TALLY_HOUR) == hour:
         try:
-            tally = json.loads(db.get_state(conn, TALLY_KEY) or "{}")
+            tally = json.loads(db.get_state(conn, db.FRONT_TALLY) or "{}")
         except ValueError:
             tally = {}
     if not isinstance(tally, dict):
         tally = {}
     tally[app] = int(tally.get(app, 0)) + 1
-    db.set_state(conn, TALLY_HOUR_KEY, hour)
-    db.set_state(conn, TALLY_KEY, json.dumps(tally, ensure_ascii=False))
+    db.set_state(conn, db.FRONT_TALLY_HOUR, hour)
+    db.set_state(conn, db.FRONT_TALLY, json.dumps(tally, ensure_ascii=False))
     _mark_streak(conn, app)
 
 
 def _mark_streak(conn, app: str) -> None:
     """同じアプリが続いている間、始まった時刻を覚えておく。"""
-    if db.get_state(conn, STREAK_APP_KEY) != app:
-        db.set_state(conn, STREAK_APP_KEY, app)
-        db.set_state(conn, STREAK_FROM_KEY, db.now_utc())
+    if db.get_state(conn, db.FRONT_STREAK_APP) != app:
+        db.set_state(conn, db.FRONT_STREAK_APP, app)
+        db.set_state(conn, db.FRONT_STREAK_FROM, db.now_utc())
 
 
 def streak(conn):
     """いま何を、何時間続けて触っているか。分からなければ None。"""
-    app = db.get_state(conn, STREAK_APP_KEY)
-    began = db.get_state(conn, STREAK_FROM_KEY)
+    app = db.get_state(conn, db.FRONT_STREAK_APP)
+    began = db.get_state(conn, db.FRONT_STREAK_FROM)
     if not app or not began:
         return None
     return app, db.seconds_since(began) / 3600.0
@@ -314,17 +310,17 @@ def streak(conn):
 
 def reset_streak(conn) -> None:
     """一度声をかけたら、そこから数え直す。何度も言わない。"""
-    db.set_state(conn, STREAK_FROM_KEY, db.now_utc())
+    db.set_state(conn, db.FRONT_STREAK_FROM, db.now_utc())
 
 
 def busy_with(conn):
     """この1時間で、いちばん長く触っていたアプリと、そのおおよその分数。"""
     if not enabled():
         return None
-    if db.get_state(conn, TALLY_HOUR_KEY) != datetime.now().strftime("%Y-%m-%d %H"):
+    if db.get_state(conn, db.FRONT_TALLY_HOUR) != datetime.now().strftime("%Y-%m-%d %H"):
         return None
     try:
-        tally = json.loads(db.get_state(conn, TALLY_KEY) or "{}")
+        tally = json.loads(db.get_state(conn, db.FRONT_TALLY) or "{}")
     except ValueError:
         return None
     if not isinstance(tally, dict) or not tally:

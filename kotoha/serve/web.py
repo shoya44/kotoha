@@ -34,7 +34,7 @@ def _check_token(request: Request) -> None:
 
 
 def _unprocessed_turns(conn) -> int:
-    last = int(db.get_state(conn, "last_processed_message_id", "0") or 0)
+    last = int(db.get_state(conn, db.LAST_PROCESSED_MESSAGE_ID, "0") or 0)
     row = conn.execute(
         "SELECT COUNT(DISTINCT turn_id) AS n FROM messages WHERE id > ? AND extractable = 1",
         (last,),
@@ -50,7 +50,7 @@ def run_periodic_jobs(conn) -> None:
     """
     presence.sample(conn)
     unprocessed = _unprocessed_turns(conn)
-    idle = db.seconds_since(db.get_state(conn, "last_conversation_at")) > config.IDLE_SECONDS
+    idle = db.seconds_since(db.get_state(conn, db.LAST_CONVERSATION_AT)) > config.IDLE_SECONDS
     # 会話が途切れてからにする。整理は会話と同じ順番待ちに並ぶので、話している
     # 最中に走ると返答が数秒止まる。通話だとそのまま黙り込んで聞こえる。
     if unprocessed > 0 and idle:
@@ -58,12 +58,12 @@ def run_periodic_jobs(conn) -> None:
             consolidate.run(conn)
         except Exception:
             pass  # 整理の失敗で忘却まで止めない。
-    if db.seconds_since(db.get_state(conn, "last_backup_at")) > config.BACKUP_INTERVAL_SECONDS:
+    if db.seconds_since(db.get_state(conn, db.LAST_BACKUP_AT)) > config.BACKUP_INTERVAL_SECONDS:
         try:
             db.run_backup(conn)
         except Exception:
             pass  # 保存先の不調で忘却まで止めない。
-    if db.seconds_since(db.get_state(conn, "last_forget_at")) > config.MAINTENANCE_SECONDS:
+    if db.seconds_since(db.get_state(conn, db.LAST_FORGET_AT)) > config.MAINTENANCE_SECONDS:
         db.run_maintenance(conn)
     # 朝の一言、頼まれごと、見守り、暇なときの声かけ。
     # どれも滅多に鳴らないので、ここで待たせてよい。
@@ -109,8 +109,7 @@ def _tool_probes():
 # 触るのは裏の巡回だけで、会話（/api/chat）はここを通らない。
 _collecting = False
 
-# まとめ待ちの置き場。DBに置くので、落ちても預かったものは消えない。
-HELD_KEY = "held_announcements"
+# 預かったものはDBに置く。落ちても消えない（置き場は db.HELD_ANNOUNCEMENTS）。
 # 預かったことを呼び出し側へ伝える印。空文字（言えなかった）とは区別する。
 HELD = "あとでまとめて言う"
 # 長く溜め込んでも困る。一度に言える量には限りがある。
@@ -119,7 +118,7 @@ HELD_LIMIT = 8
 
 def _held(conn):
     try:
-        items = json.loads(db.get_state(conn, HELD_KEY) or "[]")
+        items = json.loads(db.get_state(conn, db.HELD_ANNOUNCEMENTS) or "[]")
     except ValueError:
         return []
     return [i for i in items if isinstance(i, dict)] if isinstance(items, list) else []
@@ -129,7 +128,7 @@ def _too_soon(conn) -> bool:
     """前に鳴らしてから、まだ間が空いていない。"""
     if config.NOTIFY_GAP_MINUTES <= 0:
         return False
-    return db.seconds_since(db.get_state(conn, "last_notify_at")) < config.NOTIFY_GAP_MINUTES * 60
+    return db.seconds_since(db.get_state(conn, db.LAST_NOTIFY_AT)) < config.NOTIFY_GAP_MINUTES * 60
 
 
 def _with_ids(name, ids) -> str:
@@ -180,7 +179,7 @@ def _say(conn, items) -> str:
             text = "。".join(plains)
             chat.remember(conn, text, keep=keep)   # 定型でも、言った以上は残す
     if text:
-        db.set_state(conn, "last_notify_at", db.now_utc())
+        db.set_state(conn, db.LAST_NOTIFY_AT, db.now_utc())
         conn.commit()
         ids = [i for item in items for i in item.get("remind_ids") or ()]
         # 開く先にも番号を載せる。ボタンの出ない iPhone では、開いた画面に出す。
@@ -213,7 +212,7 @@ def announce(conn, closing: str, plain: str = "", extra: str = "",
             items = items[1:]
         items.append({"closing": closing, "plain": plain, "extra": extra, "keep": keep,
                       "remind_ids": list(remind_ids)})
-        db.set_state(conn, HELD_KEY, json.dumps(items, ensure_ascii=False))
+        db.set_state(conn, db.HELD_ANNOUNCEMENTS, json.dumps(items, ensure_ascii=False))
         conn.commit()
         return HELD
     return _say(conn, [{"closing": closing, "plain": plain, "extra": extra, "keep": keep,
@@ -231,7 +230,7 @@ def flush_held(conn) -> str:
     items = _held(conn)
     if not items or _too_soon(conn):
         return ""
-    db.set_state(conn, HELD_KEY, "[]")
+    db.set_state(conn, db.HELD_ANNOUNCEMENTS, "[]")
     conn.commit()
     return _say(conn, items)
 
@@ -247,7 +246,7 @@ def run_watch_jobs() -> None:
     conn = db.connect()
     try:
         for label, probe in _tool_probes().items():
-            key = f"up:{label}"
+            key = db.UP_PREFIX + label
             before = db.get_state(conn, key)
             now = "1" if probe() else "0"
             # 立ち上がりでは知らせない。落ちた瞬間だけ。
@@ -279,16 +278,16 @@ def maybe_reach_out(conn) -> None:
     """
     if not (config.REACH_OUT_ENABLED and notify.ready()):
         return
-    idle = db.seconds_since(db.get_state(conn, "last_conversation_at"))
+    idle = db.seconds_since(db.get_state(conn, db.LAST_CONVERSATION_AT))
     if idle < config.REACH_OUT_AFTER_HOURS * 3600:
         return
-    if db.seconds_since(db.get_state(conn, "last_reach_out_at")) < (
+    if db.seconds_since(db.get_state(conn, db.LAST_REACH_OUT_AT)) < (
             config.REACH_OUT_INTERVAL_HOURS * 3600):
         return
     hour = datetime.now().hour
     if not config.REACH_OUT_FROM_HOUR <= hour < config.REACH_OUT_TO_HOUR:
         return
-    db.set_state(conn, "last_reach_out_at", db.now_utc())
+    db.set_state(conn, db.LAST_REACH_OUT_AT, db.now_utc())
     conn.commit()
     announce(conn, chat.REACH_OUT_CLOSING)
 
@@ -304,8 +303,8 @@ def maybe_lookout(conn) -> None:
     # 夜更かし。日付をまたぐので、その晩ごとに一度だけ。
     if config.LOOKOUT_LATE_HOUR <= hour < config.LOOKOUT_MORNING_HOUR:
         night = (datetime.now() - timedelta(hours=config.LOOKOUT_MORNING_HOUR)).strftime("%Y-%m-%d")
-        if db.get_state(conn, "last_late_night_on") != night:
-            db.set_state(conn, "last_late_night_on", night)
+        if db.get_state(conn, db.LAST_LATE_NIGHT_ON) != night:
+            db.set_state(conn, db.LAST_LATE_NIGHT_ON, night)
             conn.commit()
             announce(conn, f"いま{hour}時。まだ起きて何かしている。"
                            "寝るように、一行で。責めない。")
@@ -346,16 +345,16 @@ def maybe_briefing(conn) -> None:
         return
     now = datetime.now()
     today = now.strftime("%Y-%m-%d")
-    if db.get_state(conn, "last_briefing_on") == today:
+    if db.get_state(conn, db.LAST_BRIEFING_ON) == today:
         return
     if now.hour < config.BRIEFING_HOUR:
         return
     if now.hour >= config.BRIEFING_HOUR + config.BRIEFING_GRACE_HOURS:
-        db.set_state(conn, "last_briefing_on", today)   # 今日はもう見送る
+        db.set_state(conn, db.LAST_BRIEFING_ON, today)   # 今日はもう見送る
         conn.commit()
         return
     # 先に印を付ける。作るのに失敗しても、何度も試させない。
-    db.set_state(conn, "last_briefing_on", today)
+    db.set_state(conn, db.LAST_BRIEFING_ON, today)
     conn.commit()
     # 空模様が取れなくても挨拶はする。外が落ちて朝が消えるのは違う。
     # keep=False: その日の天気を長期記憶に溜めない。画面には残る。
@@ -472,10 +471,10 @@ def api_chat(request: Request, payload: dict):
 
 def _call_owner(conn):
     """いま通話している端末。見張りが途絶えた記録は無効として扱う。"""
-    owner = db.get_state(conn, "call_owner")
+    owner = db.get_state(conn, db.CALL_OWNER)
     if not owner:
         return None
-    if db.seconds_since(db.get_state(conn, "call_seen_at")) > CALL_STALE_SECONDS:
+    if db.seconds_since(db.get_state(conn, db.CALL_SEEN_AT)) > CALL_STALE_SECONDS:
         return None
     return owner
 
@@ -488,7 +487,7 @@ def call_state(request: Request, device: str = ""):
     try:
         owner = _call_owner(conn)
         if owner and owner == device:
-            db.set_state(conn, "call_seen_at", db.now_utc())
+            db.set_state(conn, db.CALL_SEEN_AT, db.now_utc())
             conn.commit()
         return {"calling": bool(owner), "mine": owner == device if owner else False}
     finally:
@@ -505,8 +504,8 @@ def call_claim(request: Request, payload: dict):
     conn = db.connect()
     try:
         previous = _call_owner(conn)
-        db.set_state(conn, "call_owner", device)
-        db.set_state(conn, "call_seen_at", db.now_utc())
+        db.set_state(conn, db.CALL_OWNER, device)
+        db.set_state(conn, db.CALL_SEEN_AT, db.now_utc())
         conn.commit()
         return {"calling": True, "mine": True, "took_over": bool(previous and previous != device)}
     finally:
@@ -520,8 +519,8 @@ def call_release(request: Request):
     conn = db.connect()
     try:
         released = bool(_call_owner(conn))
-        db.set_state(conn, "call_owner", "")
-        db.set_state(conn, "call_seen_at", "")
+        db.set_state(conn, db.CALL_OWNER, "")
+        db.set_state(conn, db.CALL_SEEN_AT, "")
         conn.commit()
         return {"calling": False, "mine": False, "released": released}
     finally:

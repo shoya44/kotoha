@@ -29,10 +29,10 @@ MOOD_DECAY_SECONDS = 6 * 3600  # これを過ぎた機嫌は引きずらず「�
 
 def current_mood(conn) -> str:
     """保存された機嫌。時間が経ったものは引きずらない。"""
-    label = db.get_state(conn, "mood")
+    label = db.get_state(conn, db.MOOD)
     if label not in MOODS:
         return DEFAULT_MOOD
-    if db.seconds_since(db.get_state(conn, "mood_at")) > MOOD_DECAY_SECONDS:
+    if db.seconds_since(db.get_state(conn, db.MOOD_AT)) > MOOD_DECAY_SECONDS:
         return DEFAULT_MOOD
     return label
 
@@ -235,10 +235,10 @@ def _fetch_recent(conn, user_text: str):
 
 def _finish(conn, turn_id: int, clean: str, ids, mode: str, mood: str = None):
     db.insert_message(conn, turn_id, "assistant", clean)
-    db.set_state(conn, "last_conversation_at", db.now_utc())
+    db.set_state(conn, db.LAST_CONVERSATION_AT, db.now_utc())
     if mood:
-        db.set_state(conn, "mood", mood)
-        db.set_state(conn, "mood_at", db.now_utc())
+        db.set_state(conn, db.MOOD, mood)
+        db.set_state(conn, db.MOOD_AT, db.now_utc())
     db.update_usage(conn, ids, turn_id)
     conn.commit()
     return clean, mode
@@ -310,8 +310,8 @@ def remember(conn, text: str, ids=(), mood: str = "", keep: bool = True):
     turn_id = db.next_turn_id(conn)
     db.insert_message(conn, turn_id, "assistant", text, extractable=1 if keep else 0)
     if mood:
-        db.set_state(conn, "mood", mood)
-        db.set_state(conn, "mood_at", db.now_utc())
+        db.set_state(conn, db.MOOD, mood)
+        db.set_state(conn, db.MOOD_AT, db.now_utc())
     db.update_usage(conn, ids, turn_id)
     conn.commit()
 

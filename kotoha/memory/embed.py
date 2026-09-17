@@ -172,7 +172,7 @@ def link_similar(conn):
     """
     if not (config.EMBED_ENABLED and config.EMBED_LINK_LIMIT):
         return 0
-    last = int(db.get_state(conn, "last_linked_node_id", "0") or 0)
+    last = int(db.get_state(conn, db.LAST_LINKED_NODE_ID, "0") or 0)
     fresh = [r for r in load_all(conn) if r["node_id"] > last]
     if not fresh:
         return 0
@@ -188,6 +188,6 @@ def link_similar(conn):
                 "VALUES (?,?,'related_to')",
                 (node_id, other),
             ).rowcount
-        db.set_state(conn, "last_linked_node_id", node_id)
+        db.set_state(conn, db.LAST_LINKED_NODE_ID, node_id)
     conn.commit()
     return made

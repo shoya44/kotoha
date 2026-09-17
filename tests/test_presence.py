@@ -46,7 +46,7 @@ class PresenceTests(unittest.TestCase):
         self.conn.commit()
 
     def tally(self):
-        return json.loads(db.get_state(self.conn, presence.TALLY_KEY) or "{}")
+        return json.loads(db.get_state(self.conn, db.FRONT_TALLY) or "{}")
 
     def test_samples_are_counted(self):
         self.sample_many("VS Code", 3)
@@ -70,20 +70,20 @@ class PresenceTests(unittest.TestCase):
     def test_last_hour_only(self):
         """時間が変われば数え直す。半日前の作業を今の様子として語らない。"""
         self.sample_many("VS Code", presence.MIN_SAMPLES + 2)
-        db.set_state(self.conn, presence.TALLY_HOUR_KEY, "2020-01-01 03")
+        db.set_state(self.conn, db.FRONT_TALLY_HOUR, "2020-01-01 03")
         self.conn.commit()
         self.assertIsNone(presence.busy_with(self.conn))
 
     def test_a_new_hour_starts_from_zero(self):
         self.sample_many("VS Code", 3)
-        db.set_state(self.conn, presence.TALLY_HOUR_KEY, "2020-01-01 03")
+        db.set_state(self.conn, db.FRONT_TALLY_HOUR, "2020-01-01 03")
         self.conn.commit()
         self.sample_many("Chrome", 1)
         self.assertEqual(self.tally(), {"Chrome": 1})
 
     def test_unreadable_tally_does_not_raise(self):
-        db.set_state(self.conn, presence.TALLY_KEY, "こわれている")
-        db.set_state(self.conn, presence.TALLY_HOUR_KEY,
+        db.set_state(self.conn, db.FRONT_TALLY, "こわれている")
+        db.set_state(self.conn, db.FRONT_TALLY_HOUR,
                      datetime.now().strftime("%Y-%m-%d %H"))
         self.conn.commit()
         self.sample_many("Chrome", 1)

@@ -151,6 +151,33 @@ def unfinished_turn(conn) -> bool:
     return row is not None and row["role"] == "user"
 
 
+# --- app_state に置く覚えごと ---
+# キーの名前はここにだけ書く。打ち間違えても誰も教えてくれないため。
+# **値はディスクに残っている。** 名前を変えると、それまでの覚えごとが迷子になる。
+LAST_CONVERSATION_AT = "last_conversation_at"
+LAST_NOTIFY_AT = "last_notify_at"
+LAST_BACKUP_AT = "last_backup_at"
+LAST_FORGET_AT = "last_forget_at"
+LAST_CONSOLIDATION_AT = "last_consolidation_at"
+LAST_PROCESSED_MESSAGE_ID = "last_processed_message_id"
+LAST_REACH_OUT_AT = "last_reach_out_at"
+LAST_BRIEFING_ON = "last_briefing_on"
+LAST_LATE_NIGHT_ON = "last_late_night_on"
+LAST_LINKED_NODE_ID = "last_linked_node_id"
+PENDING_RECONSOLIDATION_IDS = "pending_reconsolidation_ids"
+MOOD = "mood"
+MOOD_AT = "mood_at"
+CALL_OWNER = "call_owner"
+CALL_SEEN_AT = "call_seen_at"
+HELD_ANNOUNCEMENTS = "held_announcements"
+FRONT_TALLY = "front_tally"
+FRONT_TALLY_HOUR = "front_tally_hour"
+FRONT_STREAK_APP = "front_streak_app"
+FRONT_STREAK_FROM = "front_streak_from"
+# 道具ごとの生死。うしろに相手の名前が付く。
+UP_PREFIX = "up:"
+
+
 def get_state(conn, key: str, default=None):
     row = conn.execute("SELECT value FROM app_state WHERE key = ?", (key,)).fetchone()
     return row["value"] if row else default
@@ -211,7 +238,7 @@ def run_maintenance(conn) -> int:
         f"WHERE last_used_at IS NOT NULL AND last_used_at < {NOW_SQL_OFFSET}",
         (f"-{config.TAG_RESET_DAYS} days",),
     )
-    set_state(conn, "last_forget_at", now_utc())
+    set_state(conn, LAST_FORGET_AT, now_utc())
     conn.commit()
     return cur.rowcount
 
@@ -229,7 +256,7 @@ def forget_node(conn, node_id: int) -> bool:
 
 
 def get_pending_ids(conn) -> list:
-    val = get_state(conn, "pending_reconsolidation_ids", "")
+    val = get_state(conn, PENDING_RECONSOLIDATION_IDS, "")
     if not val:
         return []
     ids = []
@@ -243,7 +270,7 @@ def get_pending_ids(conn) -> list:
 
 def set_pending_ids(conn, ids: list) -> None:
     val = ",".join(str(i) for i in ids)
-    set_state(conn, "pending_reconsolidation_ids", val)
+    set_state(conn, PENDING_RECONSOLIDATION_IDS, val)
 
 
 def backup(dest_path) -> None:
@@ -274,6 +301,6 @@ def run_backup(conn=None):
     for old in sorted(folder.glob("kotoha_*.sqlite3"))[: -config.BACKUP_KEEP]:
         old.unlink()
     if conn is not None:
-        set_state(conn, "last_backup_at", now_utc())
+        set_state(conn, LAST_BACKUP_AT, now_utc())
         conn.commit()
     return dest

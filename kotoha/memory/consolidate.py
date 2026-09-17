@@ -20,7 +20,7 @@ def _parse_dt(value: str) -> datetime:
 
 
 def fetch_unprocessed(conn):
-    last = int(db.get_state(conn, "last_processed_message_id", "0") or 0)
+    last = int(db.get_state(conn, db.LAST_PROCESSED_MESSAGE_ID, "0") or 0)
     rows = conn.execute(
         "SELECT id, turn_id, role, text, created_at FROM messages "
         "WHERE id > ? AND extractable = 1 ORDER BY id",
@@ -327,8 +327,8 @@ def run(conn) -> str:
     created, merged = _validate_and_save(conn, data, messages)
     
     if messages:
-        db.set_state(conn, "last_processed_message_id", messages[-1]["id"])
-    db.set_state(conn, "last_consolidation_at", db.now_utc())
+        db.set_state(conn, db.LAST_PROCESSED_MESSAGE_ID, messages[-1]["id"])
+    db.set_state(conn, db.LAST_CONSOLIDATION_AT, db.now_utc())
     db.set_pending_ids(conn, []) # 処理完了としてクリア
     conn.commit()
     linked = embed.link_similar(conn)
