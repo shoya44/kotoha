@@ -2,7 +2,7 @@ import re
 from datetime import datetime, timezone
 
 from .. import config
-from ..memory import db, retrieve
+from ..memory import db, remind, retrieve
 from . import actions, presence
 from . import llm, router
 
@@ -193,6 +193,8 @@ def build_prompt(conn, user_text: str, recent, pinned, related, fast: bool = Fal
             if part
         )
 
+    remind_block = remind.block(conn) if not fast else ""
+
     basic_block = ""
     if pinned:
         basic_block = "基本情報:\n" + "\n".join(_mem_line(r) for r in pinned)
@@ -213,6 +215,7 @@ def build_prompt(conn, user_text: str, recent, pinned, related, fast: bool = Fal
         persona,
         time_block,
         machine_block,
+        remind_block,
         basic_block,
         related_block,
         recent_block,
@@ -239,6 +242,17 @@ def _finish(conn, turn_id: int, clean: str, ids, mode: str, mood: str = None):
     db.update_usage(conn, ids, turn_id)
     conn.commit()
     return clean, mode
+
+
+def _keep_reminders(conn, clean: str) -> str:
+    """頼まれごとを預かり、タグを外した文を返す。速い道でも同じ。
+
+    ここで捨てると、本人は「覚えとくね」と言ったのに何も残らない。
+    """
+    clean, later = remind.parse(clean)
+    for when, what in later:
+        remind.add(conn, when, what)
+    return clean
 
 
 def _record_pending(conn, ids: list) -> None:
@@ -279,6 +293,7 @@ def speak(conn, closing: str, extra: str = "", keep: bool = True):
     clean, ids = parse_used_ids(raw)
     clean, mood = parse_mood(clean)
     clean, _ = parse_action(clean)   # 頼まれてもいないのに動かさない
+    clean, _ = remind.parse(clean)   # 自分で自分に予定を作らせない
     clean = clean.strip()
     if not clean:
         return ""
@@ -325,6 +340,7 @@ def run_turn(conn, user_text: str):
             allowed = {r["id"] for r in pinned}
             clean, ids = parse_used_ids(raw)
             clean, mood = parse_mood(clean)
+            clean = _keep_reminders(conn, clean)
             ids = [i for i in ids if i in allowed]
             _record_pending(conn, ids)
             return _finish(conn, turn_id, clean, ids, mode, mood)
@@ -335,6 +351,7 @@ def run_turn(conn, user_text: str):
     clean, ids = parse_used_ids(raw)
     clean, mood = parse_mood(clean)
     clean, todo = parse_action(clean)
+    clean = _keep_reminders(conn, clean)
     _record_pending(conn, ids)
     done = _finish(conn, turn_id, clean, ids, mode, mood)
     # 頼まれごとは、返答を保存し終えてから。入れ直しならここで落ちる。

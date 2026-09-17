@@ -14,6 +14,16 @@ CREATE TABLE IF NOT EXISTS messages (
   UNIQUE (turn_id, role)
 );
 
+CREATE TABLE IF NOT EXISTS reminders (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  due_at TEXT NOT NULL,
+  text TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  done_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_reminders_due ON reminders(done_at, due_at);
+
 CREATE TABLE IF NOT EXISTS memory_nodes (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   layer TEXT NOT NULL CHECK (layer IN ('episode', 'semantic')),

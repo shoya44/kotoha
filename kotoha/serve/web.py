@@ -1,7 +1,7 @@
 import os
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request, Response
@@ -9,7 +9,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from .. import config, notify
-from ..memory import consolidate, db, embed
+from ..memory import consolidate, db, embed, remind
 from ..talk import chat, llm, presence, weather
 from . import admin, voice
 
@@ -64,8 +64,11 @@ def run_periodic_jobs(conn) -> None:
             pass  # 保存先の不調で忘却まで止めない。
     if db.seconds_since(db.get_state(conn, "last_forget_at")) > config.MAINTENANCE_SECONDS:
         db.run_maintenance(conn)
-    # 朝の一言と、暇なときの声かけ。どちらも滅多に鳴らないので、ここで待たせてよい。
+    # 朝の一言、頼まれごと、見守り、暇なときの声かけ。
+    # どれも滅多に鳴らないので、ここで待たせてよい。
+    maybe_reminders(conn)
     maybe_briefing(conn)
+    maybe_lookout(conn)
     maybe_reach_out(conn)
 
 
@@ -174,6 +177,49 @@ def maybe_reach_out(conn) -> None:
     db.set_state(conn, "last_reach_out_at", db.now_utc())
     conn.commit()
     announce(conn, chat.REACH_OUT_CLOSING)
+
+
+def maybe_lookout(conn) -> None:
+    """根を詰めすぎ・夜更かしに気づいたら、一声かける。
+
+    計測はもともと巡回でしている。使っていなかっただけ。
+    """
+    if not (config.LOOKOUT_ENABLED and notify.ready()):
+        return
+    hour = datetime.now().hour
+    # 夜更かし。日付をまたぐので、その晩ごとに一度だけ。
+    if config.LOOKOUT_LATE_HOUR <= hour < config.LOOKOUT_MORNING_HOUR:
+        night = (datetime.now() - timedelta(hours=config.LOOKOUT_MORNING_HOUR)).strftime("%Y-%m-%d")
+        if db.get_state(conn, "last_late_night_on") != night:
+            db.set_state(conn, "last_late_night_on", night)
+            conn.commit()
+            announce(conn, f"いま{hour}時。まだ起きて何かしている。"
+                           "寝るように、一行で。責めない。")
+            return
+    # 根の詰めすぎ。声をかけたら数え直すので、続けても間隔が空く。
+    found = presence.streak(conn)
+    if not found:
+        return
+    app, hours = found
+    if hours < config.LOOKOUT_SIT_HOURS:
+        return
+    presence.reset_streak(conn)
+    conn.commit()
+    announce(conn, f"{app}を{int(hours)}時間ぶっ続けで触っている。"
+                   "休むように、一行で。責めない。")
+
+
+def maybe_reminders(conn) -> None:
+    """預かっていた頼まれごとを、時刻が来たら口に出す。"""
+    if not notify.ready():
+        return
+    for row in remind.due(conn):
+        spoken = announce(conn, f"前に「{row['text']}」を思い出させてほしいと頼まれていた。"
+                                "その時刻になった。一行で伝える。",
+                          plain=f"{row['text']}の時間だよ")
+        if spoken:
+            remind.done(conn, row["id"])
+            conn.commit()
 
 
 def maybe_briefing(conn) -> None:

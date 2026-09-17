@@ -259,6 +259,28 @@ def _start() -> None:
     conn.close()
 
 
+def _remind(conn, args) -> None:
+    """預かっている頼まれごとを見る／取り消す。会話から消す口が無いので。"""
+    from .memory import remind
+
+    if args and args[0] == "del" and len(args) > 1 and args[1].isdigit():
+        if remind.drop(conn, int(args[1])):
+            conn.commit()
+            print("取り消しました。")
+        else:
+            print("その番号は預かっていません。")
+        return
+    if args:
+        print("使い方: kotoha.bat remind [del <番号>]")
+        return
+    rows = remind.pending(conn, limit=50)
+    if not rows:
+        print("預かっているものはありません。")
+        return
+    for row in rows:
+        print(f"{row['id']:4}  {row['due_at']}  {row['text']}")
+
+
 def main(argv) -> None:
     cmd = argv[1] if len(argv) > 1 else "start"
     if cmd == "init":
@@ -283,6 +305,11 @@ def main(argv) -> None:
         conn = db.connect()
         db.init(conn)
         _note(conn, argv[2:])
+        conn.close()
+    elif cmd == "remind":
+        conn = db.connect()
+        db.init(conn)
+        _remind(conn, argv[2:])
         conn.close()
     elif cmd == "consolidate":
         config.require_keys()

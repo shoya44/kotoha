@@ -23,6 +23,8 @@ from ..memory import db
 
 # 数えた結果を持つ場所。1時間ごとに捨てて数え直す。
 TALLY_KEY = "front_tally"
+STREAK_APP_KEY = "front_streak_app"
+STREAK_FROM_KEY = "front_streak_from"
 TALLY_HOUR_KEY = "front_tally_hour"
 # 1時間ぶん数えても、これ未満のアプリは「触っている」と言わない。
 MIN_SAMPLES = 5
@@ -255,6 +257,28 @@ def sample(conn) -> None:
     tally[app] = int(tally.get(app, 0)) + 1
     db.set_state(conn, TALLY_HOUR_KEY, hour)
     db.set_state(conn, TALLY_KEY, json.dumps(tally, ensure_ascii=False))
+    _mark_streak(conn, app)
+
+
+def _mark_streak(conn, app: str) -> None:
+    """同じアプリが続いている間、始まった時刻を覚えておく。"""
+    if db.get_state(conn, STREAK_APP_KEY) != app:
+        db.set_state(conn, STREAK_APP_KEY, app)
+        db.set_state(conn, STREAK_FROM_KEY, db.now_utc())
+
+
+def streak(conn):
+    """いま何を、何時間続けて触っているか。分からなければ None。"""
+    app = db.get_state(conn, STREAK_APP_KEY)
+    began = db.get_state(conn, STREAK_FROM_KEY)
+    if not app or not began:
+        return None
+    return app, db.seconds_since(began) / 3600.0
+
+
+def reset_streak(conn) -> None:
+    """一度声をかけたら、そこから数え直す。何度も言わない。"""
+    db.set_state(conn, STREAK_FROM_KEY, db.now_utc())
 
 
 def busy_with(conn):
