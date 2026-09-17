@@ -6,11 +6,11 @@ from pathlib import Path
 
 from kotoha import config
 
-# db/web が参照する前に保存先を一時DBへ向ける。
+# db が参照する前に保存先を一時DBへ向ける。
 _TMP = tempfile.TemporaryDirectory(prefix="kotoha forget ")
 config.DB_PATH = Path(_TMP.name) / "test.sqlite3"
 
-from kotoha import consolidate, db, retrieve, web  # noqa: E402
+from kotoha import consolidate, db, retrieve  # noqa: E402
 
 NODE_SQL = (
     "INSERT INTO memory_nodes(layer, kind, text, occurred_at, confirmed_at, "
@@ -93,22 +93,22 @@ class MemoryLifetimeTests(unittest.TestCase):
     # --- 実行タイミング（未記録でも取りこぼさない） ---
 
     def test_seconds_since_treats_missing_record_as_long_ago(self):
-        self.assertEqual(web._seconds_since(None), float("inf"))
-        self.assertEqual(web._seconds_since(""), float("inf"))
-        self.assertEqual(web._seconds_since("壊れた日付"), float("inf"))
-        self.assertGreater(web._seconds_since(OLD), 0)
+        self.assertEqual(db.seconds_since(None), float("inf"))
+        self.assertEqual(db.seconds_since(""), float("inf"))
+        self.assertEqual(db.seconds_since("壊れた日付"), float("inf"))
+        self.assertGreater(db.seconds_since(OLD), 0)
 
     def test_maintenance_is_due_on_a_fresh_database(self):
         """last_forget_at 未記録のまま忘却が一度も走らない退行を防ぐ。"""
         last = db.get_state(self.conn, "last_forget_at")
         self.assertIsNone(last)
-        self.assertGreater(web._seconds_since(last), config.MAINTENANCE_SECONDS)
+        self.assertGreater(db.seconds_since(last), config.MAINTENANCE_SECONDS)
 
     def test_maintenance_records_its_own_timestamp(self):
         db.run_maintenance(self.conn)
         last = db.get_state(self.conn, "last_forget_at")
         self.assertIsNotNone(last)
-        self.assertLess(web._seconds_since(last), config.MAINTENANCE_SECONDS)
+        self.assertLess(db.seconds_since(last), config.MAINTENANCE_SECONDS)
 
     # --- 延命（想起された記憶は生き延びる） ---
 

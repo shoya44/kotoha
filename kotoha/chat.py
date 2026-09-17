@@ -11,6 +11,28 @@ FAST_NOTICE = (
 
 WEEKDAYS = ("月", "火", "水", "木", "金", "土", "日")
 
+# 今日の調子。性格ではないので、persona.txt の人物像を上書きしない範囲にとどめる。
+# 文言を変えるときは fixed_rules.txt のラベル一覧も揃えること。
+MOODS = {
+    "ふつう": "とくに変わったところはない",
+    "機嫌がいい": "少し口数が多く、からかいが増える",
+    "眠い": "返事が短く、語尾がゆるい",
+    "疲れ気味": "テンションは低いが、話は聞く",
+    "すねている": "そっけないが、本当は構ってほしい",
+}
+DEFAULT_MOOD = "ふつう"
+MOOD_DECAY_SECONDS = 6 * 3600  # これを過ぎた機嫌は引きずらず「ふつう」に戻す。
+
+
+def current_mood(conn) -> str:
+    """保存された機嫌。時間が経ったものは引きずらない。"""
+    label = db.get_state(conn, "mood")
+    if label not in MOODS:
+        return DEFAULT_MOOD
+    if db.seconds_since(db.get_state(conn, "mood_at")) > MOOD_DECAY_SECONDS:
+        return DEFAULT_MOOD
+    return label
+
 
 def situation(hour: int) -> str:
     """その時間のことはの様子。画面のアバターと言うことを一致させる。
@@ -70,28 +92,55 @@ def _mem_line(r) -> str:
     return f"- [id:{r['id']}][{date}][{r['layer']}/{r['kind']}] {r['text']}"
 
 
+def _tag_pattern(name: str) -> str:
+    """内部制御タグの検出。閉じ括弧の欠落や全角括弧でも取りこぼさない。
+
+    取りこぼすとタグがそのままユーザーに見えるため、中身は行末までを上限に
+    緩く拾い、閉じ括弧は任意として扱う。
+    """
+    return rf"[\[［]\s*{name}\s*[:：]([^\]］\n]*)[\]］]?"
+
+
+def _strip_tag(text: str, name: str):
+    pattern = _tag_pattern(name)
+    match = re.search(pattern, text)
+    if not match:
+        return text, None
+    clean = re.sub(r"[ \t]*" + pattern + r"[ \t]*", "", text).strip()
+    return clean, match.group(1).strip()
+
+
 def parse_used_ids(text: str):
-    m = re.search(r"\[USED:([^\]]*)\]", text)
-    if not m:
+    clean, body = _strip_tag(text, "USED")
+    if body is None:
         return text, []
     ids = []
-    for i in m.group(1).split(","):
+    for i in body.split(","):
         try:
             ids.append(int(i.strip()))
         except ValueError:
             pass
-    clean = re.sub(r"\s*\[USED:[^\]]*\]\s*", "", text).strip()
     return clean, ids
+
+
+def parse_mood(text: str):
+    """返答から機嫌を取り出す。知らないラベルは捨て、直前の機嫌を保つ。"""
+    clean, body = _strip_tag(text, "MOOD")
+    if body is None:
+        return text, None
+    return clean, body if body in MOODS else None
 
 
 def build_prompt(conn, user_text: str, recent, pinned, related, fast: bool = False) -> str:
     fixed = _read("fixed_rules.txt")
     persona = _read("persona.txt")
     now = datetime.now()
+    mood = current_mood(conn)
     time_block = "\n".join([
         f"現在: {now:%Y-%m-%d %H:%M}（{WEEKDAYS[now.weekday()]}曜日）",
         f"前回の会話: {elapsed_phrase(db.get_state(conn, 'last_conversation_at'))}",
         f"今のことは: {situation(now.hour)}",
+        f"今の機嫌: {mood}（{MOODS[mood]}）",
     ])
 
     basic_block = ""
@@ -130,9 +179,12 @@ def _fetch_recent(conn, user_text: str):
     return recent
 
 
-def _finish(conn, turn_id: int, clean: str, ids, mode: str):
+def _finish(conn, turn_id: int, clean: str, ids, mode: str, mood: str = None):
     db.insert_message(conn, turn_id, "assistant", clean)
     db.set_state(conn, "last_conversation_at", db.now_utc())
+    if mood:
+        db.set_state(conn, "mood", mood)
+        db.set_state(conn, "mood_at", db.now_utc())
     db.update_usage(conn, ids, turn_id)
     conn.commit()
     return clean, mode
@@ -165,13 +217,15 @@ def run_turn(conn, user_text: str):
         else:
             allowed = {r["id"] for r in pinned}
             clean, ids = parse_used_ids(raw)
+            clean, mood = parse_mood(clean)
             ids = [i for i in ids if i in allowed]
             _record_pending(conn, ids)
-            return _finish(conn, turn_id, clean, ids, mode)
+            return _finish(conn, turn_id, clean, ids, mode, mood)
 
     pinned, related = retrieve.retrieve(conn, user_text, recent_text)
     prompt = build_prompt(conn, user_text, recent, pinned, related)
     raw = llm.chat(prompt)
     clean, ids = parse_used_ids(raw)
+    clean, mood = parse_mood(clean)
     _record_pending(conn, ids)
-    return _finish(conn, turn_id, clean, ids, mode)
+    return _finish(conn, turn_id, clean, ids, mode, mood)

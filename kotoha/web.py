@@ -1,6 +1,5 @@
 import threading
 import time
-from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
@@ -31,17 +30,6 @@ def _unprocessed_turns(conn) -> int:
     return row["n"]
 
 
-def _seconds_since(value: str) -> float:
-    """未記録・壊れた記録は「十分昔」として扱う。初回のメンテを取りこぼさない。"""
-    if not value:
-        return float("inf")
-    try:
-        dt = datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
-    except ValueError:
-        return float("inf")
-    return (datetime.now(timezone.utc) - dt).total_seconds()
-
-
 def _bg_loop() -> None:
     """時計: アイドル整理と日次メンテナンスを裏で回す。"""
     while True:
@@ -51,13 +39,13 @@ def _bg_loop() -> None:
                 conn = db.connect()
                 try:
                     n = _unprocessed_turns(conn)
-                    idle = _seconds_since(db.get_state(conn, "last_conversation_at")) > config.IDLE_SECONDS
+                    idle = db.seconds_since(db.get_state(conn, "last_conversation_at")) > config.IDLE_SECONDS
                     if n >= config.CONSOLIDATE_TURNS or (n > 0 and idle):
                         try:
                             consolidate.run(conn)
                         except Exception:
                             pass  # 整理の失敗で忘却まで止めない。
-                    if _seconds_since(db.get_state(conn, "last_forget_at")) > config.MAINTENANCE_SECONDS:
+                    if db.seconds_since(db.get_state(conn, "last_forget_at")) > config.MAINTENANCE_SECONDS:
                         db.run_maintenance(conn)
                 finally:
                     conn.close()
