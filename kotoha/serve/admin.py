@@ -19,31 +19,32 @@ PROMPTS = {
 MAX_PROMPT_CHARS = 8000
 
 # 画面に出す設定。範囲は config.py の検査と合わせてある。
+# group は画面の見出し。並んでいる順にまとめて出す。
 SETTINGS = [
-    {"key": "KOTOHA_TEMPERATURE", "label": "返答のふり幅", "type": "number",
+    {"group": "話し方", "key": "KOTOHA_TEMPERATURE", "label": "返答のふり幅", "type": "number",
      "min": 0, "max": 2, "step": 0.1,
      "note": "小さいほど落ち着いた返事になる"},
-    {"key": "KOTOHA_MAX_OUTPUT_TOKENS", "label": "返答の長さの上限", "type": "int",
+    {"group": "話し方", "key": "KOTOHA_MAX_OUTPUT_TOKENS", "label": "返答の長さの上限", "type": "int",
      "min": 1, "max": 8192,
      "note": "大きくすると長く話せるが、声になるまで待つ"},
-    {"key": "KOTOHA_RECENT_TURNS", "label": "覚えている往復の数", "type": "int",
+    {"group": "覚えること", "key": "KOTOHA_RECENT_TURNS", "label": "覚えている往復の数", "type": "int",
      "min": 1, "max": 50,
      "note": "多いほど話が続くが、返答は遅くなる"},
-    {"key": "KOTOHA_RECENT_CHARS", "label": "覚えている会話の文字数", "type": "int",
+    {"group": "覚えること", "key": "KOTOHA_RECENT_CHARS", "label": "覚えている会話の文字数", "type": "int",
      "min": 1, "max": 20000,
      "note": "同上。既定は3000"},
-    {"key": "KOTOHA_IDLE_SECONDS", "label": "記憶整理までの間（秒）", "type": "number",
+    {"group": "覚えること", "key": "KOTOHA_IDLE_SECONDS", "label": "記憶整理までの間（秒）", "type": "number",
      "min": 0.1, "max": 86400,
      "note": "会話が途切れてこの時間がたつと整理する"},
-    {"key": "KOTOHA_VOICE_STYLE_ID", "label": "声の種類（スタイルID）", "type": "int",
+    {"group": "声", "key": "KOTOHA_VOICE_STYLE_ID", "label": "声の種類（スタイルID）", "type": "int",
      "min": 0, "max": 2147483647,
      "note": "音声エンジンの /speakers で調べた番号"},
     # ことはのほうから声をかけるもの。外出先からも止められるようにしておく。
-    {"key": "KOTOHA_BRIEFING_ENABLED", "label": "朝のひとこと", "type": "bool",
+    {"group": "ことはから", "key": "KOTOHA_BRIEFING_ENABLED", "label": "朝のひとこと", "type": "bool",
      "note": "毎朝、日付と空模様をひとこと"},
-    {"key": "KOTOHA_LOOKOUT_ENABLED", "label": "見守り", "type": "bool",
+    {"group": "ことはから", "key": "KOTOHA_LOOKOUT_ENABLED", "label": "見守り", "type": "bool",
      "note": "根を詰めすぎ・夜更かしに気づいたら声をかける"},
-    {"key": "KOTOHA_REACH_OUT_ENABLED", "label": "暇なときの声かけ", "type": "bool",
+    {"group": "ことはから", "key": "KOTOHA_REACH_OUT_ENABLED", "label": "暇なときの声かけ", "type": "bool",
      "note": "しばらく間が空いたら、ことはのほうから"},
 ]
 _BY_KEY = {item["key"]: item for item in SETTINGS}

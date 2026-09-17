@@ -194,7 +194,26 @@ async function loadSettings() {
   const data = await fetchPanel(elements.settingsNote, "/api/settings");
   if (!data) return;
   const items = data.settings;
-  elements.settingsList.replaceChildren(...items.map(item => {
+  // 見出しごとに区切る。9つが平らに並ぶと、どれがどれだか分からなくなる。
+  let group = "";
+  const rows = items.flatMap(item => {
+    const made = [];
+    if (item.group && item.group !== group) {
+      group = item.group;
+      const head = document.createElement("div");
+      head.className = "setting-group";
+      head.textContent = group;
+      made.push(head);
+    }
+    made.push(makeSettingRow(item));
+    return made;
+  });
+  elements.settingsList.replaceChildren(...rows);
+  setNote(elements.settingsNote, "保存すると再起動なしで反映されます。");
+}
+
+function makeSettingRow(item) {
+  return ((item) => {
     const row = document.createElement(item.type === "bool" ? "button" : "div");
     row.className = "setting-row";
 
@@ -235,8 +254,7 @@ async function loadSettings() {
 
     row.append(label, input);
     return row;
-  }));
-  setNote(elements.settingsNote, "保存すると再起動なしで反映されます。");
+  })(item);
 }
 
 async function saveSettings() {

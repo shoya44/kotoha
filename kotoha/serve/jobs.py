@@ -41,8 +41,9 @@ def run_periodic_jobs(conn) -> None:
     if unprocessed > 0 and idle:
         try:
             consolidate.run(conn)
-        except Exception:
-            pass  # 整理の失敗で忘却まで止めない。
+        except Exception as error:
+            # 整理の失敗で忘却まで止めない。ただし黙っては済ませない。
+            notify.log(f"記憶整理で失敗: {error!r}")
     if db.overdue(conn, db.LAST_BACKUP_AT, config.BACKUP_INTERVAL_SECONDS):
         try:
             db.run_backup(conn)

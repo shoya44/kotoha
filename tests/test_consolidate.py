@@ -187,5 +187,56 @@ class MergeTests(DbCase):
         self.assertEqual((created, merged), (1, 0))
 
 
+class GiveUpTests(DbCase):
+    """読めない返事が続いたら、そのバッチは置いていく。枠を食い続けない。"""
+
+    def setUp(self):
+        super().setUp()
+        self.addCleanup(setattr, consolidate.llm, "chat", consolidate.llm.chat)
+        for turn in range(1, 4):
+            db.insert_message(self.conn, turn, "user", f"{turn}回目の話")
+            db.insert_message(self.conn, turn, "assistant", "ふーん")
+        self.conn.commit()
+
+    def answer(self, text):
+        consolidate.llm.chat = lambda prompt, max_tokens=None: text
+
+    def position(self):
+        return int(db.get_state(self.conn, db.LAST_PROCESSED_MESSAGE_ID, "0") or 0)
+
+    def fails(self):
+        return int(db.get_state(self.conn, db.CONSOLIDATE_FAILS, "0") or 0)
+
+    def test_a_failure_is_counted_and_the_batch_stays(self):
+        self.answer("JSONじゃない返事")
+        with self.assertRaises(consolidate.llm.LLMError):
+            consolidate.run(self.conn)
+        self.assertEqual(self.fails(), 1)
+        self.assertEqual(self.position(), 0)      # まだ置いていかない
+
+    def test_it_gives_up_after_a_few_tries(self):
+        self.answer("JSONじゃない返事")
+        for _ in range(consolidate.GIVE_UP_AFTER):
+            with self.assertRaises(consolidate.llm.LLMError):
+                consolidate.run(self.conn)
+        self.assertGreater(self.position(), 0)    # 置いていった
+        self.assertEqual(self.fails(), 0)         # 数え直す
+
+    def test_a_good_answer_clears_the_count(self):
+        self.answer("JSONじゃない返事")
+        with self.assertRaises(consolidate.llm.LLMError):
+            consolidate.run(self.conn)
+        self.answer('{"new_nodes": [], "edges": [], "reconfirm_ids": [], "updates": []}')
+        consolidate.run(self.conn)
+        self.assertEqual(self.fails(), 0)
+
+    def test_nothing_to_process_is_not_a_failure(self):
+        """整理するものが無いときは、失敗の数を触らない。"""
+        db.set_state(self.conn, db.LAST_PROCESSED_MESSAGE_ID, 999)
+        self.conn.commit()
+        consolidate.run(self.conn)
+        self.assertEqual(self.fails(), 0)
+
+
 if __name__ == "__main__":
     unittest.main()

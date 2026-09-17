@@ -6,6 +6,12 @@ from ..talk import llm
 from . import db, embed, retrieve
 
 MAX_NEW_NODES = 8
+# 同じバッチで続けて失敗したら諦める回数。
+#
+# 失敗しても処理位置は進まないので、巡回のたびに同じ会話を投げ直す。
+# 読めない返事が返り続けると、60秒ごとに1回ずつAPIの枠を食い、
+# 1日500回の枠を半日で使い切れてしまう。記憶1回ぶんより、枠のほうが高い。
+GIVE_UP_AFTER = 3
 
 
 def _utc_now() -> datetime:
@@ -300,6 +306,31 @@ def _validate_and_save(conn, data, messages) -> int:
     return created, len(merged_ids)
 
 
+def _as_json(raw: str):
+    """返事からJSONを取り出す。最初の { から最後の } まで。"""
+    start, end = raw.find("{"), raw.rfind("}")
+    if start < 0 or end <= start:
+        raise llm.LLMError("整理結果をJSONとして解析できなかった。")
+    try:
+        return json.loads(raw[start : end + 1])
+    except json.JSONDecodeError:
+        raise llm.LLMError("整理結果をJSONとして解析できなかった。") from None
+
+
+def _count_failure(conn, messages) -> None:
+    """失敗を数え、続くようならそのバッチを置いていく。
+
+    処理位置を進めるので、その会話からは記憶が作られない。惜しいが、
+    同じ会話を毎分投げ直して枠を空にするほうが困る。
+    """
+    fails = int(db.get_state(conn, db.CONSOLIDATE_FAILS, "0") or 0) + 1
+    db.set_state(conn, db.CONSOLIDATE_FAILS, fails)
+    if fails >= GIVE_UP_AFTER and messages:
+        db.set_state(conn, db.LAST_PROCESSED_MESSAGE_ID, messages[-1]["id"])
+        db.set_state(conn, db.CONSOLIDATE_FAILS, 0)
+    conn.commit()
+
+
 def run(conn) -> str:
     messages = fetch_unprocessed(conn)
     pending_ids = db.get_pending_ids(conn)
@@ -315,15 +346,15 @@ def run(conn) -> str:
         return "未処理の会話や再固定化の対象はありません。"
 
     prompt = _build_prompt(conn, messages, pending_nodes)
-    raw = llm.chat(prompt, max_tokens=config.CONSOLIDATION_MAX_TOKENS)
-    start, end = raw.find("{"), raw.rfind("}")
-    if start < 0 or end <= start:
-        raise llm.LLMError("整理結果をJSONとして解析できなかった。")
     try:
-        data = json.loads(raw[start : end + 1])
-    except json.JSONDecodeError:
-        raise llm.LLMError("整理結果をJSONとして解析できなかった。")
-        
+        raw = llm.chat(prompt, max_tokens=config.CONSOLIDATION_MAX_TOKENS)
+        data = _as_json(raw)
+    except llm.LLMError:
+        _count_failure(conn, messages)
+        raise
+
+    db.set_state(conn, db.CONSOLIDATE_FAILS, 0)
+
     created, merged = _validate_and_save(conn, data, messages)
     
     if messages:
