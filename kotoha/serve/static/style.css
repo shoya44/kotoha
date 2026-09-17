@@ -527,12 +527,13 @@ body.calling #call .icon-hangup { display: block; }
 body.no-call #call { display: none; }
 body.no-call textarea { padding-right: 48px; }
 
-button:focus-visible,
-input:focus-visible,
-textarea:focus-visible {
+/* 入力欄は枠の色そのもので焦点を示す。ここに輪郭まで足すと枠が二重になる。 */
+button:focus-visible {
   outline: 2px solid var(--ink);
   outline-offset: 2px;
 }
+
+#gate input:focus { border-color: var(--accent); }
 
 /* ===== Gate / Settings ===== */
 #gate {
