@@ -1319,11 +1319,37 @@ armOnce(elements.restartApp, "再起動する", "もう一度押すと再起動"
 // ===== 通知 =====
 // 受け取りの面倒（鍵・購読の保存・iOSの作法）はOneSignalに任せている。
 // iPhoneは iOS 16.4 以降で、ホーム画面に追加したときだけ受け取れる。
+// 押しても何も起きない、が一番困るので、だめなときは理由を行に出す。
 let pushReady = null;
+let pushNote = "";   // 準備でつまずいた理由
 
 function whenOneSignal(run) {
   window.OneSignalDeferred = window.OneSignalDeferred || [];
   window.OneSignalDeferred.push(run);
+}
+
+function homeScreen() {
+  return window.matchMedia("(display-mode: standalone)").matches
+    || navigator.standalone === true;
+}
+
+// 通知を受け取れない理由。受け取れるなら空。
+function pushBlocked() {
+  const apple = /iPhone|iPad|iPod/.test(navigator.userAgent);
+  if (apple && !homeScreen()) return "ホーム画面で";
+  if (!("serviceWorker" in navigator)) return "使えない";
+  if (!("Notification" in window) || !("PushManager" in window)) {
+    return apple ? "iOSが古い" : "使えない";
+  }
+  if (Notification.permission === "denied") return "拒否ずみ";
+  return "";
+}
+
+function showPushState() {
+  const blocked = pushBlocked();
+  if (blocked) { elements.pushValue.textContent = blocked; return; }
+  if (!pushReady) { elements.pushValue.textContent = pushNote || "準備中"; return; }
+  elements.pushValue.textContent = pushReady.User.PushSubscription.optedIn ? "オン" : "オフ";
 }
 
 async function setupPush() {
@@ -1334,32 +1360,71 @@ async function setupPush() {
   } catch {
     return;   // つながらないだけ。会話には関係ない。
   }
-  if (!appId || !("serviceWorker" in navigator)) return;
+  if (!appId) return;
 
   elements.togglePush.hidden = false;
-  whenOneSignal(async OneSignal => {
-    await OneSignal.init({ appId });
-    pushReady = OneSignal;
+  showPushState();
+  if (pushBlocked()) return;
+
+  // SDKが降ってこないことがある。黙って準備中のままにしない。
+  const late = setTimeout(() => {
+    if (pushReady) return;
+    // 台本が届いていないのか、届いたうえで止まっているのかを分ける。
+    pushNote = facts();
     showPushState();
-    OneSignal.User.PushSubscription.addEventListener("change", showPushState);
+  }, 8000);
+  whenOneSignal(async OneSignal => {
+    try {
+      await OneSignal.init({ appId });
+      pushReady = OneSignal;
+      pushNote = "";
+      OneSignal.User.PushSubscription.addEventListener("change", () => showPushState());
+    } catch (error) {
+      console.error("OneSignal init:", error);
+      pushNote = short(error);
+    } finally {
+      clearTimeout(late);
+    }
+    showPushState();
   });
 }
 
-function showPushState() {
-  if (!pushReady) { elements.pushValue.textContent = "準備中"; return; }
-  const on = pushReady.User.PushSubscription.optedIn;
-  elements.pushValue.textContent = on ? "オン" : "オフ";
+// 整わないときに見たい事実。行はせまいので短く詰める。
+// 例 "SDK無/default" = 台本が届いていない, "SDK有/granted" = 届いたが止まっている
+function facts() {
+  const sdk = window.OneSignal ? "SDK有" : "SDK無";
+  const allowed = ("Notification" in window) ? Notification.permission : "無";
+  return `${sdk}/${allowed}`;
+}
+
+// 行に収まる長さの理由。何が起きたか分からないのが一番困る。
+function short(error) {
+  const text = (error && (error.message || error.name)) || "つながらない";
+  return text.length > 24 ? text.slice(0, 24) + "…" : text;
 }
 
 async function togglePush() {
-  if (!pushReady) return;
+  const blocked = pushBlocked();
+  if (blocked) { showPushState(); return; }
+  if (!pushReady) {
+    pushNote = pushNote || facts();
+    showPushState();
+    return;
+  }
   const subscription = pushReady.User.PushSubscription;
-  if (subscription.optedIn) {
-    await subscription.optOut();
-  } else {
-    // 端末に許可を聞く。触れた流れの中でないと、iOSは出してくれない。
-    await pushReady.Notifications.requestPermission();
-    await subscription.optIn();
+  try {
+    if (subscription.optedIn) {
+      await subscription.optOut();
+    } else {
+      // 端末に許可を聞く。触れた流れの中でないと、iOSは出してくれない。
+      await pushReady.Notifications.requestPermission();
+      await subscription.optIn();
+    }
+  } catch (error) {
+    // ここは pushReady があるので、理由を直に出す。
+    console.error("OneSignal:", error);
+    elements.pushValue.textContent = short(error);
+    return;
   }
   showPushState();
 }

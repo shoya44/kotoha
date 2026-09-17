@@ -5,7 +5,7 @@ from datetime import datetime
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request, Response
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from .. import config, notify
@@ -205,7 +205,12 @@ threading.Thread(target=_bg_loop, daemon=True).start()
 
 @app.get("/")
 def index():
-    return FileResponse(STATIC_DIR / "index.html")
+    """入口。台本のURLに更新時刻を足して、古いものを握らせない。"""
+    html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    for name in ("app.js", "style.css"):
+        stamp = int((STATIC_DIR / name).stat().st_mtime)
+        html = html.replace(f"/static/{name}", f"/static/{name}?v={stamp}")
+    return HTMLResponse(html, headers={"Cache-Control": "no-store"})
 
 
 @app.get("/OneSignalSDKWorker.js")
