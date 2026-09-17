@@ -1,0 +1,11 @@
+{
+  "name": "ことは",
+  "short_name": "ことは",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#17181b",
+  "theme_color": "#17181b",
+  "icons": [
+    { "src": "/static/kotoha.png", "sizes": "any", "type": "image/png", "purpose": "any" }
+  ]
+}
