@@ -202,6 +202,9 @@ def main(argv) -> None:
         config.require_keys()
         if not config.WEB_TOKEN:
             raise SystemExit(".env に KOTOHA_WEB_TOKEN を設定して。")
+        conn = db.connect()
+        db.init(conn)
+        conn.close()
         import uvicorn
         from .web import app
         print(f"http://{config.WEB_HOST}:{config.WEB_PORT} で起動")

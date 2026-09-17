@@ -140,6 +140,13 @@ def set_state(conn, key: str, value) -> None:
 
 # --- 記憶の利用実績・メンテナンス ---
 
+# 比較は now_utc() と同じ形式で行う。datetime('now') はスペース区切りのため
+# 文字列比較がずれ、同日中に切れた期限を取りこぼす。列に関数を当てないので
+# expires_at のインデックスもそのまま効く。
+NOW_SQL = "strftime('%Y-%m-%dT%H:%M:%SZ', 'now')"
+NOW_SQL_OFFSET = "strftime('%Y-%m-%dT%H:%M:%SZ', 'now', ?)"
+
+
 # 想起・再確認された記憶は期限を延ばす。触れられない記憶だけが自然に薄れる。
 EXTEND_EXPIRES = (
     "expires_at = CASE WHEN expires_at IS NULL THEN NULL ELSE MAX(expires_at, "
@@ -171,11 +178,11 @@ def update_usage(conn, node_ids: list, turn_id: int) -> None:
 def run_maintenance(conn) -> int:
     cur = conn.execute(
         "DELETE FROM memory_nodes WHERE pinned = 0 "
-        "AND expires_at IS NOT NULL AND expires_at < datetime('now')"
+        f"AND expires_at IS NOT NULL AND expires_at < {NOW_SQL}"
     )
     conn.execute(
         "UPDATE memory_tags SET use_count = 0 "
-        "WHERE last_used_at IS NOT NULL AND last_used_at < datetime('now', ?)",
+        f"WHERE last_used_at IS NOT NULL AND last_used_at < {NOW_SQL_OFFSET}",
         (f"-{config.TAG_RESET_DAYS} days",),
     )
     set_state(conn, "last_forget_at", now_utc())

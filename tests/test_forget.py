@@ -10,7 +10,7 @@ from kotoha import config
 _TMP = tempfile.TemporaryDirectory(prefix="kotoha forget ")
 config.DB_PATH = Path(_TMP.name) / "test.sqlite3"
 
-from kotoha import consolidate, db, web  # noqa: E402
+from kotoha import consolidate, db, retrieve, web  # noqa: E402
 
 NODE_SQL = (
     "INSERT INTO memory_nodes(layer, kind, text, occurred_at, confirmed_at, "
@@ -74,6 +74,21 @@ class MemoryLifetimeTests(unittest.TestCase):
             "SELECT use_count FROM memory_tags WHERE node_id = ?", (node,)
         ).fetchone()["use_count"]
         self.assertEqual(count, 0)
+
+    def just_expired(self):
+        return self.conn.execute(
+            "SELECT strftime('%Y-%m-%dT%H:%M:%SZ', 'now', '-1 second') AS t"
+        ).fetchone()["t"]
+
+    def test_memory_expired_earlier_today_is_deleted(self):
+        """保存形式と比較形式のずれで同日中の期限切れを取りこぼす退行を防ぐ。"""
+        target = self.add(expires=self.just_expired(), key="just")
+        self.assertEqual(db.run_maintenance(self.conn), 1)
+        self.assertNotIn(target, self.alive())
+
+    def test_memory_expired_earlier_today_is_not_retrieved(self):
+        self.add(expires=self.just_expired(), pinned=1, key="just")
+        self.assertEqual(retrieve.pinned_only(self.conn), [])
 
     # --- 実行タイミング（未記録でも取りこぼさない） ---
 

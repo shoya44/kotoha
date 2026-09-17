@@ -1,6 +1,6 @@
 from . import config, db
 
-_ALIVE = "(expires_at IS NULL OR expires_at > datetime('now'))"
+_ALIVE = f"(expires_at IS NULL OR expires_at > {db.NOW_SQL})"
 _COLS = "id, layer, kind, text, occurred_at, confirmed_at, pinned"
 
 
