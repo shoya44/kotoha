@@ -37,7 +37,9 @@ MF_STRING, MF_SEPARATOR, MF_DEFAULT, MF_GRAYED = 0x0000, 0x0800, 0x1000, 0x0001
 TPM_RIGHTBUTTON, TPM_RETURNCMD = 0x0002, 0x0100
 IMAGE_ICON, LR_LOADFROMFILE, LR_DEFAULTSIZE = 1, 0x0010, 0x0040
 
-ID_OPEN, ID_STATUS, ID_RESTART, ID_QUIT = 1, 2, 3, 4
+ID_OPEN, ID_RESTART, ID_QUIT = 1, 3, 4
+# 様子の書き換え間隔。メニューを開いた瞬間に調べると、止まっているとき待たされる。
+STATUS_WAIT = 10.0
 
 user32 = ctypes.WinDLL("user32", use_last_error=True)
 kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
@@ -177,9 +179,53 @@ class Supervisor:
                 self.process.kill()
 
 
-class Tray:
+class Status:
+    """ことはと周りの様子。メニューを開くたびに調べると、止まっているとき待つ。
+
+    向こうが応じないときは1秒ずつ待たされる。裏で先に調べておき、
+    メニューには覚えた結果を出す。
+    """
+
     def __init__(self, supervisor):
         self.supervisor = supervisor
+        self.lines = ["調べています…"]
+        self.stopping = threading.Event()
+        self.on_change = lambda: None
+
+    def probe(self):
+        from .launcher import aivis_is_up, ollama_is_up
+
+        def mark(ok):
+            return "動いている" if ok else "止まっている"
+
+        alive = self.supervisor.alive()
+        note = "" if self.supervisor.mine() or not alive else "（別に上がっているもの）"
+        self.lines = [
+            f"ことは: {mark(alive)}{note}",
+            f"音声エンジン: {mark(aivis_is_up())}",
+            f"Ollama: {mark(ollama_is_up())}",
+        ]
+        self.on_change()
+
+    def _loop(self):
+        while not self.stopping.is_set():
+            try:
+                self.probe()
+            except Exception as error:      # 様子見で常駐を落とさない
+                log(f"様子を調べられない: {error}")
+            self.stopping.wait(STATUS_WAIT)
+
+    def start(self):
+        threading.Thread(target=self._loop, daemon=True).start()
+
+    def stop(self):
+        self.stopping.set()
+
+
+class Tray:
+    def __init__(self, supervisor, status=None):
+        self.supervisor = supervisor
+        self.status = status or Status(supervisor)
         self.hwnd = None
         self.icon = None
         # WNDPROC は参照を持っておかないと回収され、落ちる。
@@ -224,12 +270,14 @@ class Tray:
             data.szInfo = text.get("info", "")
         shell32.Shell_NotifyIconW(action, ctypes.byref(data))
 
-    def balloon(self, title, body):
-        self._notify(NIM_MODIFY, NIF_INFO | NIF_ICON, title=title, info=body)
-
     def refresh_tip(self):
-        state = "動作中" if self.supervisor.alive() else "停止中"
-        self._notify(NIM_MODIFY, NIF_ICON | NIF_TIP, tip=f"ことは（{state}）")
+        """アイコンにかざしたときに出る文字。ここには必ず出せる。
+
+        風船（通知）は Windows 11 だと集中モードや通知設定で黙って消される。
+        受け付けられても表示されないので、様子はこことメニューに出す。
+        """
+        self._notify(NIM_MODIFY, NIF_ICON | NIF_TIP,
+                     tip="\n".join(self.status.lines)[:127])
 
     # ---- 操作 ----
 
@@ -239,24 +287,17 @@ class Tray:
         url, _ = local_url(config.WEB_HOST, config.WEB_PORT)
         webbrowser.open(url)
 
-    def show_status(self):
-        from .launcher import aivis_is_up, ollama_is_up
-
-        mark = lambda ok: "動いている" if ok else "止まっている"
-        who = "" if self.supervisor.mine() else "（別に上がっているもの）"
-        lines = [
-            f"ことは: {mark(self.supervisor.alive())}{who if self.supervisor.alive() else ''}",
-            f"音声エンジン: {mark(aivis_is_up())}",
-            f"Ollama: {mark(ollama_is_up())}",
-        ]
-        self.balloon("いまの様子", "\n".join(lines))
-
     def menu(self):
         handle = user32.CreatePopupMenu()
         user32.AppendMenuW(handle, MF_STRING | MF_DEFAULT, ID_OPEN, "ことはを開く")
-        user32.AppendMenuW(handle, MF_STRING, ID_STATUS, "いまの様子")
         user32.AppendMenuW(handle, MF_SEPARATOR, 0, None)
-        user32.AppendMenuW(handle, MF_STRING, ID_RESTART, "入れ直す（再起動）")
+        # 押せない行として並べる。押させるより、開いた時点で見えるほうが早い。
+        for line in self.status.lines:
+            user32.AppendMenuW(handle, MF_STRING | MF_GRAYED, 0, line)
+        user32.AppendMenuW(handle, MF_SEPARATOR, 0, None)
+        # 自分で上げた本体でなければ、入れ直せない。押せないことを見せておく。
+        restart = MF_STRING if self.supervisor.mine() else MF_STRING | MF_GRAYED
+        user32.AppendMenuW(handle, restart, ID_RESTART, "入れ直す（再起動）")
         user32.AppendMenuW(handle, MF_STRING, ID_QUIT, "終わる")
 
         point = w.POINT()
@@ -273,10 +314,7 @@ class Tray:
     def command(self, choice):
         if choice == ID_OPEN:
             self.open_chat()
-        elif choice == ID_STATUS:
-            self.show_status()
         elif choice == ID_RESTART:
-            self.balloon("ことは", "入れ直しています…")
             self.supervisor.restart()
         elif choice == ID_QUIT:
             user32.DestroyWindow(self.hwnd)
@@ -284,6 +322,14 @@ class Tray:
     # ---- 窓からの知らせ ----
 
     def _on_message(self, hwnd, message, wparam, lparam):
+        try:
+            return self._handle(hwnd, message, wparam, lparam)
+        except Exception as error:
+            # ここで投げると ctypes に握りつぶされ、画面が無いので誰も気づけない。
+            log(f"窓の処理で失敗: {error!r}")
+            return 0
+
+    def _handle(self, hwnd, message, wparam, lparam):
         if message == WM_TRAY:
             if lparam in (WM_LBUTTONDBLCLK, WM_LBUTTONUP):
                 self.open_chat()
@@ -341,14 +387,18 @@ def main():
     log("常駐をはじめる")
 
     supervisor = Supervisor()
-    tray = Tray(supervisor)
+    status = Status(supervisor)
+    tray = Tray(supervisor, status)
     tray.create()
     supervisor.on_change = tray.refresh_tip
+    status.on_change = tray.refresh_tip
     supervisor.start()
+    status.start()
     tray.refresh_tip()
     try:
         tray.loop()
     finally:
+        status.stop()
         supervisor.stop()
         tray.remove()
         log("常駐を終えた")

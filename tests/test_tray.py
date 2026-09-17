@@ -151,5 +151,64 @@ class SupervisorTests(unittest.TestCase):
         self.assertFalse(sup.mine())
 
 
+@unittest.skipUnless(sys.platform == "win32", "トレイ常駐はWindows専用")
+class StatusTests(unittest.TestCase):
+    """様子は先に調べて持っておく。メニューを開くたびに待たされないように。"""
+
+    def setUp(self):
+        self.addCleanup(setattr, tray, "log", tray.log)
+        tray.log = lambda message: None
+        self.sup = tray.Supervisor()
+        self.sup.serving = lambda: False
+        self.status = tray.Status(self.sup)
+
+    def probe_with(self, aivis, ollama):
+        import kotoha.launcher as launcher
+
+        self.addCleanup(setattr, launcher, "aivis_is_up", launcher.aivis_is_up)
+        self.addCleanup(setattr, launcher, "ollama_is_up", launcher.ollama_is_up)
+        launcher.aivis_is_up = lambda: aivis
+        launcher.ollama_is_up = lambda: ollama
+        self.status.probe()
+        return self.status.lines
+
+    def test_it_reports_each_part(self):
+        lines = self.probe_with(True, False)
+        self.assertEqual(len(lines), 3)
+        self.assertIn("音声エンジン: 動いている", lines)
+        self.assertIn("Ollama: 止まっている", lines)
+
+    def test_a_server_someone_else_started_is_marked(self):
+        self.sup.serving = lambda: True
+        lines = self.probe_with(True, True)
+        self.assertIn("別に上がっているもの", lines[0])
+
+    def test_our_own_server_is_not_marked(self):
+        self.sup.process = FakeProcess()
+        lines = self.probe_with(True, True)
+        self.assertNotIn("別に上がっているもの", lines[0])
+
+    def test_it_tells_someone_when_it_changes(self):
+        seen = []
+        self.status.on_change = lambda: seen.append(True)
+        self.probe_with(True, True)
+        self.assertEqual(len(seen), 1)
+
+    def test_a_failure_does_not_stop_the_watch(self):
+        """様子を調べられなくても、常駐そのものは落とさない。"""
+        import kotoha.launcher as launcher
+
+        self.addCleanup(setattr, launcher, "aivis_is_up", launcher.aivis_is_up)
+        launcher.aivis_is_up = lambda: 1 / 0
+        self.addCleanup(setattr, tray, "STATUS_WAIT", tray.STATUS_WAIT)
+        tray.STATUS_WAIT = 0.01
+        thread = threading.Thread(target=self.status._loop, daemon=True)
+        thread.start()
+        self.status.stopping.wait(0.1)
+        self.status.stop()
+        thread.join(timeout=2)
+        self.assertFalse(thread.is_alive())
+
+
 if __name__ == "__main__":
     unittest.main()
