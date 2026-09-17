@@ -855,44 +855,81 @@ function reactAvatar(className = "avatar-react") {
 
 // ===== Voice =====
 // 読み上げは会話とは独立させる。エンジンが止まっていても会話は続ける。
-let currentAudio = null;
 let calling = false;
+
+// iPhoneは、画面に触れた流れの中でしか音を鳴らさせてくれない。返事の声が届くのは
+// 通信を終えたあとで、そのときにはもう指の流れが切れている。そこで、通話や送信の
+// 指の動きで音の出口を開けておき、以後はそこへ流し込む。鳴らすたびに Audio を
+// 作る書き方だと、作ったものが毎回「触れていない」ものとして黙って弾かれる。
+let audioOut = null;
+let currentSource = null;
+
+function audioReady() {
+  const Sound = window.AudioContext || window.webkitAudioContext;
+  if (!Sound) return null;
+  if (!audioOut) audioOut = new Sound();
+  if (audioOut.state === "suspended") audioOut.resume().catch(() => {});
+  return audioOut;
+}
+
+// 画面に触れた瞬間に呼ぶ。無音をひとつ鳴らして、音を出す許可を取っておく。
+function openAudio() {
+  const context = audioReady();
+  if (!context) return;
+  const source = context.createBufferSource();
+  source.buffer = context.createBuffer(1, 1, 22050);
+  source.connect(context.destination);
+  source.start(0);
+  try {
+    // iOS 16.4から。着信スイッチを消音にしていても、ことはの声は鳴らす。
+    if (navigator.audioSession) navigator.audioSession.type = "playback";
+  } catch {
+    // 使えない端末では、今までどおり消音スイッチに従う。
+  }
+}
 
 // 読み上げは文ごとに分けて鳴らすので、途中で打ち切れるよう世代で見分ける。
 let speakGeneration = 0;
 
 function stopSpeaking() {
   speakGeneration += 1;
-  if (!currentAudio) return;
-  currentAudio.pause();
-  currentAudio = null;
+  if (!currentSource) return;
+  try {
+    currentSource.stop();
+  } catch {
+    // 鳴り終わったあとのstopは無視してよい。
+  }
+  currentSource = null;
 }
 
-// 鳴らし終えるまで待つ。URLは呼び出し側が持つ（つなぎ言葉は使い回すため）。
-async function playAudio(url) {
-  const audio = new Audio(url);
-  currentAudio = audio;
-  try {
-    await audio.play();
-    // pause も拾う。止められたときに待ち続けないようにする。
-    await new Promise(resolve => {
-      audio.addEventListener("ended", resolve, { once: true });
-      audio.addEventListener("pause", resolve, { once: true });
-      audio.addEventListener("error", resolve, { once: true });
-    });
-  } catch {
-    // 鳴らせなくても会話は止めない。
-  }
-  if (currentAudio === audio) currentAudio = null;
+// 鳴らし終えるまで待つ。音は呼び出し側が持つ（つなぎ言葉は使い回すため）。
+function playAudio(sound) {
+  const context = audioReady();
+  if (!context || !sound) return Promise.resolve();
+  return new Promise(resolve => {
+    const source = context.createBufferSource();
+    source.buffer = sound;
+    source.connect(context.destination);
+    // stopで止めたときも鳴り終わりとして届くので、待ち続けることはない。
+    source.addEventListener("ended", () => {
+      if (currentSource === source) currentSource = null;
+      resolve();
+    }, { once: true });
+    currentSource = source;
+    source.start();
+  });
 }
 
 async function fetchVoice(text) {
+  const context = audioReady();
+  if (!context) throw new Error("この端末では声を出せない");
   const response = await api("/api/speak", { method: "POST", body: { text } });
   if (!response.ok) {
     const error = await response.json().catch(() => ({}));
     throw new Error(error.detail || "声を出せない");
   }
-  return URL.createObjectURL(await response.blob());
+  // 受け取った wav をここで音に変える。以後は鳴らすだけなので、間が空かない。
+  return await context.decodeAudioData(await response.arrayBuffer());
 }
 
 const SPEAK_MAX_CHARS = 300;  // serve/voice.py の MAX_CHARS と揃える
@@ -940,28 +977,21 @@ async function speak(text) {
 
   let pending = fetchVoice(parts[0]);
   for (let i = 0; i < parts.length; i += 1) {
-    let url;
+    let sound;
     try {
-      url = await pending;
+      sound = await pending;
     } catch (error) {
       setStatus(error.message || "声を出せない", calling ? "calling" : "online");
       return;
     }
-    if (mine !== speakGeneration) {
-      URL.revokeObjectURL(url);
-      return;
-    }
+    if (mine !== speakGeneration) return;
     // 次の文は、いま鳴らしているあいだに作っておく。
     pending = i + 1 < parts.length ? fetchVoice(parts[i + 1]) : null;
-    try {
-      await playAudio(url);
-    } finally {
-      URL.revokeObjectURL(url);
-    }
+    await playAudio(sound);
     if (mine !== speakGeneration) break;
   }
-  // 途中でやめたときは、先に作らせたぶんを捨てる。
-  if (pending) pending.then(URL.revokeObjectURL, () => {});
+  // 途中でやめたぶんは、鳴らさなければそのまま消える。
+  if (pending) pending.catch(() => {});
 }
 
 // ===== Session / Chat =====
@@ -1245,6 +1275,7 @@ applyPreferences();
 });
 
 elements.callButton.addEventListener("click", () => {
+  openAudio();  // 指が触れているいまのうちに、音の出口を開けておく
   if (calling) endCall(); else startCall();
 });
 
@@ -1284,6 +1315,7 @@ armOnce(elements.restartApp, "再起動する", "もう一度押すと再起動"
 
 elements.toggleVoice.addEventListener("click", () => {
   preferences.voice = !preferences.voice;
+  if (preferences.voice) openAudio();
   localStorage.setItem("kotoha_voice", preferences.voice ? "1" : "0");
   if (!preferences.voice) stopSpeaking();
   applyPreferences();
@@ -1311,7 +1343,11 @@ elements.input.addEventListener("keydown", event => {
     send();
   }
 });
-elements.form.addEventListener("submit", event => { event.preventDefault(); send(); });
+elements.form.addEventListener("submit", event => {
+  event.preventDefault();
+  if (preferences.voice) openAudio();
+  send();
+});
 
 document.addEventListener("pointerdown", event => {
   if (elements.contextMenu.classList.contains("open") && !elements.contextMenu.contains(event.target)) {
