@@ -1,15 +1,12 @@
 """ことは自身のことを書き込む note コマンドの検証。APIは呼ばない。"""
 
-import tempfile
 import unittest
-from pathlib import Path
 from unittest.mock import patch
 
 from kotoha import config
+from tests.support import DbCase, use_temp_db
 
-# db が参照する前に保存先を一時DBへ向ける。
-_TMP = tempfile.TemporaryDirectory(prefix="kotoha note ")
-config.DB_PATH = Path(_TMP.name) / "test.sqlite3"
+_TMP = use_temp_db("note")
 
 from kotoha import cli  # noqa: E402
 from kotoha.memory import db  # noqa: E402
@@ -20,14 +17,9 @@ def tearDownModule():
     _TMP.cleanup()
 
 
-class NoteTests(unittest.TestCase):
+class NoteTests(DbCase):
     def setUp(self):
-        if config.DB_PATH.exists():
-            config.DB_PATH.unlink()
-        self.conn = db.connect()
-        self.addCleanup(self.conn.close)
-        db.init(self.conn)
-
+        super().setUp()
     def note(self, text):
         with patch("builtins.print"):
             cli._note(self.conn, [text])
@@ -72,15 +64,11 @@ class NoteTests(unittest.TestCase):
         self.assertEqual(self.rows(), [])
 
 
-class SelfStateTests(unittest.TestCase):
+class SelfStateTests(DbCase):
     """自分がどれだけ覚えているかを、プロンプトに持たせる。"""
 
     def setUp(self):
-        if config.DB_PATH.exists():
-            config.DB_PATH.unlink()
-        self.conn = db.connect()
-        self.addCleanup(self.conn.close)
-        db.init(self.conn)
+        super().setUp()
         self.addCleanup(setattr, presence, "describe", presence.describe)
         presence.describe = lambda conn: ""
 

@@ -1,17 +1,14 @@
 """PCの様子の検証。実際のWindows APIには触れない。"""
 
 import json
-import tempfile
 import unittest
 from datetime import datetime
-from pathlib import Path
 from unittest.mock import patch
 
 from kotoha import config
+from tests.support import DbCase, use_temp_db
 
-# db が参照する前に保存先を一時DBへ向ける。
-_TMP = tempfile.TemporaryDirectory(prefix="kotoha presence ")
-config.DB_PATH = Path(_TMP.name) / "test.sqlite3"
+_TMP = use_temp_db("presence")
 
 from kotoha.memory import db  # noqa: E402
 from kotoha.talk import presence  # noqa: E402
@@ -21,13 +18,9 @@ def tearDownModule():
     _TMP.cleanup()
 
 
-class PresenceTests(unittest.TestCase):
+class PresenceTests(DbCase):
     def setUp(self):
-        if config.DB_PATH.exists():
-            config.DB_PATH.unlink()
-        self.conn = db.connect()
-        self.addCleanup(self.conn.close)
-        db.init(self.conn)
+        super().setUp()
         self.addCleanup(setattr, config, "PRESENCE_ENABLED", config.PRESENCE_ENABLED)
         config.PRESENCE_ENABLED = True
         # 実機のAPIは叩かない。Windows以外でも同じ結果になるようにする。
@@ -116,15 +109,11 @@ class PresenceTests(unittest.TestCase):
         self.assertNotIn("つけっぱなし", presence.describe(self.conn))
 
 
-class SnapshotTests(unittest.TestCase):
+class SnapshotTests(DbCase):
     """画面に出す「いまの様子」。実機のAPIは叩かない。"""
 
     def setUp(self):
-        if config.DB_PATH.exists():
-            config.DB_PATH.unlink()
-        self.conn = db.connect()
-        self.addCleanup(self.conn.close)
-        db.init(self.conn)
+        super().setUp()
         self.addCleanup(setattr, config, "PRESENCE_ENABLED", config.PRESENCE_ENABLED)
         config.PRESENCE_ENABLED = True
         for name, value in (("enabled", lambda: config.PRESENCE_ENABLED),

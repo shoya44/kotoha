@@ -1,15 +1,12 @@
 """固定化のバッチ切り出しの検証。一時DBだけを使い、LLMは呼ばない。"""
 
 import array
-import tempfile
 import unittest
-from pathlib import Path
 
 from kotoha import config
+from tests.support import DbCase, use_temp_db
 
-# db が参照する前に保存先を一時DBへ向ける。
-_TMP = tempfile.TemporaryDirectory(prefix="kotoha consolidate ")
-config.DB_PATH = Path(_TMP.name) / "test.sqlite3"
+_TMP = use_temp_db("consolidate")
 
 from kotoha.memory import consolidate, db, embed  # noqa: E402
 
@@ -18,14 +15,9 @@ def tearDownModule():
     _TMP.cleanup()
 
 
-class FetchUnprocessedTests(unittest.TestCase):
+class FetchUnprocessedTests(DbCase):
     def setUp(self):
-        if config.DB_PATH.exists():
-            config.DB_PATH.unlink()
-        self.conn = db.connect()
-        self.addCleanup(self.conn.close)
-        db.init(self.conn)
-
+        super().setUp()
     def add_turn(self, turn_id, user_text="質問", assistant_text="返事"):
         db.insert_message(self.conn, turn_id, "user", user_text)
         db.insert_message(self.conn, turn_id, "assistant", assistant_text)
@@ -100,15 +92,11 @@ class SafeDateTests(unittest.TestCase):
             self.assertEqual(consolidate._safe_date(value, self.BASE), "2026-09-17")
 
 
-class MergeTests(unittest.TestCase):
+class MergeTests(DbCase):
     """言い直しただけの記憶を作らせない。同じ話で想起の6枠が埋まるのを防ぐ。"""
 
     def setUp(self):
-        if config.DB_PATH.exists():
-            config.DB_PATH.unlink()
-        self.conn = db.connect()
-        self.addCleanup(self.conn.close)
-        db.init(self.conn)
+        super().setUp()
         for name, value in (("EMBED_ENABLED", True), ("EMBED_MERGE_FLOOR", 0.90)):
             self.addCleanup(setattr, config, name, getattr(config, name))
             setattr(config, name, value)

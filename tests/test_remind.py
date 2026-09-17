@@ -1,14 +1,12 @@
 """頼まれごとの預かりと、見守り。外へは一度も出ない。"""
 
-import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 
 from kotoha import config
+from tests.support import DbCase, use_temp_db
 
-_TMP = tempfile.TemporaryDirectory(prefix="kotoha remind ")
-config.DB_PATH = Path(_TMP.name) / "test.sqlite3"
+_TMP = use_temp_db("remind")
 
 from kotoha import notify  # noqa: E402
 from kotoha.memory import db, remind  # noqa: E402
@@ -60,14 +58,9 @@ class TagTests(unittest.TestCase):
         self.assertNotIn("REMIND", clean)
 
 
-class KeepingTests(unittest.TestCase):
+class KeepingTests(DbCase):
     def setUp(self):
-        if config.DB_PATH.exists():
-            config.DB_PATH.unlink()
-        self.conn = db.connect()
-        self.addCleanup(self.conn.close)
-        db.init(self.conn)
-
+        super().setUp()
     def test_it_speaks_when_the_time_comes(self):
         remind.add(self.conn, datetime.now() - timedelta(minutes=1), "歯医者")
         self.conn.commit()
@@ -108,16 +101,11 @@ class KeepingTests(unittest.TestCase):
         self.assertEqual(remind.block(self.conn), "")
 
 
-class SnoozeTests(unittest.TestCase):
+class SnoozeTests(DbCase):
     """通知の「あとで」。同じ用件を、少し先へ置き直す。"""
 
     def setUp(self):
-        if config.DB_PATH.exists():
-            config.DB_PATH.unlink()
-        self.conn = db.connect()
-        self.addCleanup(self.conn.close)
-        db.init(self.conn)
-
+        super().setUp()
     def spoken(self, text="歯医者"):
         """一度言い終わった状態（done）にしてから返す。"""
         remind.add(self.conn, datetime.now() - timedelta(minutes=1), text)
@@ -152,15 +140,11 @@ class SnoozeTests(unittest.TestCase):
         self.assertEqual(len(remind.pending(self.conn)), 1)
 
 
-class FiringTests(unittest.TestCase):
+class FiringTests(DbCase):
     """時刻が来たら、会話として言い、そのまま通知になる。"""
 
     def setUp(self):
-        if config.DB_PATH.exists():
-            config.DB_PATH.unlink()
-        self.conn = db.connect()
-        self.addCleanup(self.conn.close)
-        db.init(self.conn)
+        super().setUp()
         for owner, name in ((notify, "ready"), (notify, "push"), (notify, "log"),
                             (chat, "speak")):
             self.addCleanup(setattr, owner, name, getattr(owner, name))
@@ -196,15 +180,11 @@ class FiringTests(unittest.TestCase):
         self.assertEqual(remind.pending(self.conn), [])           # そのうえで畳む
 
 
-class LookoutTests(unittest.TestCase):
+class LookoutTests(DbCase):
     """根の詰めすぎと、夜更かし。"""
 
     def setUp(self):
-        if config.DB_PATH.exists():
-            config.DB_PATH.unlink()
-        self.conn = db.connect()
-        self.addCleanup(self.conn.close)
-        db.init(self.conn)
+        super().setUp()
         for name, value in (("LOOKOUT_ENABLED", True), ("LOOKOUT_SIT_HOURS", 3),
                             ("LOOKOUT_LATE_HOUR", 2), ("LOOKOUT_MORNING_HOUR", 5)):
             self.addCleanup(setattr, config, name, getattr(config, name))
@@ -278,16 +258,11 @@ class LookoutTests(unittest.TestCase):
         self.assertEqual(self.pushed, [])
 
 
-class StreakTests(unittest.TestCase):
+class StreakTests(DbCase):
     """同じアプリを続けている時間の数え方。"""
 
     def setUp(self):
-        if config.DB_PATH.exists():
-            config.DB_PATH.unlink()
-        self.conn = db.connect()
-        self.addCleanup(self.conn.close)
-        db.init(self.conn)
-
+        super().setUp()
     def began(self, when):
         db.set_state(self.conn, db.FRONT_STREAK_FROM, when)
 

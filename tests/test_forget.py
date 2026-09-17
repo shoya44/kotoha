@@ -1,14 +1,11 @@
 """忘却と記憶の寿命の検証。一時DBだけを使い、本番DBには触れない。"""
 
-import tempfile
 import unittest
-from pathlib import Path
 
 from kotoha import config
+from tests.support import DbCase, use_temp_db
 
-# db が参照する前に保存先を一時DBへ向ける。
-_TMP = tempfile.TemporaryDirectory(prefix="kotoha forget ")
-config.DB_PATH = Path(_TMP.name) / "test.sqlite3"
+_TMP = use_temp_db("forget")
 
 from kotoha.memory import consolidate, db, retrieve  # noqa: E402
 
@@ -25,14 +22,9 @@ def tearDownModule():
     _TMP.cleanup()
 
 
-class MemoryLifetimeTests(unittest.TestCase):
+class MemoryLifetimeTests(DbCase):
     def setUp(self):
-        if config.DB_PATH.exists():
-            config.DB_PATH.unlink()
-        self.conn = db.connect()
-        self.addCleanup(self.conn.close)
-        db.init(self.conn)
-
+        super().setUp()
     def add(self, layer="semantic", kind="fact", expires=FAR, pinned=0, key="k"):
         cur = self.conn.execute(
             NODE_SQL, (layer, kind, "記憶", "2020-01-01", OLD, OLD, expires, pinned, key)

@@ -1,14 +1,13 @@
 """通話の受け渡しと再起動の検証。実際にプロセスは落とさない。"""
 
-import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from kotoha import config
+from tests.support import DbCase, use_temp_db
 
-_TMP = tempfile.TemporaryDirectory(prefix="kotoha call ")
-config.DB_PATH = Path(_TMP.name) / "test.sqlite3"
+_TMP = use_temp_db("call")
 
 from kotoha.memory import db  # noqa: E402
 from kotoha.serve import web  # noqa: E402

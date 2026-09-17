@@ -1,15 +1,12 @@
 """プロンプトに渡す時刻・経過・様子の検証。一時DBだけを使い、LLMは呼ばない。"""
 
-import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 
 from kotoha import config
+from tests.support import DbCase, use_temp_db
 
-# db が参照する前に保存先を一時DBへ向ける。
-_TMP = tempfile.TemporaryDirectory(prefix="kotoha chat ")
-config.DB_PATH = Path(_TMP.name) / "test.sqlite3"
+_TMP = use_temp_db("chat")
 
 from kotoha.memory import db, remind  # noqa: E402
 from kotoha.talk import chat  # noqa: E402
@@ -66,14 +63,9 @@ class SituationTests(unittest.TestCase):
         self.assertEqual(groups[2], groups[5])
 
 
-class TimeBlockTests(unittest.TestCase):
+class TimeBlockTests(DbCase):
     def setUp(self):
-        if config.DB_PATH.exists():
-            config.DB_PATH.unlink()
-        self.conn = db.connect()
-        self.addCleanup(self.conn.close)
-        db.init(self.conn)
-
+        super().setUp()
     def time_lines(self):
         prompt = chat.build_prompt(self.conn, "やっほー", [], [], [])
         return [
@@ -182,14 +174,9 @@ class TagStrippingTests(unittest.TestCase):
         self.assertEqual(mood, "ふつう")
 
 
-class MoodTests(unittest.TestCase):
+class MoodTests(DbCase):
     def setUp(self):
-        if config.DB_PATH.exists():
-            config.DB_PATH.unlink()
-        self.conn = db.connect()
-        self.addCleanup(self.conn.close)
-        db.init(self.conn)
-
+        super().setUp()
     def remember(self, label, at=None):
         db.set_state(self.conn, "mood", label)
         db.set_state(self.conn, "mood_at", at or db.now_utc())
@@ -253,16 +240,11 @@ class TagSweepTests(unittest.TestCase):
         self.assertEqual(chat.strip_tags("[明日] は雨だって"), "[明日] は雨だって")
 
 
-class TurnWiringTests(unittest.TestCase):
+class TurnWiringTests(DbCase):
     """1ターン通したときに、タグが隠れて機嫌が残ることを確かめる。"""
 
     def setUp(self):
-        if config.DB_PATH.exists():
-            config.DB_PATH.unlink()
-        self.conn = db.connect()
-        self.addCleanup(self.conn.close)
-        db.init(self.conn)
-
+        super().setUp()
     def reply_with(self, raw):
         original = chat.llm.chat
         chat.llm.chat = lambda prompt, max_tokens=None: raw

@@ -1,13 +1,11 @@
 """画面から記憶を見て直すAPIの検証。一時DBだけを使う。"""
 
-import tempfile
 import unittest
-from pathlib import Path
 
 from kotoha import config
+from tests.support import DbCase, use_temp_db
 
-_TMP = tempfile.TemporaryDirectory(prefix="kotoha memory api ")
-config.DB_PATH = Path(_TMP.name) / "test.sqlite3"
+_TMP = use_temp_db("memory api")
 
 from kotoha.memory import db  # noqa: E402
 from kotoha.serve import web  # noqa: E402

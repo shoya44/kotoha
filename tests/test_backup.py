@@ -1,16 +1,13 @@
 """世代付きバックアップの検証。一時DBだけを使い、本番DBには触れない。"""
 
 import sqlite3
-import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 
 from kotoha import config
+from tests.support import DbCase, use_temp_db
 
-# db が参照する前に保存先を一時DBへ向ける。
-_TMP = tempfile.TemporaryDirectory(prefix="kotoha backup ")
-config.DB_PATH = Path(_TMP.name) / "test.sqlite3"
+_TMP = use_temp_db("backup")
 
 from kotoha.memory import db  # noqa: E402
 
@@ -90,16 +87,11 @@ class BackupTests(unittest.TestCase):
         self.assertTrue(keeper.exists())
 
 
-class BackupScheduleTests(unittest.TestCase):
+class BackupScheduleTests(DbCase):
     """自動バックアップの実行判定。"""
 
     def setUp(self):
-        if config.DB_PATH.exists():
-            config.DB_PATH.unlink()
-        self.conn = db.connect()
-        self.addCleanup(self.conn.close)
-        db.init(self.conn)
-
+        super().setUp()
     def due(self):
         elapsed = db.seconds_since(db.get_state(self.conn, "last_backup_at"))
         return elapsed > config.BACKUP_INTERVAL_SECONDS
@@ -165,15 +157,11 @@ class PeriodicJobOrderTests(unittest.TestCase):
         self.assertEqual(rescued[0], "消える記憶")
 
 
-class ConsolidationTimingTests(unittest.TestCase):
+class ConsolidationTimingTests(DbCase):
     """整理を始める頃合い。巡回は会話と同じ順番待ちに並ぶ。"""
 
     def setUp(self):
-        if config.DB_PATH.exists():
-            config.DB_PATH.unlink()
-        self.conn = db.connect()
-        self.addCleanup(self.conn.close)
-        db.init(self.conn)
+        super().setUp()
         # 巡回には声かけが含まれる。テストが本物のGeminiを叩いて
         # 持ち主の電話を鳴らさないよう、ここで止める。
         self.addCleanup(setattr, config, "REACH_OUT_ENABLED", config.REACH_OUT_ENABLED)

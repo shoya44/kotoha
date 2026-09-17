@@ -1,14 +1,12 @@
 """画面から見る「PCの様子」の検証。実機のAPIも道具も叩かない。"""
 
-import tempfile
 import unittest
-from pathlib import Path
 from unittest.mock import patch
 
 from kotoha import config
+from tests.support import DbCase, use_temp_db
 
-_TMP = tempfile.TemporaryDirectory(prefix="kotoha machine api ")
-config.DB_PATH = Path(_TMP.name) / "test.sqlite3"
+_TMP = use_temp_db("machine api")
 
 from kotoha.memory import db  # noqa: E402
 from kotoha.serve import jobs, web  # noqa: E402

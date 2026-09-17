@@ -1,14 +1,11 @@
 """タグ想起の並び順の検証。一時DBだけを使い、LLMは呼ばない。"""
 
-import tempfile
 import unittest
-from pathlib import Path
 
 from kotoha import config
+from tests.support import DbCase, use_temp_db
 
-# db が参照する前に保存先を一時DBへ向ける。
-_TMP = tempfile.TemporaryDirectory(prefix="kotoha retrieve ")
-config.DB_PATH = Path(_TMP.name) / "test.sqlite3"
+_TMP = use_temp_db("retrieve")
 
 from kotoha.memory import db, embed, retrieve  # noqa: E402
 
@@ -22,14 +19,9 @@ def tearDownModule():
     _TMP.cleanup()
 
 
-class TagOrderTests(unittest.TestCase):
+class TagOrderTests(DbCase):
     def setUp(self):
-        if config.DB_PATH.exists():
-            config.DB_PATH.unlink()
-        self.conn = db.connect()
-        self.addCleanup(self.conn.close)
-        db.init(self.conn)
-
+        super().setUp()
     def add(self, text, tag, use_count, confirmed_at, last_used_at):
         cur = self.conn.execute(
             NODE_SQL,
@@ -104,15 +96,11 @@ class Scored:
         return self.table.get(bytes(b), 0.0)
 
 
-class MeaningTests(unittest.TestCase):
+class MeaningTests(DbCase):
     """意味で思い出すぶんの検証。実際のOllamaには接続しない。"""
 
     def setUp(self):
-        if config.DB_PATH.exists():
-            config.DB_PATH.unlink()
-        self.conn = db.connect()
-        self.addCleanup(self.conn.close)
-        db.init(self.conn)
+        super().setUp()
         for name, value in (("EMBED_ENABLED", True), ("EMBED_RESERVE", 2),
                             ("EMBED_FLOOR", 0.62), ("EMBED_CONTEXT_LINES", 2)):
             self.addCleanup(setattr, config, name, getattr(config, name))

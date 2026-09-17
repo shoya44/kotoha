@@ -435,6 +435,13 @@ data/                       DB・バックアップ（Git管理外）
 | レート制限・通信失敗 | API利用枠と接続を確認。入力は保存され、応答がない状態で残る場合があります |
 | `.venv` のPythonが起動しない | 仮想環境の元になったPythonが利用可能か確認 |
 
+テストは次のとおりです。本物のGeminiにも通知にも接続せず、DBは毎回まっさらな一時ファイルを使います。
+
+```powershell
+.\.venv\Scripts\python -m unittest discover -s tests -t .    全部
+.\.venv\Scripts\python -m unittest tests.test_remind         1ファイルだけ
+```
+
 通知がiPhoneに届かないときは、`/static/pushtest.html` を開くと、通知の許可・購読ID・OneSignalの応答をその場で確かめられます。会話画面からは辿れない、調べるためだけの1枚です。
 
 

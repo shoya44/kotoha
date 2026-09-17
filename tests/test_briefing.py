@@ -1,16 +1,14 @@
 """朝のひとことと、空模様の読み。外へは一度も出ない。"""
 
-import tempfile
 import unittest
 from datetime import datetime
-from pathlib import Path
 
 import httpx
 
 from kotoha import config
+from tests.support import DbCase, use_temp_db
 
-_TMP = tempfile.TemporaryDirectory(prefix="kotoha briefing ")
-config.DB_PATH = Path(_TMP.name) / "test.sqlite3"
+_TMP = use_temp_db("briefing")
 
 from kotoha import notify  # noqa: E402
 from kotoha.memory import db  # noqa: E402
@@ -88,15 +86,11 @@ class SkyTests(unittest.TestCase):
         self.assertIn("服装: 長袖", text)
 
 
-class BriefingTests(unittest.TestCase):
+class BriefingTests(DbCase):
     """朝いちばんに一度だけ。"""
 
     def setUp(self):
-        if config.DB_PATH.exists():
-            config.DB_PATH.unlink()
-        self.conn = db.connect()
-        self.addCleanup(self.conn.close)
-        db.init(self.conn)
+        super().setUp()
         for name, value in (("BRIEFING_ENABLED", True), ("BRIEFING_HOUR", 8),
                             ("BRIEFING_GRACE_HOURS", 3)):
             self.addCleanup(setattr, config, name, getattr(config, name))
@@ -210,15 +204,11 @@ class BriefingTests(unittest.TestCase):
         self.assertEqual(self.pushed, [])
 
 
-class AnnounceTests(unittest.TestCase):
+class AnnounceTests(DbCase):
     """通知はすべてここを通る。言わずに鳴らさない。"""
 
     def setUp(self):
-        if config.DB_PATH.exists():
-            config.DB_PATH.unlink()
-        self.conn = db.connect()
-        self.addCleanup(self.conn.close)
-        db.init(self.conn)
+        super().setUp()
         for owner, name in ((notify, "ready"), (notify, "push"), (notify, "log"),
                             (chat, "speak")):
             self.addCleanup(setattr, owner, name, getattr(owner, name))

@@ -1,16 +1,13 @@
 """読み上げの検証。実際の音声エンジンには接続しない。"""
 
-import tempfile
 import unittest
-from pathlib import Path
 
 import httpx
 
 from kotoha import config
+from tests.support import DbCase, use_temp_db
 
-# db が参照する前に保存先を一時DBへ向ける。
-_TMP = tempfile.TemporaryDirectory(prefix="kotoha voice ")
-config.DB_PATH = Path(_TMP.name) / "test.sqlite3"
+_TMP = use_temp_db("voice")
 
 from kotoha.serve import voice  # noqa: E402
 

@@ -1,17 +1,14 @@
 """記憶を意味の座標に変える処理の検証。実際のOllamaには接続しない。"""
 
 import array
-import tempfile
 import unittest
-from pathlib import Path
 
 import httpx
 
 from kotoha import config
+from tests.support import DbCase, use_temp_db
 
-# db が参照する前に保存先を一時DBへ向ける。
-_TMP = tempfile.TemporaryDirectory(prefix="kotoha embed ")
-config.DB_PATH = Path(_TMP.name) / "test.sqlite3"
+_TMP = use_temp_db("embed")
 
 from kotoha.memory import db, embed  # noqa: E402
 
@@ -132,15 +129,11 @@ class EmbedTests(EngineMixin, unittest.TestCase):
         self.assertEqual(len(engine.calls), 2)
 
 
-class MemoryFixture(EngineMixin):
+class MemoryFixture(EngineMixin, DbCase):
     """記憶を1件置ける一時DB。継承したままだと親のテストが二重に走る。"""
 
     def setUp(self):
-        if config.DB_PATH.exists():
-            config.DB_PATH.unlink()
-        self.conn = db.connect()
-        self.addCleanup(self.conn.close)
-        db.init(self.conn)
+        super().setUp()
 
     def add_memory(self, text="しょうやは眠れないと話した。", key=None):
         cur = self.conn.execute(
@@ -154,7 +147,7 @@ class MemoryFixture(EngineMixin):
         return cur.lastrowid
 
 
-class StorageTests(MemoryFixture, unittest.TestCase):
+class StorageTests(MemoryFixture):
     def test_new_memory_is_listed_as_missing(self):
         node_id = self.add_memory()
         rows = embed.missing(self.conn, 10)
@@ -203,7 +196,7 @@ class StorageTests(MemoryFixture, unittest.TestCase):
         self.assertEqual(embed.load_all(self.conn), [])
 
 
-class PeriodicJobTests(MemoryFixture, unittest.TestCase):
+class PeriodicJobTests(MemoryFixture):
     """裏で貯める処理。会話を止めないこと、止まっていても平気なことを見る。"""
 
     def setUp(self):
@@ -278,7 +271,7 @@ class PeriodicJobTests(MemoryFixture, unittest.TestCase):
         self.assertEqual(len(engine.calls[0]["input"]), config.EMBED_BATCH)
 
 
-class LinkTests(MemoryFixture, unittest.TestCase):
+class LinkTests(MemoryFixture):
     """意味の近い記憶どうしを結ぶ。想起の「1本たどる」がずっと空振りしていた。"""
 
     def setUp(self):

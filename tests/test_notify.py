@@ -1,17 +1,14 @@
 """通知と、ことはからの声かけの検証。OneSignalにも Gemini にも接続しない。"""
 
-import tempfile
 import unittest
 from datetime import datetime, timedelta
-from pathlib import Path
 
 import httpx
 
 from kotoha import config
+from tests.support import DbCase, use_temp_db
 
-# db が参照する前に保存先を一時DBへ向ける。
-_TMP = tempfile.TemporaryDirectory(prefix="kotoha notify ")
-config.DB_PATH = Path(_TMP.name) / "test.sqlite3"
+_TMP = use_temp_db("notify")
 
 from kotoha import notify  # noqa: E402
 from kotoha.memory import db, remind  # noqa: E402
@@ -87,15 +84,11 @@ class PushTests(unittest.TestCase):
         self.assertNotIn("key-1", " ".join(self.logged))
 
 
-class ReachOutTests(unittest.TestCase):
+class ReachOutTests(DbCase):
     """暇なときの声かけ。3つとも満たしたときだけ。"""
 
     def setUp(self):
-        if config.DB_PATH.exists():
-            config.DB_PATH.unlink()
-        self.conn = db.connect()
-        self.addCleanup(self.conn.close)
-        db.init(self.conn)
+        super().setUp()
         for name, value in (("REACH_OUT_ENABLED", True), ("REACH_OUT_AFTER_HOURS", 5),
                             ("REACH_OUT_INTERVAL_HOURS", 6),
                             ("REACH_OUT_FROM_HOUR", 0), ("REACH_OUT_TO_HOUR", 24)):
@@ -222,15 +215,11 @@ class WatchTests(unittest.TestCase):
         self.assertIn("Cドライブ", self.pushed[0])
 
 
-class TogetherTests(unittest.TestCase):
+class TogetherTests(DbCase):
     """立て続けに鳴らさない。同じ巡回で出たものは、1通にまとめて言う。"""
 
     def setUp(self):
-        if config.DB_PATH.exists():
-            config.DB_PATH.unlink()
-        self.conn = db.connect()
-        self.addCleanup(self.conn.close)
-        db.init(self.conn)
+        super().setUp()
         self.addCleanup(setattr, config, "NOTIFY_GAP_MINUTES", config.NOTIFY_GAP_MINUTES)
         config.NOTIFY_GAP_MINUTES = 10
         for name in ("ready", "push", "log"):
@@ -344,15 +333,11 @@ class TogetherTests(unittest.TestCase):
         self.assertEqual(announce_mod._held(self.conn), [])
 
 
-class SnoozeButtonTests(unittest.TestCase):
+class SnoozeButtonTests(DbCase):
     """頼まれごとの通知にだけ「あとで」を付ける。用件はURLに載せない。"""
 
     def setUp(self):
-        if config.DB_PATH.exists():
-            config.DB_PATH.unlink()
-        self.conn = db.connect()
-        self.addCleanup(self.conn.close)
-        db.init(self.conn)
+        super().setUp()
         for name, value in (("SNOOZE_MINUTES", 30),
                             ("PUSH_OPEN_URL", "https://pc.example.ts.net"),
                             ("NOTIFY_GAP_MINUTES", 0)):
