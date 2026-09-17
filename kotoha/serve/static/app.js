@@ -1024,6 +1024,7 @@ async function unlock() {
     elements.gate.style.display = "none";
     setStatus("いるよ");
     elements.input.focus();
+    setupPush();
   } catch {
     setStatus("接続できない", "offline");
     elements.gateError.textContent = "接続できませんでした";
@@ -1272,8 +1273,7 @@ elements.settingsOverlay.addEventListener("click", event => {
 elements.toggleTime.addEventListener("click", () => {
   preferences.showTime = !preferences.showTime;
   localStorage.setItem("kotoha_show_time", preferences.showTime ? "1" : "0");
-applyPreferences();
-  setupPush();
+  applyPreferences();
   updateJumpButton();
 });
 
@@ -1366,12 +1366,9 @@ async function setupPush() {
   showPushState();
   if (pushBlocked()) return;
 
-  // SDKが降ってこないことがある。黙って準備中のままにしない。
+  // 入らないことがある。黙って準備中のままにしない。
   const late = setTimeout(() => {
-    if (pushReady) return;
-    // 台本が届いていないのか、届いたうえで止まっているのかを分ける。
-    pushNote = facts();
-    showPushState();
+    if (!pushReady) { pushNote = facts(); showPushState(); }
   }, 8000);
   whenOneSignal(async OneSignal => {
     try {
@@ -1529,6 +1526,7 @@ setInterval(updateMiniAvatar, 30 * 60 * 1000);
       elements.gate.style.display = "none";
       setStatus("いるよ");
       elements.input.focus();
+      setupPush();
       return;
     }
   } catch {

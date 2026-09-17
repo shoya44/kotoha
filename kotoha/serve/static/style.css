@@ -709,6 +709,9 @@ textarea:focus-visible {
   text-align: left;
 }
 
+/* .sheet-row の display:flex は、UAの [hidden] より強い。
+   隠したつもりの行が出てしまうので、ここで押さえる。 */
+[hidden] { display: none !important; }
 .sheet-row:last-child { border-bottom: 0; }
 .sheet-row.danger { color: var(--danger); }
 
