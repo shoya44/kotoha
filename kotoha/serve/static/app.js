@@ -475,7 +475,11 @@ function reactAvatar(className = "avatar-react") {
 let currentAudio = null;
 let calling = false;
 
+// 読み上げは文ごとに分けて鳴らすので、途中で打ち切れるよう世代で見分ける。
+let speakGeneration = 0;
+
 function stopSpeaking() {
+  speakGeneration += 1;
   if (!currentAudio) return;
   currentAudio.pause();
   currentAudio = null;
@@ -508,19 +512,73 @@ async function fetchVoice(text) {
   return URL.createObjectURL(await response.blob());
 }
 
+const SPEAK_MAX_CHARS = 300;  // serve/voice.py の MAX_CHARS と揃える
+const SENTENCE_END = "。．！？!?\n";
+const SHORT_PART = 10;  // これ未満の断片は前につなぐ。細切れに合成すると間延びする。
+
+// 文の切れ目で分ける。全部を1回で合成するより、最初の声が早く出る。
+function splitSentences(text) {
+  const raw = [];
+  let buffer = "";
+  for (const ch of text) {
+    buffer += ch;
+    if (SENTENCE_END.includes(ch)) {
+      raw.push(buffer);
+      buffer = "";
+    }
+  }
+  if (buffer) raw.push(buffer);
+
+  const parts = [];
+  let used = 0;
+  for (const piece of raw) {
+    const part = piece.trim();
+    if (!part) continue;
+    if (used + part.length > SPEAK_MAX_CHARS) {
+      // 切れ目のない長文でも、入るぶんまでは読む。
+      if (!parts.length) parts.push(part.slice(0, SPEAK_MAX_CHARS));
+      break;
+    }
+    used += part.length;
+    const last = parts[parts.length - 1];
+    if (last && last.length < SHORT_PART) parts[parts.length - 1] = last + part;
+    else parts.push(part);
+  }
+  return parts;
+}
+
 // 通話中は設定に関わらず声を出す。再生し終えるまで待てるように解決を返す。
 async function speak(text) {
   if ((!preferences.voice && !calling) || !text) return;
   stopSpeaking();
-  let url = null;
-  try {
-    url = await fetchVoice(text);
-    await playAudio(url);
-  } catch (error) {
-    setStatus(error.message || "声を出せない", calling ? "calling" : "online");
-  } finally {
-    if (url) URL.revokeObjectURL(url);
+  const mine = speakGeneration;
+  const parts = splitSentences(text);
+  if (!parts.length) return;
+
+  let pending = fetchVoice(parts[0]);
+  for (let i = 0; i < parts.length; i += 1) {
+    let url;
+    try {
+      url = await pending;
+    } catch (error) {
+      setStatus(error.message || "声を出せない", calling ? "calling" : "online");
+      return;
+    }
+    if (mine !== speakGeneration) {
+      URL.revokeObjectURL(url);
+      return;
+    }
+    // 次の文は、いま鳴らしているあいだに作っておく。
+    pending = i + 1 < parts.length ? fetchVoice(parts[i + 1]) : null;
+    try {
+      await playAudio(url);
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+    if (mine !== speakGeneration) break;
   }
+  // 途中でやめたときは、先に作らせたぶんを捨てる。
+  if (pending) pending.then(URL.revokeObjectURL, () => {});
 }
 
 // ===== Session / Chat =====
