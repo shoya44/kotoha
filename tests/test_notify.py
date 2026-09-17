@@ -15,7 +15,7 @@ config.DB_PATH = Path(_TMP.name) / "test.sqlite3"
 
 from kotoha import notify  # noqa: E402
 from kotoha.memory import db, remind  # noqa: E402
-from kotoha.serve import web  # noqa: E402
+from kotoha.serve import announce as announce_mod, jobs, web  # noqa: E402
 from kotoha.talk import chat, presence  # noqa: E402
 
 
@@ -119,37 +119,37 @@ class ReachOutTests(unittest.TestCase):
 
     def test_it_speaks_up_after_a_long_quiet(self):
         self.quiet_for(10)
-        web.maybe_reach_out(self.conn)
+        jobs.maybe_reach_out(self.conn)
         self.assertEqual(self.pushed, ["そういえばあれ、どうなった？"])
 
     def test_it_stays_quiet_right_after_talking(self):
         self.quiet_for(0)
-        web.maybe_reach_out(self.conn)
+        jobs.maybe_reach_out(self.conn)
         self.assertEqual(self.pushed, [])
 
     def test_it_does_not_speak_up_twice_in_a_row(self):
         self.quiet_for(10)
-        web.maybe_reach_out(self.conn)
-        web.maybe_reach_out(self.conn)
+        jobs.maybe_reach_out(self.conn)
+        jobs.maybe_reach_out(self.conn)
         self.assertEqual(len(self.pushed), 1)
 
     def test_it_keeps_out_of_the_night(self):
         self.quiet_for(10)
         config.REACH_OUT_FROM_HOUR = (datetime.now().hour + 2) % 24
         config.REACH_OUT_TO_HOUR = (datetime.now().hour + 3) % 24
-        web.maybe_reach_out(self.conn)
+        jobs.maybe_reach_out(self.conn)
         self.assertEqual(self.pushed, [])
 
     def test_switched_off_says_nothing(self):
         config.REACH_OUT_ENABLED = False
         self.quiet_for(10)
-        web.maybe_reach_out(self.conn)
+        jobs.maybe_reach_out(self.conn)
         self.assertEqual(self.pushed, [])
 
     def test_a_failure_to_write_does_not_escape(self):
         chat.speak = self.explode
         self.quiet_for(10)
-        web.maybe_reach_out(self.conn)     # 例外が出ないこと
+        jobs.maybe_reach_out(self.conn)     # 例外が出ないこと
         self.assertEqual(self.pushed, [])
 
 
@@ -182,42 +182,42 @@ class WatchTests(unittest.TestCase):
         notify.push = lambda title, body, *a, **k: self.pushed.append(body) or True
         presence.disks = lambda: []
         self.up = True
-        self.addCleanup(setattr, web, "_tool_probes", web._tool_probes)
-        web._tool_probes = lambda: {"音声エンジン": lambda: self.up}
+        self.addCleanup(setattr, jobs, "tool_probes", jobs.tool_probes)
+        jobs.tool_probes = lambda: {"音声エンジン": lambda: self.up}
 
     def test_it_says_nothing_while_things_are_running(self):
-        web.run_watch_jobs()
-        web.run_watch_jobs()
+        jobs.run_watch_jobs()
+        jobs.run_watch_jobs()
         self.assertEqual(self.pushed, [])
 
     def test_it_speaks_when_something_falls_over(self):
-        web.run_watch_jobs()          # 動いている状態を覚える
+        jobs.run_watch_jobs()          # 動いている状態を覚える
         self.up = False
-        web.run_watch_jobs()
+        jobs.run_watch_jobs()
         self.assertEqual(len(self.pushed), 1)
         self.assertIn("音声エンジン", self.pushed[0])
 
     def test_it_does_not_repeat_itself(self):
-        web.run_watch_jobs()
+        jobs.run_watch_jobs()
         self.up = False
-        web.run_watch_jobs()
-        web.run_watch_jobs()
+        jobs.run_watch_jobs()
+        jobs.run_watch_jobs()
         self.assertEqual(len(self.pushed), 1)
 
     def test_the_first_look_is_not_an_alarm(self):
         """起動直後から止まっていただけで騒がない。"""
         self.up = False
-        web.run_watch_jobs()
+        jobs.run_watch_jobs()
         self.assertEqual(self.pushed, [])
 
     def test_a_shrinking_disk_is_mentioned_once(self):
         self.addCleanup(setattr, config, "DISK_WARN_GB", config.DISK_WARN_GB)
         config.DISK_WARN_GB = 20
         presence.disks = lambda: [("C", 100.0, 50)]
-        web.run_watch_jobs()
+        jobs.run_watch_jobs()
         presence.disks = lambda: [("C", 5.0, 99)]
-        web.run_watch_jobs()
-        web.run_watch_jobs()
+        jobs.run_watch_jobs()
+        jobs.run_watch_jobs()
         self.assertEqual(len(self.pushed), 1)
         self.assertIn("Cドライブ", self.pushed[0])
 
@@ -250,13 +250,13 @@ class TogetherTests(unittest.TestCase):
 
     def pass_of(self, *closings):
         """1回の巡回のまね。announce はこの間、鳴らさずに預かる。"""
-        web._collecting = True
+        announce_mod._collecting = True
         try:
             for closing in closings:
-                web.announce(self.conn, closing)
+                announce_mod.announce(self.conn, closing)
         finally:
-            web._collecting = False
-        return web.flush_held(self.conn)
+            announce_mod._collecting = False
+        return announce_mod.flush_held(self.conn)
 
     def test_two_things_in_one_round_become_one_message(self):
         self.pass_of("空きが減ったと伝える。", "歯医者の時間だと伝える。")
@@ -276,7 +276,7 @@ class TogetherTests(unittest.TestCase):
         self.assertEqual(len(self.pushed), 1)
         self.pass_of("ふたつめ。")
         self.assertEqual(len(self.pushed), 1)    # まだ間が空いていない
-        self.assertEqual(len(web._held(self.conn)), 1)
+        self.assertEqual(len(announce_mod._held(self.conn)), 1)
 
     def test_it_speaks_again_once_the_gap_has_passed(self):
         self.pass_of("ひとつめ。")
@@ -291,39 +291,39 @@ class TogetherTests(unittest.TestCase):
         self.pass_of("ふたつめ。")
         other = db.connect()
         try:
-            self.assertEqual(len(web._held(other)), 1)
+            self.assertEqual(len(announce_mod._held(other)), 1)
         finally:
             other.close()
 
     def test_switching_the_gap_off_speaks_at_once(self):
         config.NOTIFY_GAP_MINUTES = 0
-        web.announce(self.conn, "ひとつめ。")
-        web.announce(self.conn, "ふたつめ。")
+        announce_mod.announce(self.conn, "ひとつめ。")
+        announce_mod.announce(self.conn, "ふたつめ。")
         self.assertEqual(len(self.pushed), 2)
 
     def test_it_does_not_hold_more_than_it_can_say(self):
         self.pass_of("さいしょ。")
-        for i in range(web.HELD_LIMIT + 3):
-            web.announce(self.conn, f"{i}番目。")
-        self.assertEqual(len(web._held(self.conn)), web.HELD_LIMIT)
+        for i in range(announce_mod.HELD_LIMIT + 3):
+            announce_mod.announce(self.conn, f"{i}番目。")
+        self.assertEqual(len(announce_mod._held(self.conn)), announce_mod.HELD_LIMIT)
 
     def test_a_broken_note_is_not_carried_around(self):
         db.set_state(self.conn, db.HELD_ANNOUNCEMENTS, "こわれている")
         self.conn.commit()
-        self.assertEqual(web._held(self.conn), [])
+        self.assertEqual(announce_mod._held(self.conn), [])
 
     def test_a_held_errand_is_not_asked_for_twice(self):
         """預かられても「言えた」扱いにする。でないと毎分積み増してしまう。"""
         remind.add(self.conn, datetime.now() - timedelta(minutes=1), "歯医者")
         self.conn.commit()
         self.pass_of("さいしょ。")              # ここで間を埋める
-        web._collecting = True
+        announce_mod._collecting = True
         try:
-            web.maybe_reminders(self.conn)
-            web.maybe_reminders(self.conn)
+            jobs.maybe_reminders(self.conn)
+            jobs.maybe_reminders(self.conn)
         finally:
-            web._collecting = False
-        self.assertEqual(len(web._held(self.conn)), 1)
+            announce_mod._collecting = False
+        self.assertEqual(len(announce_mod._held(self.conn)), 1)
         self.assertEqual(remind.pending(self.conn), [])
 
     def test_the_round_sends_what_was_held(self):
@@ -334,14 +334,14 @@ class TogetherTests(unittest.TestCase):
                             ("MAINTENANCE_SECONDS", 10 ** 9)):
             self.addCleanup(setattr, config, name, getattr(config, name))
             setattr(config, name, value)
-        web._collecting = True
+        announce_mod._collecting = True
         try:
-            web.announce(self.conn, "預かったこと。")
+            announce_mod.announce(self.conn, "預かったこと。")
         finally:
-            web._collecting = False
-        web.run_periodic_jobs(self.conn)
+            announce_mod._collecting = False
+        jobs.run_periodic_jobs(self.conn)
         self.assertEqual(self.pushed, ["うん、わかった"])
-        self.assertEqual(web._held(self.conn), [])
+        self.assertEqual(announce_mod._held(self.conn), [])
 
 
 class SnoozeButtonTests(unittest.TestCase):
@@ -371,7 +371,7 @@ class SnoozeButtonTests(unittest.TestCase):
     def fire(self, text="歯医者"):
         remind.add(self.conn, datetime.now() - timedelta(minutes=1), text)
         self.conn.commit()
-        web.maybe_reminders(self.conn)
+        jobs.maybe_reminders(self.conn)
 
     def test_an_errand_gets_a_later_button(self):
         self.fire()
@@ -387,7 +387,7 @@ class SnoozeButtonTests(unittest.TestCase):
         self.assertIn("snooze=", url)
 
     def test_other_notices_have_no_button(self):
-        web.announce(self.conn, "空きが減ったと伝える。")
+        announce_mod.announce(self.conn, "空きが減ったと伝える。")
         self.assertIsNone(self.sent[0][1])
 
     def test_switching_it_off_removes_the_button(self):
@@ -406,7 +406,7 @@ class SnoozeButtonTests(unittest.TestCase):
         self.assertRegex(self.sent[0][2], r"remind=\d+$")
 
     def test_other_notices_open_the_usual_place(self):
-        web.announce(self.conn, "空きが減ったと伝える。")
+        announce_mod.announce(self.conn, "空きが減ったと伝える。")
         self.assertEqual(self.sent[0][2], "")
 
     def test_errands_said_together_are_moved_together(self):
@@ -415,12 +415,12 @@ class SnoozeButtonTests(unittest.TestCase):
         for text in ("歯医者", "ゴミ出し"):
             remind.add(self.conn, datetime.now() - timedelta(minutes=1), text)
         self.conn.commit()
-        web._collecting = True
+        announce_mod._collecting = True
         try:
-            web.maybe_reminders(self.conn)
+            jobs.maybe_reminders(self.conn)
         finally:
-            web._collecting = False
-        web.flush_held(self.conn)
+            announce_mod._collecting = False
+        announce_mod.flush_held(self.conn)
         url = self.sent[0][1][0]["url"]
         self.assertRegex(url, r"snooze=\d+,\d+")
 

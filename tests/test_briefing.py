@@ -14,7 +14,7 @@ config.DB_PATH = Path(_TMP.name) / "test.sqlite3"
 
 from kotoha import notify  # noqa: E402
 from kotoha.memory import db  # noqa: E402
-from kotoha.serve import web  # noqa: E402
+from kotoha.serve import announce as announce_mod, jobs, web  # noqa: E402
 from kotoha.talk import chat, weather  # noqa: E402
 
 
@@ -102,7 +102,7 @@ class BriefingTests(unittest.TestCase):
             self.addCleanup(setattr, config, name, getattr(config, name))
             setattr(config, name, value)
         for owner, name in ((notify, "ready"), (notify, "push"), (notify, "log"),
-                            (chat, "speak"), (web, "weather")):
+                            (chat, "speak"), (jobs, "weather")):
             self.addCleanup(setattr, owner, name, getattr(owner, name))
         notify.ready = lambda: True
         notify.log = lambda text: None
@@ -111,63 +111,63 @@ class BriefingTests(unittest.TestCase):
         self.given = []
         chat.speak = lambda conn, closing, extra="", keep=True: (
             self.given.append(extra) or "おはよ。傘いるよ。")
-        web.weather = FakeSky()
+        jobs.weather = FakeSky()
 
     def at(self, hour):
         """時計を動かす代わりに、その時刻で呼んだことにする。"""
         moment = datetime.now().replace(hour=hour, minute=30)
-        self.addCleanup(setattr, web, "datetime", web.datetime)
-        web.datetime = Clock(moment)
+        self.addCleanup(setattr, jobs, "datetime", jobs.datetime)
+        jobs.datetime = Clock(moment)
 
     def test_it_speaks_in_the_morning(self):
         self.at(8)
-        web.maybe_briefing(self.conn)
+        jobs.maybe_briefing(self.conn)
         self.assertEqual(self.pushed, ["おはよ。傘いるよ。"])
 
     def test_it_keeps_quiet_before_the_hour(self):
         self.at(7)
-        web.maybe_briefing(self.conn)
+        jobs.maybe_briefing(self.conn)
         self.assertEqual(self.pushed, [])
 
     def test_it_says_it_once_a_day(self):
         self.at(8)
-        web.maybe_briefing(self.conn)
-        web.maybe_briefing(self.conn)
+        jobs.maybe_briefing(self.conn)
+        jobs.maybe_briefing(self.conn)
         self.assertEqual(len(self.pushed), 1)
 
     def test_a_late_start_still_gets_a_greeting(self):
         """8時にPCが寝ていても、昼前に起きたなら言う。"""
         self.at(10)
-        web.maybe_briefing(self.conn)
+        jobs.maybe_briefing(self.conn)
         self.assertEqual(len(self.pushed), 1)
 
     def test_it_does_not_say_good_morning_in_the_evening(self):
         self.at(19)
-        web.maybe_briefing(self.conn)
+        jobs.maybe_briefing(self.conn)
         self.assertEqual(self.pushed, [])
 
     def test_a_missed_morning_is_not_owed_tomorrow(self):
         """夕方に見送った日は、その日の分として畳む。"""
         self.at(19)
-        web.maybe_briefing(self.conn)
+        jobs.maybe_briefing(self.conn)
         self.assertEqual(db.get_state(self.conn, "last_briefing_on"),
                          datetime.now().strftime("%Y-%m-%d"))
 
     def test_switched_off_says_nothing(self):
         config.BRIEFING_ENABLED = False
         self.at(8)
-        web.maybe_briefing(self.conn)
+        jobs.maybe_briefing(self.conn)
         self.assertEqual(self.pushed, [])
 
     def test_the_sky_is_handed_over(self):
         self.at(8)
-        web.maybe_briefing(self.conn)
+        jobs.maybe_briefing(self.conn)
         self.assertIn("傘: いる", self.given[0])
 
     def test_a_sky_it_cannot_see_is_not_fatal(self):
-        web.weather = FakeSky(broken=True)
+        jobs.weather = FakeSky(broken=True)
         self.at(8)
-        web.maybe_briefing(self.conn)
+        jobs.maybe_briefing(self.conn)
         self.assertEqual(len(self.pushed), 1)       # 挨拶は出る
         self.assertEqual(self.given[0], "")         # 空模様だけ抜ける
 
@@ -188,13 +188,13 @@ class BriefingTests(unittest.TestCase):
         """今日の天気を毎朝1件ずつ溜めても、あとから邪魔になるだけ。"""
         self.speaks_for_real()
         self.at(8)
-        web.maybe_briefing(self.conn)
+        jobs.maybe_briefing(self.conn)
         self.assertEqual(self.kept(), 0)   # 画面には残るが、記憶には昇格しない
 
     def test_what_it_says_out_of_the_blue_is_still_remembered(self):
         """天気と違い、ふだんの声かけは会話の流れの一部なので覚える。"""
         self.speaks_for_real()
-        web.announce(self.conn, "何か言う")
+        announce_mod.announce(self.conn, "何か言う")
         self.assertEqual(self.kept(), 1)
 
     def test_a_failure_does_not_repeat_all_morning(self):
@@ -204,9 +204,9 @@ class BriefingTests(unittest.TestCase):
 
         chat.speak = explode
         self.at(8)
-        web.maybe_briefing(self.conn)
+        jobs.maybe_briefing(self.conn)
         chat.speak = lambda conn, closing, extra="", keep=True: "おはよ"
-        web.maybe_briefing(self.conn)
+        jobs.maybe_briefing(self.conn)
         self.assertEqual(self.pushed, [])
 
 
@@ -233,14 +233,14 @@ class AnnounceTests(unittest.TestCase):
 
     def test_what_it_says_is_what_it_sends(self):
         chat.speak = lambda conn, closing, extra="", keep=True: "ねえ、聞いてる？"
-        web.announce(self.conn, "何か言う")
+        announce_mod.announce(self.conn, "何か言う")
         self.assertEqual(self.pushed, ["ねえ、聞いてる？"])
 
     def test_what_it_sends_is_left_in_the_conversation(self):
         """通知だけ来て、開いても何も無いのは不親切。"""
         self.addCleanup(setattr, chat, "llm", chat.llm)
         chat.llm = Mouth("うん、ここにいるよ")
-        web.announce(self.conn, "何か言う")
+        announce_mod.announce(self.conn, "何か言う")
         self.assertEqual(self.said(), ["うん、ここにいるよ"])
 
     def test_it_falls_back_to_plain_words(self):
@@ -249,7 +249,7 @@ class AnnounceTests(unittest.TestCase):
             raise RuntimeError("だめ")
 
         chat.speak = explode
-        web.announce(self.conn, "知らせる", plain="音声エンジンが止まったみたい")
+        announce_mod.announce(self.conn, "知らせる", plain="音声エンジンが止まったみたい")
         self.assertEqual(self.pushed, ["音声エンジンが止まったみたい"])
         self.assertEqual(self.said(), ["音声エンジンが止まったみたい"])
 
@@ -258,14 +258,14 @@ class AnnounceTests(unittest.TestCase):
             raise RuntimeError("だめ")
 
         chat.speak = explode
-        web.announce(self.conn, "声をかける")
+        announce_mod.announce(self.conn, "声をかける")
         self.assertEqual(self.pushed, [])
         self.assertEqual(self.said(), [])
 
     def test_it_does_nothing_when_push_is_not_set_up(self):
         notify.ready = lambda: False
         chat.speak = lambda conn, closing, extra="", keep=True: "おーい"
-        web.announce(self.conn, "何か言う")
+        announce_mod.announce(self.conn, "何か言う")
         self.assertEqual(self.pushed, [])
         self.assertEqual(self.said(), [])
 

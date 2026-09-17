@@ -11,7 +11,7 @@ _TMP = tempfile.TemporaryDirectory(prefix="kotoha machine api ")
 config.DB_PATH = Path(_TMP.name) / "test.sqlite3"
 
 from kotoha.memory import db  # noqa: E402
-from kotoha.serve import web  # noqa: E402
+from kotoha.serve import jobs, web  # noqa: E402
 from kotoha.talk import presence  # noqa: E402
 
 
@@ -39,7 +39,7 @@ class MachineApiTests(unittest.TestCase):
         self.addCleanup(setattr, presence, "snapshot", presence.snapshot)
         presence.snapshot = lambda conn: [("起動してから", "6時間"), ("いま前面", "VS Code")]
         self.probes = patch.object(
-            web, "_tool_probes",
+            jobs, "tool_probes",
             return_value={"音声エンジン": lambda: True, "Ollama": lambda: False},
         )
         self.probes.start()

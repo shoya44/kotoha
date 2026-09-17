@@ -410,7 +410,9 @@ kotoha/
     retrieve.py             記憶想起
     consolidate.py          記憶整理・再固定化
   serve/                    配信
-    web.py                  Web API・バックグラウンド処理
+    web.py                  Web API
+    jobs.py                 巡回・見張り・順番待ち
+    announce.py             ことはから言う（通知はここだけ）
     voice.py                AivisSpeechでの読み上げ
     static/                 Webチャット画面（html / css / js）
 prompts/

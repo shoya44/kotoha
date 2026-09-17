@@ -12,7 +12,7 @@ config.DB_PATH = Path(_TMP.name) / "test.sqlite3"
 
 from kotoha import notify  # noqa: E402
 from kotoha.memory import db, remind  # noqa: E402
-from kotoha.serve import web  # noqa: E402
+from kotoha.serve import jobs, web  # noqa: E402
 from kotoha.talk import chat, presence  # noqa: E402
 
 
@@ -173,14 +173,14 @@ class FiringTests(unittest.TestCase):
     def test_it_tells_you_at_the_time(self):
         remind.add(self.conn, datetime.now() - timedelta(minutes=1), "歯医者")
         self.conn.commit()
-        web.maybe_reminders(self.conn)
+        jobs.maybe_reminders(self.conn)
         self.assertEqual(self.pushed, ["歯医者の時間だよー"])
 
     def test_it_does_not_tell_you_twice(self):
         remind.add(self.conn, datetime.now() - timedelta(minutes=1), "歯医者")
         self.conn.commit()
-        web.maybe_reminders(self.conn)
-        web.maybe_reminders(self.conn)
+        jobs.maybe_reminders(self.conn)
+        jobs.maybe_reminders(self.conn)
         self.assertEqual(len(self.pushed), 1)
 
     def test_it_is_still_owed_when_it_could_not_speak(self):
@@ -191,7 +191,7 @@ class FiringTests(unittest.TestCase):
         chat.speak = mute
         remind.add(self.conn, datetime.now() - timedelta(minutes=1), "歯医者")
         self.conn.commit()
-        web.maybe_reminders(self.conn)
+        jobs.maybe_reminders(self.conn)
         self.assertEqual(self.pushed, ["歯医者の時間だよ"])      # 定型で伝える
         self.assertEqual(remind.pending(self.conn), [])           # そのうえで畳む
 
@@ -210,7 +210,7 @@ class LookoutTests(unittest.TestCase):
             self.addCleanup(setattr, config, name, getattr(config, name))
             setattr(config, name, value)
         for owner, name in ((notify, "ready"), (notify, "push"), (notify, "log"),
-                            (chat, "speak"), (presence, "streak"), (web, "datetime")):
+                            (chat, "speak"), (presence, "streak"), (jobs, "datetime")):
             self.addCleanup(setattr, owner, name, getattr(owner, name))
         notify.ready = lambda: True
         notify.log = lambda text: None
@@ -222,19 +222,19 @@ class LookoutTests(unittest.TestCase):
         presence.streak = lambda conn: None
 
     def at(self, hour):
-        web.datetime = Clock(datetime.now().replace(hour=hour, minute=30))
+        jobs.datetime = Clock(datetime.now().replace(hour=hour, minute=30))
 
     def test_it_speaks_up_after_too_long_at_one_thing(self):
         self.at(15)
         presence.streak = lambda conn: ("ブラウザ", 3.4)
-        web.maybe_lookout(self.conn)
+        jobs.maybe_lookout(self.conn)
         self.assertEqual(len(self.pushed), 1)
         self.assertIn("ブラウザ", self.told[0])
 
     def test_a_short_stretch_is_left_alone(self):
         self.at(15)
         presence.streak = lambda conn: ("ブラウザ", 2.9)
-        web.maybe_lookout(self.conn)
+        jobs.maybe_lookout(self.conn)
         self.assertEqual(self.pushed, [])
 
     def test_it_does_not_nag_every_minute(self):
@@ -248,33 +248,33 @@ class LookoutTests(unittest.TestCase):
         presence.streak = streak
         self.addCleanup(setattr, presence, "reset_streak", presence.reset_streak)
         presence.reset_streak = lambda conn: counted.__setitem__("n", 1)
-        web.maybe_lookout(self.conn)
-        web.maybe_lookout(self.conn)
+        jobs.maybe_lookout(self.conn)
+        jobs.maybe_lookout(self.conn)
         self.assertEqual(len(self.pushed), 1)
 
     def test_it_notices_a_late_night(self):
         self.at(3)
-        web.maybe_lookout(self.conn)
+        jobs.maybe_lookout(self.conn)
         self.assertEqual(len(self.pushed), 1)
         self.assertIn("寝る", self.told[0])
 
     def test_it_says_it_once_a_night(self):
         self.at(3)
-        web.maybe_lookout(self.conn)
+        jobs.maybe_lookout(self.conn)
         self.at(4)
-        web.maybe_lookout(self.conn)
+        jobs.maybe_lookout(self.conn)
         self.assertEqual(len(self.pushed), 1)
 
     def test_the_evening_is_not_a_late_night(self):
         self.at(23)
-        web.maybe_lookout(self.conn)
+        jobs.maybe_lookout(self.conn)
         self.assertEqual(self.pushed, [])
 
     def test_switched_off_says_nothing(self):
         config.LOOKOUT_ENABLED = False
         self.at(3)
         presence.streak = lambda conn: ("ブラウザ", 5.0)
-        web.maybe_lookout(self.conn)
+        jobs.maybe_lookout(self.conn)
         self.assertEqual(self.pushed, [])
 
 

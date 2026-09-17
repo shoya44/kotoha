@@ -208,9 +208,9 @@ class PeriodicJobTests(MemoryFixture, unittest.TestCase):
 
     def setUp(self):
         super().setUp()
-        from kotoha.serve import web
+        from kotoha.serve import jobs, web
 
-        self.web = web
+        self.jobs = jobs
         self.enabled = config.EMBED_ENABLED
         config.EMBED_ENABLED = True
         self.addCleanup(setattr, config, "EMBED_ENABLED", self.enabled)
@@ -226,47 +226,47 @@ class PeriodicJobTests(MemoryFixture, unittest.TestCase):
         self.add_memory(text="しょうやは眠れないと話した。", key="a")
         self.add_memory(text="しょうやはポキ丼を食べた。", key="b")
         self.use(FakeOllama())
-        self.web.run_vector_jobs()
+        self.jobs.run_vector_jobs()
         self.assertEqual(len(self.vectors()), 2)
 
     def test_already_made_ones_are_left_alone(self):
         self.add_memory(key="a")
         engine = self.use(FakeOllama())
-        self.web.run_vector_jobs()
-        self.web.run_vector_jobs()
+        self.jobs.run_vector_jobs()
+        self.jobs.run_vector_jobs()
         self.assertEqual(len(engine.calls), 1)  # 2度目は呼ばない
 
     def test_nothing_to_do_does_not_call_the_engine(self):
         engine = self.use(FakeOllama())
-        self.web.run_vector_jobs()
+        self.jobs.run_vector_jobs()
         self.assertEqual(engine.calls, [])
 
     def test_a_sleeping_model_is_woken_up(self):
         """放置するとモデルはGPUから降りる。次の会話1回だけ想起が効かなくなる。"""
         engine = self.use(FakeOllama())
         embed._blocked_until = float("inf")   # 眠っているとみなされている状態
-        self.web.run_vector_jobs()
+        self.jobs.run_vector_jobs()
         self.assertEqual(len(engine.calls), 1)
         self.assertTrue(embed.available())
 
     def test_a_woken_model_is_not_poked_again(self):
         engine = self.use(FakeOllama())
-        self.web.run_vector_jobs()
-        self.web.run_vector_jobs()
+        self.jobs.run_vector_jobs()
+        self.jobs.run_vector_jobs()
         self.assertEqual(engine.calls, [])
 
     def test_engine_down_is_survived_quietly(self):
         """Ollamaが止まっていても、次の巡回でやり直せばよい。"""
         self.add_memory(key="a")
         self.use(FakeOllama(error=httpx.ConnectError("refused")))
-        self.web.run_vector_jobs()   # 例外が出ないこと
+        self.jobs.run_vector_jobs()   # 例外が出ないこと
         self.assertEqual(self.vectors(), [])
 
     def test_switched_off_does_not_call_the_engine(self):
         self.add_memory(key="a")
         config.EMBED_ENABLED = False
         engine = self.use(FakeOllama())
-        self.web.run_vector_jobs()
+        self.jobs.run_vector_jobs()
         self.assertEqual(engine.calls, [])
 
     def test_one_round_is_capped(self):
@@ -274,7 +274,7 @@ class PeriodicJobTests(MemoryFixture, unittest.TestCase):
         for i in range(config.EMBED_BATCH + 3):
             self.add_memory(text=f"記憶{i}", key=f"k{i}")
         engine = self.use(FakeOllama())
-        self.web.run_vector_jobs()
+        self.jobs.run_vector_jobs()
         self.assertEqual(len(engine.calls[0]["input"]), config.EMBED_BATCH)
 
 
