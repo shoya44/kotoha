@@ -125,6 +125,56 @@ def start_aivis(quiet=False):
         print("AivisSpeech: 起動しました（声が出せるまで少しかかります）")
 
 
+def ollama_is_up():
+    """ローカルLLMが応じるか。起動済みなら二重に立ち上げない。"""
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    try:
+        with opener.open(config.EMBED_BASE_URL + "/api/tags", timeout=1) as response:
+            return response.status == 200
+    except (OSError, ValueError, urllib.error.URLError):
+        return False
+
+
+def start_ollama(quiet=False):
+    """Ollamaを起こす。画面のいる常駐アプリではなく、serve だけを動かす。
+
+    記憶の想起に使う。間に合わなくても、想起がタグ検索だけに戻るだけで
+    会話は続けられるので、立ち上がりは待たない。
+    """
+    if not config.OLLAMA_AUTO_START or not config.EMBED_ENABLED:
+        return
+    if ollama_is_up():
+        if not quiet:
+            print("Ollama: 起動済み")
+        return
+
+    exe = config.OLLAMA_DIR / "ollama.exe"
+    if not exe.is_file():
+        if not quiet:
+            print("Ollama: 実行ファイルが見つかりません。settings.batで配置先を確認してください。")
+        return
+
+    # 待ち受け先は環境変数で渡す。接続先の設定を変えても追いかけられる。
+    environment = dict(os.environ)
+    parsed = urllib.parse.urlsplit(config.EMBED_BASE_URL)
+    if parsed.netloc:
+        environment["OLLAMA_HOST"] = parsed.netloc
+    try:
+        subprocess.Popen(
+            [str(exe), "serve"],
+            env=environment,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    except OSError:
+        if not quiet:
+            print("Ollama: 起動できませんでした。実行権限を確認してください。")
+        return
+    if not quiet:
+        print("Ollama: 起動しました（記憶を思い出せるまで少しかかります）")
+
+
 class ServeError(Exception):
     pass
 
@@ -288,6 +338,7 @@ def main():
         if config.TAILSCALE_AUTO_START:
             start_tailscale(quiet=True)
         start_aivis(quiet=True)
+        start_ollama(quiet=True)
         try:
             publish_and_open(url, threading.Event())
         except ServeError as error:
@@ -304,6 +355,7 @@ def main():
     if config.TAILSCALE_AUTO_START:
         start_tailscale(quiet=True)
     start_aivis()
+    start_ollama()
     print("ことは 起動中…")
     print("終了: Ctrl+C")
     import uvicorn

@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 
 from .. import config
 from ..talk import llm
-from . import db, retrieve
+from . import db, embed, retrieve
 
 MAX_NEW_NODES = 8
 
@@ -200,6 +200,8 @@ def _validate_and_save(conn, data, messages) -> int:
                 conn.execute("INSERT OR IGNORE INTO memory_sources(node_id, message_id) VALUES (?,?)", (nid, mid))
             # 訂正時は近道リセット
             conn.execute("UPDATE memory_tags SET use_count = 0 WHERE node_id = ?", (nid,))
+            # 本文が変わったのでベクトルも古い。捨てておけば次の巡回で作り直される。
+            embed.drop(conn, nid)
 
     return created
 

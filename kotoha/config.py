@@ -2,6 +2,7 @@
 
 import math
 import os
+import shutil
 from pathlib import Path
 
 from .settings import read_env
@@ -74,6 +75,27 @@ AIVIS_DIR = (
 )
 if not AIVIS_DIR.is_absolute():
     AIVIS_DIR = BASE_DIR / AIVIS_DIR
+EMBED_ENABLED = _boolean("KOTOHA_EMBED_ENABLED")
+EMBED_BASE_URL = _text("KOTOHA_EMBED_BASE_URL").rstrip("/")
+EMBED_MODEL = _text("KOTOHA_EMBED_MODEL")
+EMBED_KEEP_ALIVE = _text("KOTOHA_EMBED_KEEP_ALIVE")
+EMBED_TIMEOUT_SECONDS = _number("KOTOHA_EMBED_TIMEOUT_SECONDS", float, minimum=0.1)
+EMBED_BUILD_TIMEOUT_SECONDS = _number("KOTOHA_EMBED_BUILD_TIMEOUT_SECONDS", float, minimum=0.1)
+EMBED_BATCH = _number("KOTOHA_EMBED_BATCH")
+EMBED_MAX_CHARS = _number("KOTOHA_EMBED_MAX_CHARS")
+OLLAMA_AUTO_START = _boolean("KOTOHA_OLLAMA_AUTO_START")
+_ollama_path = _text("KOTOHA_OLLAMA_DIR", allow_empty=True)
+if _ollama_path:
+    OLLAMA_DIR = Path(_ollama_path)
+else:
+    # 置き場所は人によって違う。PATHにいればそこを使い、いなければ既定の場所を見る。
+    _found = shutil.which("ollama")
+    OLLAMA_DIR = (
+        Path(_found).parent if _found
+        else Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "Ollama"
+    )
+if not OLLAMA_DIR.is_absolute():
+    OLLAMA_DIR = BASE_DIR / OLLAMA_DIR
 BROWSER_AUTO_OPEN = _boolean("KOTOHA_BROWSER_AUTO_OPEN")
 TAILSCALE_AUTO_START = _boolean("KOTOHA_TAILSCALE_AUTO_START")
 TAILSCALE_SERVE_ENABLED = _boolean("KOTOHA_TAILSCALE_SERVE_ENABLED")

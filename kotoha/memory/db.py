@@ -57,6 +57,12 @@ CREATE TABLE IF NOT EXISTS memory_sources (
   PRIMARY KEY (node_id, message_id)
 );
 
+CREATE TABLE IF NOT EXISTS memory_vectors (
+  node_id INTEGER PRIMARY KEY REFERENCES memory_nodes(id) ON DELETE CASCADE,
+  model TEXT NOT NULL,
+  vector BLOB NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS app_state (
   key TEXT PRIMARY KEY,
   value TEXT

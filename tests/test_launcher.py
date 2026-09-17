@@ -36,6 +36,10 @@ class LauncherFixture:
         self.config.VOICE_BASE_URL = "http://127.0.0.1:10101"
         self.config.AIVIS_AUTO_START = True
         self.config.AIVIS_DIR = Path(self.tmp.name) / "AivisSpeech"
+        self.config.EMBED_ENABLED = True
+        self.config.EMBED_BASE_URL = "http://127.0.0.1:11434"
+        self.config.OLLAMA_AUTO_START = True
+        self.config.OLLAMA_DIR = Path(self.tmp.name) / "Ollama"
         self.config.require_keys = Mock()
         package = types.ModuleType("kotoha")
         package.config = self.config
@@ -121,7 +125,7 @@ class LauncherTests(LauncherFixture, unittest.TestCase):
              patch.object(self.launcher.socket, "create_connection", return_value=connection), \
              patch.object(self.launcher, "is_kotoha", return_value=True), \
              patch.object(self.launcher, "start_tailscale"), \
-             patch.object(self.launcher, "start_aivis"), \
+             patch.object(self.launcher, "start_aivis"), patch.object(self.launcher, "start_ollama"), \
              patch.object(self.launcher, "open_browser") as browser, \
              patch("builtins.print"):
             self.launcher.main()
@@ -150,7 +154,7 @@ class LauncherTests(LauncherFixture, unittest.TestCase):
         }), patch.object(self.launcher.importlib.util, "find_spec", return_value=True), \
              patch.object(self.launcher.socket, "create_connection", side_effect=OSError), \
              patch.object(self.launcher, "start_tailscale"), \
-             patch.object(self.launcher, "start_aivis"), \
+             patch.object(self.launcher, "start_aivis"), patch.object(self.launcher, "start_ollama"), \
              patch.object(self.launcher.threading, "Thread", return_value=watcher), \
              patch.object(self.launcher.threading, "Event", return_value=stopped), \
              patch("builtins.print"):
@@ -299,6 +303,91 @@ class AivisStartTests(LauncherFixture, unittest.TestCase):
         self.make_engine()
         with patch.object(self.launcher, "aivis_is_up", return_value=False),              patch.object(self.launcher.subprocess, "Popen", side_effect=OSError),              patch("builtins.print"):
             self.launcher.start_aivis()   # 例外が出ないこと
+
+
+class OllamaStartTests(LauncherFixture, unittest.TestCase):
+    """記憶の想起に使うローカルLLM。止まっていても会話は続ける。"""
+
+    def make_engine(self):
+        self.config.OLLAMA_DIR.mkdir(parents=True, exist_ok=True)
+        exe = self.config.OLLAMA_DIR / "ollama.exe"
+        exe.write_bytes(b"")
+        return exe
+
+    def test_starts_the_server_without_a_window(self):
+        exe = self.make_engine()
+        with (
+            patch.object(self.launcher, "ollama_is_up", return_value=False),
+            patch.object(self.launcher.subprocess, "Popen") as popen,
+            patch("builtins.print"),
+        ):
+            self.launcher.start_ollama()
+        self.assertEqual(popen.call_args.args[0], [str(exe), "serve"])
+        self.assertEqual(popen.call_args.kwargs["creationflags"],
+                         getattr(subprocess, "CREATE_NO_WINDOW", 0))
+
+    def test_listening_address_follows_the_setting(self):
+        self.make_engine()
+        self.config.EMBED_BASE_URL = "http://127.0.0.1:9999"
+        with (
+            patch.object(self.launcher, "ollama_is_up", return_value=False),
+            patch.object(self.launcher.subprocess, "Popen") as popen,
+            patch("builtins.print"),
+        ):
+            self.launcher.start_ollama()
+        self.assertEqual(popen.call_args.kwargs["env"]["OLLAMA_HOST"], "127.0.0.1:9999")
+
+    def test_does_not_start_twice(self):
+        self.make_engine()
+        with (
+            patch.object(self.launcher, "ollama_is_up", return_value=True),
+            patch.object(self.launcher.subprocess, "Popen") as popen,
+            patch("builtins.print"),
+        ):
+            self.launcher.start_ollama()
+        popen.assert_not_called()
+
+    def test_missing_engine_is_only_reported(self):
+        with (
+            patch.object(self.launcher, "ollama_is_up", return_value=False),
+            patch.object(self.launcher.subprocess, "Popen") as popen,
+            patch("builtins.print") as printed,
+        ):
+            self.launcher.start_ollama()
+        popen.assert_not_called()
+        self.assertTrue(printed.called)
+
+    def test_disabled_does_nothing(self):
+        self.make_engine()
+        self.config.OLLAMA_AUTO_START = False
+        with (
+            patch.object(self.launcher, "ollama_is_up") as up,
+            patch.object(self.launcher.subprocess, "Popen") as popen,
+        ):
+            self.launcher.start_ollama()
+        popen.assert_not_called()
+        up.assert_not_called()
+
+    def test_not_started_when_recall_is_switched_off(self):
+        """想起を使わない設定なら、立ち上げる理由がない。"""
+        self.make_engine()
+        self.config.EMBED_ENABLED = False
+        with (
+            patch.object(self.launcher, "ollama_is_up") as up,
+            patch.object(self.launcher.subprocess, "Popen") as popen,
+        ):
+            self.launcher.start_ollama()
+        popen.assert_not_called()
+        up.assert_not_called()
+
+    def test_failure_to_launch_does_not_raise(self):
+        self.make_engine()
+        with (
+            patch.object(self.launcher, "ollama_is_up", return_value=False),
+            patch.object(self.launcher.subprocess, "Popen", side_effect=OSError),
+            patch("builtins.print"),
+        ):
+            self.launcher.start_ollama()   # 例外が出ないこと
 
 
 if __name__ == "__main__":

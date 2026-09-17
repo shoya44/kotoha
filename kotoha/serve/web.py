@@ -8,7 +8,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from .. import config
-from ..memory import consolidate, db
+from ..memory import consolidate, db, embed
 from ..talk import chat, llm
 from . import admin, voice
 
@@ -64,6 +64,30 @@ def run_periodic_jobs(conn) -> None:
         db.run_maintenance(conn)
 
 
+def run_vector_jobs() -> None:
+    """記憶を意味の座標に変えて貯める。会話の順番待ちには並ばせない。
+
+    変換はOllamaへの往復で時間がかかる。順番待ちに入れると、そのあいだ
+    会話が止まる。DBへの読み書きは短いので、別につないで回す。
+    Ollamaが止まっていれば何も作らず、次の巡回でやり直すだけ。
+    """
+    if not config.EMBED_ENABLED:
+        return
+    conn = db.connect()
+    try:
+        rows = embed.missing(conn, config.EMBED_BATCH)
+        if not rows:
+            return
+        made = embed.embed(
+            [r["text"] for r in rows], timeout=config.EMBED_BUILD_TIMEOUT_SECONDS
+        )
+        embed.store(conn, zip((r["id"] for r in rows), made))
+    except embed.EmbedError:
+        pass  # 声と同じで、無くても会話は続けられる。
+    finally:
+        conn.close()
+
+
 def _bg_loop() -> None:
     """時計: アイドル整理と日次メンテナンスを裏で回す。"""
     while True:
@@ -75,6 +99,10 @@ def _bg_loop() -> None:
                     run_periodic_jobs(conn)
                 finally:
                     conn.close()
+        except Exception:
+            pass
+        try:
+            run_vector_jobs()
         except Exception:
             pass
 
