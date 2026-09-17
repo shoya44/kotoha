@@ -30,6 +30,8 @@ const elements = {
   promptNote: $("promptNote"),
   promptSave: $("promptSave"),
   promptRevert: $("promptRevert"),
+  reminderList: $("reminderList"),
+  reminderNote: $("reminderNote"),
   machineList: $("machineList"),
   machineNote: $("machineNote"),
   settingsList: $("settingsList"),
@@ -252,7 +254,7 @@ function readIds(name) {
 
 async function snoozeNow(ids) {
   try {
-    const response = await api("/api/remind/snooze", { method: "POST", body: { ids } });
+    const response = await api("/api/reminders/snooze", { method: "POST", body: { ids } });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
       addMessage("system", "[あとで] 置き直せませんでした");
@@ -288,6 +290,68 @@ function offerSnooze() {
 async function handleSnoozeLink() {
   const ids = readIds("snooze");
   if (ids.length) await snoozeNow(ids);
+}
+
+// ===== 預かっているもの =====
+function reminderWhen(due) {
+  // "2026-09-18 09:00" → "9/18 09:00"。今年の予定に年は要らない。
+  const [date, time] = due.split(" ");
+  const [year, month, day] = date.split("-");
+  const head = year === String(new Date().getFullYear()) ? "" : `${year}/`;
+  return `${head}${Number(month)}/${Number(day)} ${time}`;
+}
+
+async function loadReminders() {
+  const data = await fetchPanel(elements.reminderNote, "/api/reminders");
+  if (!data) return;
+  const items = data.reminders;
+  elements.reminderList.replaceChildren(...items.map(item => {
+    const row = document.createElement("div");
+    row.className = "reminder-item";
+
+    const when = document.createElement("span");
+    when.className = "when";
+    when.textContent = reminderWhen(item.due_at);
+
+    const body = document.createElement("span");
+    body.className = "body";
+    body.textContent = item.text;
+
+    // 取り消しは2度押し。押し間違いで預けたものが消えるほうが困る。
+    const drop = document.createElement("button");
+    drop.type = "button";
+    drop.className = "reminder-drop";
+    drop.textContent = "取り消す";
+    let armed = false;
+    drop.addEventListener("click", async () => {
+      if (!armed) {
+        armed = true;
+        drop.textContent = "もう一度";
+        drop.classList.add("armed");
+        setTimeout(() => {
+          armed = false;
+          drop.textContent = "取り消す";
+          drop.classList.remove("armed");
+        }, 4000);
+        return;
+      }
+      drop.disabled = true;
+      try {
+        const response = await api(`/api/reminders/${item.id}`, { method: "DELETE" });
+        if (!response.ok) throw new Error();
+        loadReminders();
+      } catch {
+        drop.disabled = false;
+        setNote(elements.reminderNote, "取り消せませんでした。", true);
+      }
+    });
+
+    row.append(when, body, drop);
+    return row;
+  }));
+  setNote(elements.reminderNote,
+          items.length ? `${items.length}件。時刻が来たら言います。`
+                       : "いまは何も預かっていません。");
 }
 
 // ===== PCの様子 =====
@@ -1356,6 +1420,7 @@ for (const row of document.querySelectorAll("[data-open]")) {
     if (name === "settings") loadSettings();
     if (name === "memories") loadMemories();
     if (name === "machine") loadMachine();
+    if (name === "reminders") loadReminders();
   });
 }
 

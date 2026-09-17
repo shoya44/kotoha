@@ -315,31 +315,93 @@ class SnoozeApiTests(unittest.TestCase):
         return remind.pending(self.conn)[-1]["id"]
 
     def test_it_puts_the_errand_further_off(self):
-        response = self.client.post("/api/remind/snooze",
+        response = self.client.post("/api/reminders/snooze",
                                     json={"ids": [self.kept()]}, headers=self.headers)
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["moved"], 1)
         self.assertEqual([r["text"] for r in remind.pending(self.conn)], ["歯医者", "歯医者"])
 
     def test_an_unknown_number_is_a_miss(self):
-        response = self.client.post("/api/remind/snooze",
+        response = self.client.post("/api/reminders/snooze",
                                     json={"ids": [999]}, headers=self.headers)
         self.assertEqual(response.status_code, 404)
 
     def test_nothing_to_move_is_refused(self):
-        response = self.client.post("/api/remind/snooze", json={"ids": []}, headers=self.headers)
+        response = self.client.post("/api/reminders/snooze", json={"ids": []}, headers=self.headers)
         self.assertEqual(response.status_code, 400)
 
     def test_rubbish_is_not_taken_as_a_number(self):
-        response = self.client.post("/api/remind/snooze",
+        response = self.client.post("/api/reminders/snooze",
                                     json={"ids": ["'; DROP TABLE reminders; --"]},
                                     headers=self.headers)
         self.assertEqual(response.status_code, 400)
 
     def test_a_wrong_token_is_refused(self):
-        response = self.client.post("/api/remind/snooze", json={"ids": [self.kept()]},
+        response = self.client.post("/api/reminders/snooze", json={"ids": [self.kept()]},
                                     headers={"X-Kotoha-Token": "wrong"})
         self.assertEqual(response.status_code, 401)
+
+
+class ReminderListApiTests(DbCase):
+    """画面から預かりものを見て、取り消す。"""
+
+    def setUp(self):
+        from fastapi.testclient import TestClient
+
+        super().setUp()
+        original = config.WEB_TOKEN
+        config.WEB_TOKEN = "testtoken"
+        self.addCleanup(setattr, config, "WEB_TOKEN", original)
+        self.client = TestClient(web.app)
+        self.headers = {"X-Kotoha-Token": "testtoken"}
+
+    def keep(self, text="歯医者", hours=1):
+        remind.add(self.conn, datetime.now() + timedelta(hours=hours), text)
+        self.conn.commit()
+        return remind.pending(self.conn)[-1]["id"]
+
+    def listed(self):
+        response = self.client.get("/api/reminders", headers=self.headers)
+        self.assertEqual(response.status_code, 200)
+        return response.json()["reminders"]
+
+    def test_it_shows_what_is_kept(self):
+        self.keep("歯医者")
+        rows = self.listed()
+        self.assertEqual([r["text"] for r in rows], ["歯医者"])
+        self.assertIn("due_at", rows[0])
+        self.assertIn("id", rows[0])
+
+    def test_the_nearest_comes_first(self):
+        self.keep("あと", hours=5)
+        self.keep("さき", hours=1)
+        self.assertEqual([r["text"] for r in self.listed()], ["さき", "あと"])
+
+    def test_nothing_kept_is_an_empty_list(self):
+        self.assertEqual(self.listed(), [])
+
+    def test_what_was_already_said_is_not_listed(self):
+        """言い終わったものは、もう予定ではない。"""
+        one = self.keep("歯医者", hours=-1)
+        remind.done(self.conn, one)
+        self.conn.commit()
+        self.assertEqual(self.listed(), [])
+
+    def test_it_can_be_taken_back(self):
+        one = self.keep("やっぱりいい用事")
+        response = self.client.delete(f"/api/reminders/{one}", headers=self.headers)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.listed(), [])
+
+    def test_taking_back_something_that_is_not_there(self):
+        response = self.client.delete("/api/reminders/999", headers=self.headers)
+        self.assertEqual(response.status_code, 404)
+
+    def test_a_wrong_token_is_refused(self):
+        self.assertEqual(
+            self.client.get("/api/reminders", headers={"X-Kotoha-Token": "wrong"}).status_code, 401)
+        self.assertEqual(
+            self.client.delete("/api/reminders/1", headers={"X-Kotoha-Token": "wrong"}).status_code, 401)
 
 
 if __name__ == "__main__":

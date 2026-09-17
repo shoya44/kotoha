@@ -867,6 +867,53 @@ textarea:focus-visible {
 
 .snooze-offer:disabled { opacity: .5; }
 
+.reminder-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: var(--tap-min);
+  padding: 10px 0;
+  border-bottom: 1px solid var(--separator-weak);
+}
+
+.reminder-item:last-child { border-bottom: 0; }
+
+.reminder-item .when {
+  color: var(--muted);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.reminder-item .body {
+  flex: 1;
+  min-width: 0;
+  font-size: 15px;
+  line-height: 1.45;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.reminder-drop {
+  min-height: var(--tap-min);
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: 14px;
+  white-space: nowrap;
+}
+
+/* 2度目の押しだけ、取り消しの色にする */
+.reminder-drop.armed { color: var(--danger); }
+
+.reminder-drop:disabled { opacity: .4; }
+
 .machine-value {
   color: var(--muted);
   font-size: 14px;

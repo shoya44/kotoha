@@ -187,6 +187,8 @@ MEMORY_LISTS = {
     "pinned": ("pinned = 1", "confirmed_at DESC"),
 }
 MEMORY_LIST_LIMIT = 40
+# 預かりは滅多に溜まらない。溜まっていたら、それ自体が知らせるべきこと。
+REMINDER_LIST_LIMIT = 50
 
 
 @app.get("/api/memories")
@@ -263,7 +265,7 @@ def memory_delete(request: Request, node_id: int):
         return {"deleted": True}
 
 
-@app.post("/api/remind/snooze")
+@app.post("/api/reminders/snooze")
 def remind_snooze(request: Request, payload: dict):
     """通知の「あとで」から呼ばれる。同じ用件を、少し先へ置き直す。"""
     _check_token(request)
@@ -275,6 +277,26 @@ def remind_snooze(request: Request, payload: dict):
     if not moved:
         raise HTTPException(status_code=404, detail="その頼まれごとはありません")
     return {"moved": moved, "due_at": due.strftime(remind.STAMP)}
+
+
+@app.get("/api/reminders")
+def reminders_list(request: Request):
+    """預かっているもの。近い順に。言い終わったものは出さない。"""
+    _check_token(request)
+    with db.session() as conn:
+        rows = remind.pending(conn, REMINDER_LIST_LIMIT)
+        return {"reminders": [dict(r) for r in rows]}
+
+
+@app.delete("/api/reminders/{reminder_id}")
+def reminder_drop(request: Request, reminder_id: int):
+    """預かったものを取り消す。言い終わったものは消せない（もう予定ではない）。"""
+    _check_token(request)
+    with db.session() as conn:
+        if not remind.drop(conn, reminder_id):
+            raise HTTPException(status_code=404, detail="その頼まれごとはありません")
+        conn.commit()
+    return {"dropped": True}
 
 
 @app.get("/api/machine")
