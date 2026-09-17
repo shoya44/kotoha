@@ -523,6 +523,72 @@ body.calling #call::before {
 body.calling #call .icon-call { display: none; }
 body.calling #call .icon-hangup { display: block; }
 
+/* ===== Volume =====
+   通話中だけ、入力欄の上に出す。話しながら親指1本で届く高さに置く。 */
+.volume { display: none; }
+
+body.calling .volume {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+
+  width: 100%;
+  min-height: var(--tap-min);
+  padding:
+    4px
+    max(16px, env(safe-area-inset-right))
+    4px
+    max(16px, env(safe-area-inset-left));
+
+  border-top: 1px solid var(--line);
+  background: var(--panel);
+}
+
+/* つまみの上に線が来るので、入力欄側の線は消す。二重に引かない。 */
+body.calling #form { border-top: none; }
+
+.volume svg {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  fill: var(--muted);
+  stroke: none;
+}
+
+/* 標準のつまみは上の input 一括指定で外してあるので、ここで描き起こす。
+   高さはタップ領域ぶん取り、線そのものは細く見せる。 */
+#volumeRange {
+  flex: 1;
+  max-width: calc(var(--chat-max-width) - 60px);
+  height: var(--tap-min);
+  background: none;
+}
+
+#volumeRange::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 2px;
+  background: linear-gradient(
+    to right,
+    var(--accent) 0 var(--volume-fill, 100%),
+    var(--fill-strong) var(--volume-fill, 100%)
+  );
+}
+
+#volumeRange::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 24px;
+  height: 24px;
+  margin-top: -10px;          /* 線の中心に重ねる */
+
+  border-radius: 50%;
+  background: var(--on-fill);
+  box-shadow: 0 1px 3px #0006;
+}
+
+#volumeRange:active::-webkit-slider-thumb { transform: scale(1.1); }
+
 /* 音声入力に対応しない環境では通話を出さず、入力欄の余白も戻す。 */
 body.no-call #call { display: none; }
 body.no-call textarea { padding-right: 48px; }

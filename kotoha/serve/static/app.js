@@ -16,6 +16,7 @@ const elements = {
   input: $("input"),
   sendButton: $("send"),
   callButton: $("call"),
+  volumeRange: $("volumeRange"),
   jumpBottom: $("jumpBottom"),
   settingsOverlay: $("settingsOverlay"),
   toggleTime: $("toggleTime"),
@@ -64,6 +65,8 @@ const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 const preferences = {
   showTime: localStorage.getItem("kotoha_show_time") !== "0",
   voice: localStorage.getItem("kotoha_voice") === "1",
+  // 声の大きさは端末ごと。イヤホンの日と部屋で鳴らす日とで違う。
+  volume: clampVolume(localStorage.getItem("kotoha_volume")),
 };
 
 // ===== Settings sheet =====
@@ -1041,14 +1044,43 @@ let calling = false;
 // 指の動きで音の出口を開けておき、以後はそこへ流し込む。鳴らすたびに Audio を
 // 作る書き方だと、作ったものが毎回「触れていない」ものとして黙って弾かれる。
 let audioOut = null;
+let volumeKnob = null;
 let currentSource = null;
 
 function audioReady() {
   const Sound = window.AudioContext || window.webkitAudioContext;
   if (!Sound) return null;
-  if (!audioOut) audioOut = new Sound();
+  if (!audioOut) {
+    audioOut = new Sound();
+    // 音の元と出口のあいだに、つまみを1つだけ挟む。つなぎ言葉も返事も
+    // ここを通るので、大きさを変えるのはこの1か所で足りる。
+    volumeKnob = audioOut.createGain();
+    volumeKnob.gain.value = volumeGain(preferences.volume);
+    volumeKnob.connect(audioOut.destination);
+  }
   if (audioOut.state === "suspended") audioOut.resume().catch(() => {});
   return audioOut;
+}
+
+function clampVolume(saved) {
+  const value = Number(saved);
+  return Number.isFinite(value) ? Math.min(100, Math.max(0, value)) : 100;
+}
+
+// つまみの位置をそのまま倍率にすると、真ん中がもう十分に大きく聞こえる。
+// 耳の感じ方に近づけるため二乗する。1.0より上は音が割れるので上げない。
+const volumeGain = percent => (percent / 100) ** 2;
+
+function setVolume(percent) {
+  preferences.volume = clampVolume(percent);
+  localStorage.setItem("kotoha_volume", String(preferences.volume));
+  // つまみより左を色で埋める。線の描き方はCSS側に任せ、割合だけ渡す。
+  elements.volumeRange.style.setProperty("--volume-fill", preferences.volume + "%");
+  if (!volumeKnob) return;
+  // 鳴っている最中でも変えられる。急に切り替えるとブツッと鳴るので、少しなまらせる。
+  volumeKnob.gain.setTargetAtTime(
+    volumeGain(preferences.volume), audioOut.currentTime, 0.02
+  );
 }
 
 // 画面に触れた瞬間に呼ぶ。無音をひとつ鳴らして、音を出す許可を取っておく。
@@ -1088,7 +1120,7 @@ function playAudio(sound) {
   return new Promise(resolve => {
     const source = context.createBufferSource();
     source.buffer = sound;
-    source.connect(context.destination);
+    source.connect(volumeKnob || context.destination);
     // stopで止めたときも鳴り終わりとして届くので、待ち続けることはない。
     source.addEventListener("ended", () => {
       if (currentSource === source) currentSource = null;
@@ -1453,6 +1485,12 @@ elements.toggleTime.addEventListener("click", () => {
   localStorage.setItem("kotoha_show_time", preferences.showTime ? "1" : "0");
   applyPreferences();
   updateJumpButton();
+});
+
+elements.volumeRange.value = String(preferences.volume);
+setVolume(preferences.volume);
+elements.volumeRange.addEventListener("input", event => {
+  setVolume(event.target.value);
 });
 
 elements.callButton.addEventListener("click", () => {
