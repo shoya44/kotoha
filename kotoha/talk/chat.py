@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 
 from .. import config
 from ..memory import db, retrieve
-from . import presence
+from . import actions, presence
 from . import llm, router
 
 FAST_NOTICE = (
@@ -132,6 +132,14 @@ def parse_used_ids(text: str):
     return clean, ids
 
 
+def parse_action(text: str):
+    """返答から「やってほしいこと」を取り出す。表にない名前は捨てる。"""
+    clean, body = _strip_tag(text, "DO")
+    if body is None:
+        return text, None
+    return clean, body if body in actions.ACTIONS else None
+
+
 def parse_mood(text: str):
     """返答から機嫌を取り出す。知らないラベルは捨て、直前の機嫌を保つ。"""
     clean, body = _strip_tag(text, "MOOD")
@@ -171,6 +179,15 @@ def build_prompt(conn, user_text: str, recent, pinned, related, fast: bool = Fal
             lines.append(f"相手の様子: {machine}")
     time_block = "\n".join(lines)
 
+    machine_block = ""
+    if not fast and presence.asked_about_machine(user_text):
+        # 毎回は渡さない。150字ほどあるうえ、ほとんどの会話では要らない。
+        inside = presence.details()
+        machine_block = "\n".join(
+            part for part in (f"PCの中身: {inside}" if inside else "", actions.offer())
+            if part
+        )
+
     basic_block = ""
     if pinned:
         basic_block = "基本情報:\n" + "\n".join(_mem_line(r) for r in pinned)
@@ -190,6 +207,7 @@ def build_prompt(conn, user_text: str, recent, pinned, related, fast: bool = Fal
         fixed,
         persona,
         time_block,
+        machine_block,
         basic_block,
         related_block,
         recent_block,
@@ -255,5 +273,10 @@ def run_turn(conn, user_text: str):
     raw = llm.chat(prompt)
     clean, ids = parse_used_ids(raw)
     clean, mood = parse_mood(clean)
+    clean, todo = parse_action(clean)
     _record_pending(conn, ids)
-    return _finish(conn, turn_id, clean, ids, mode, mood)
+    done = _finish(conn, turn_id, clean, ids, mode, mood)
+    # 頼まれごとは、返答を保存し終えてから。入れ直しならここで落ちる。
+    if todo:
+        actions.run(todo)
+    return done

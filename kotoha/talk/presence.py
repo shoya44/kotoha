@@ -1,8 +1,11 @@
 """この機械の様子。ことはが「そこに居る」ための材料。
 
-見るのは2つだけにしてある。**PCを起動してからの時間**と、**前面にあるアプリの
+普段見るのは2つだけにしてある。**PCを起動してからの時間**と、**前面にあるアプリの
 名前**。ウィンドウの題名も、中身も、履歴も読まない。相手が何をしているかを
 推し量るには足り、のぞき見にはならない範囲に絞ってある。
+
+機械の中身（空き容量・メモリ・CPU・GPU）は、**聞かれたときだけ**調べる。
+毎回プロンプトに載せると150字ほど食うが、ほとんどの会話では要らない。
 
 アプリは1分ごとに数えて、1時間ぶんの多数決で「いま何をしているか」とする。
 会話している瞬間はブラウザが前面に来てしまうので、その一瞬では判断しない。
@@ -10,6 +13,8 @@
 
 import ctypes
 import json
+import shutil
+import subprocess
 import sys
 from datetime import datetime
 
@@ -55,8 +60,36 @@ FRIENDLY = {
 }
 
 
+# この言葉が出たときだけ、機械の中身を調べて渡す。外れたら足せばよい。
+MACHINE_WORDS = (
+    "容量", "空き", "ディスク", "ドライブ", "ストレージ", "メモリ", "cpu", "ＣＰＵ",
+    "gpu", "ＧＰＵ", "vram", "温度", "ファン", "パソコン", "pc", "ＰＣ",
+    "音声エンジン", "aivis", "ollama", "エンジン", "再起動", "入れ直",
+    "起こし", "起動", "止め", "落とし", "重い", "遅い",
+)
+
+
+class MEMORYSTATUSEX(ctypes.Structure):
+    _fields_ = [("dwLength", ctypes.c_ulong), ("dwMemoryLoad", ctypes.c_ulong),
+                ("ullTotalPhys", ctypes.c_ulonglong), ("ullAvailPhys", ctypes.c_ulonglong),
+                ("ullTotalPageFile", ctypes.c_ulonglong),
+                ("ullAvailPageFile", ctypes.c_ulonglong),
+                ("ullTotalVirtual", ctypes.c_ulonglong),
+                ("ullAvailVirtual", ctypes.c_ulonglong),
+                ("ullAvailExtendedVirtual", ctypes.c_ulonglong)]
+
+
+class FILETIME(ctypes.Structure):
+    _fields_ = [("low", ctypes.c_ulong), ("high", ctypes.c_ulong)]
+
+
 def enabled() -> bool:
     return config.PRESENCE_ENABLED and sys.platform == "win32"
+
+
+def asked_about_machine(text: str) -> bool:
+    lowered = text.lower()
+    return any(word in lowered for word in MACHINE_WORDS)
 
 
 def uptime_hours():
@@ -99,8 +132,112 @@ def foreground_app():
     return FRIENDLY.get(stem, stem) if stem else None
 
 
+def memory():
+    """使用率と空き。単位はGB。"""
+    if sys.platform != "win32":
+        return None
+    block = MEMORYSTATUSEX()
+    block.dwLength = ctypes.sizeof(MEMORYSTATUSEX)
+    if not ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(block)):
+        return None
+    return block.dwMemoryLoad, block.ullAvailPhys / 2 ** 30
+
+
+def disks():
+    """つながっているドライブの空き。読めないものは飛ばす。"""
+    found = []
+    for letter in "CDEFG":
+        try:
+            usage = shutil.disk_usage(f"{letter}:\\")
+        except OSError:
+            continue
+        if usage.total < 10 * 2 ** 30:      # 復旧領域などは出さない
+            continue
+        found.append((letter, usage.free / 2 ** 30, usage.used * 100 // usage.total))
+    return found
+
+
+def _cpu_times():
+    if sys.platform != "win32":
+        return None
+    idle, kernel, user = FILETIME(), FILETIME(), FILETIME()
+    if not ctypes.windll.kernel32.GetSystemTimes(
+            ctypes.byref(idle), ctypes.byref(kernel), ctypes.byref(user)):
+        return None
+    whole = lambda f: (f.high << 32) | f.low
+    return whole(idle), whole(kernel) + whole(user)
+
+
+_cpu_base = None
+
+
+def cpu_tick() -> None:
+    """巡回のたびに基準を取り直す。次に聞かれたとき、この間の平均を出せる。"""
+    global _cpu_base
+    _cpu_base = _cpu_times()
+
+
+def cpu():
+    """前回の巡回からの平均使用率。基準が無ければ短く測る。"""
+    global _cpu_base
+    now = _cpu_times()
+    if now is None:
+        return None
+    base = _cpu_base
+    if base is None:
+        import time as _time
+
+        _time.sleep(0.1)
+        base, now = now, _cpu_times()
+        if now is None:
+            return None
+    idle, total = now[0] - base[0], now[1] - base[1]
+    if total <= 0:
+        return None
+    return 100 - idle * 100 // total
+
+
+def gpu():
+    """NVIDIAのGPUだけ。無ければ黙って諦める。"""
+    try:
+        result = subprocess.run(
+            ["nvidia-smi", "--query-gpu=utilization.gpu,memory.used,memory.total,temperature.gpu",
+             "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=3,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode or not result.stdout.strip():
+        return None
+    try:
+        load, used, total, temp = (int(x) for x in result.stdout.splitlines()[0].split(","))
+    except ValueError:
+        return None
+    return load, used / 1024, total / 1024, temp
+
+
+def details() -> str:
+    """機械の中身。聞かれたときだけ渡す。"""
+    if not enabled():
+        return ""
+    parts = []
+    for letter, free, used in disks():
+        parts.append(f"{letter}ドライブ 空き{free:.0f}GB（{used}%使用）")
+    found = memory()
+    if found:
+        parts.append(f"メモリ{found[0]}%使用（空き{found[1]:.1f}GB）")
+    load = cpu()
+    if load is not None:
+        parts.append(f"CPU{load}%")
+    card = gpu()
+    if card:
+        parts.append(f"GPU{card[0]}%・VRAM{card[1]:.1f}/{card[2]:.0f}GB・{card[3]}℃")
+    return "、".join(parts)
+
+
 def sample(conn) -> None:
     """巡回から1分ごとに呼ぶ。いま前面のアプリを1つ数える。"""
+    cpu_tick()
     if not enabled():
         return
     app = foreground_app()

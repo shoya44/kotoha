@@ -20,7 +20,10 @@ import webbrowser
 from . import config
 from .serve.web import RESTART_EXIT_CODE
 
-ICON_PATH = config.BASE_DIR / "kotoha" / "serve" / "static" / "kotoha.ico"
+_STATIC = config.BASE_DIR / "kotoha" / "serve" / "static"
+ICON_PATH = _STATIC / "kotoha.ico"
+# 止まっているときは沈んだ色にする。かざさなくても分かるように。
+ICON_OFF_PATH = _STATIC / "kotoha_off.ico"
 LOG_PATH = config.BASE_DIR / "data" / "tray.log"
 # 同じものを二重に常駐させない。名前は書き換えないこと。
 MUTEX_NAME = "kotoha-tray-single-instance"
@@ -34,10 +37,13 @@ WM_LBUTTONUP, WM_RBUTTONUP, WM_LBUTTONDBLCLK = 0x0202, 0x0205, 0x0203
 NIM_ADD, NIM_MODIFY, NIM_DELETE = 0, 1, 2
 NIF_MESSAGE, NIF_ICON, NIF_TIP, NIF_INFO = 0x01, 0x02, 0x04, 0x10
 MF_STRING, MF_SEPARATOR, MF_DEFAULT, MF_GRAYED = 0x0000, 0x0800, 0x1000, 0x0001
+MF_POPUP = 0x0010
 TPM_RIGHTBUTTON, TPM_RETURNCMD = 0x0002, 0x0100
 IMAGE_ICON, LR_LOADFROMFILE, LR_DEFAULTSIZE = 1, 0x0010, 0x0040
 
 ID_OPEN, ID_RESTART, ID_QUIT = 1, 3, 4
+# 頼まれごとはここから番号を振る。actions の一覧と並びを合わせる。
+ID_ACTION_BASE = 100
 # 様子の書き換え間隔。メニューを開いた瞬間に調べると、止まっているとき待たされる。
 STATUS_WAIT = 10.0
 
@@ -247,8 +253,12 @@ class Tray:
                                            None, None, instance, None)
         if not self.hwnd:
             raise OSError(f"窓を作れない: {ctypes.get_last_error()}")
-        self.icon = user32.LoadImageW(None, str(ICON_PATH), IMAGE_ICON, 0, 0,
-                                      LR_LOADFROMFILE | LR_DEFAULTSIZE)
+        self.icons = {
+            state: user32.LoadImageW(None, str(path), IMAGE_ICON, 0, 0,
+                                     LR_LOADFROMFILE | LR_DEFAULTSIZE)
+            for state, path in ((True, ICON_PATH), (False, ICON_OFF_PATH))
+        }
+        self.icon = self.icons[True]
         self._notify(NIM_ADD)
         self._added = True
 
@@ -271,11 +281,12 @@ class Tray:
         shell32.Shell_NotifyIconW(action, ctypes.byref(data))
 
     def refresh_tip(self):
-        """アイコンにかざしたときに出る文字。ここには必ず出せる。
+        """アイコンと、かざしたときに出る文字。ここには必ず出せる。
 
         風船（通知）は Windows 11 だと集中モードや通知設定で黙って消される。
         受け付けられても表示されないので、様子はこことメニューに出す。
         """
+        self.icon = self.icons.get(bool(self.supervisor.alive()), self.icon)
         self._notify(NIM_MODIFY, NIF_ICON | NIF_TIP,
                      tip="\n".join(self.status.lines)[:127])
 
@@ -294,6 +305,10 @@ class Tray:
         # 押せない行として並べる。押させるより、開いた時点で見えるほうが早い。
         for line in self.status.lines:
             user32.AppendMenuW(handle, MF_STRING | MF_GRAYED, 0, line)
+        helpers = self.helper_menu()
+        if helpers:
+            user32.AppendMenuW(handle, MF_SEPARATOR, 0, None)
+            user32.AppendMenuW(handle, MF_POPUP, helpers, "手を貸す")
         user32.AppendMenuW(handle, MF_SEPARATOR, 0, None)
         # 自分で上げた本体でなければ、入れ直せない。押せないことを見せておく。
         restart = MF_STRING if self.supervisor.mine() else MF_STRING | MF_GRAYED
@@ -311,7 +326,32 @@ class Tray:
         if choice:
             self.command(choice)
 
+    def helper_menu(self):
+        """頼まれたらできることを、そのまま押せるようにする。
+
+        ことはに言えばやってくれるが、手で押したいときもある。一覧は
+        actions と同じものを使うので、片方だけ増えることがない。
+        """
+        from .talk import actions
+
+        names = [name for name in actions.names() if name != "自分を入れ直す"]
+        if not (config.ACTIONS_ENABLED and names):
+            return None
+        handle = user32.CreatePopupMenu()
+        for offset, name in enumerate(names):
+            user32.AppendMenuW(handle, MF_STRING, ID_ACTION_BASE + offset, name)
+        self._helpers = names
+        return handle
+
     def command(self, choice):
+        if choice >= ID_ACTION_BASE:
+            from .talk import actions
+
+            index = choice - ID_ACTION_BASE
+            names = getattr(self, "_helpers", [])
+            if index < len(names):
+                log(f"メニューから: {names[index]} -> {actions.run(names[index])}")
+            return
         if choice == ID_OPEN:
             self.open_chat()
         elif choice == ID_RESTART:
