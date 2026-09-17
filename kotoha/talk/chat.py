@@ -32,7 +32,7 @@ def current_mood(conn) -> str:
     label = db.get_state(conn, db.MOOD)
     if label not in MOODS:
         return DEFAULT_MOOD
-    if db.seconds_since(db.get_state(conn, db.MOOD_AT)) > MOOD_DECAY_SECONDS:
+    if db.overdue(conn, db.MOOD_AT, MOOD_DECAY_SECONDS):
         return DEFAULT_MOOD
     return label
 

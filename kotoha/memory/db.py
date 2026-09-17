@@ -151,6 +151,30 @@ def unfinished_turn(conn) -> bool:
     return row is not None and row["role"] == "user"
 
 
+def overdue(conn, key: str, seconds: float) -> bool:
+    """前にやってから、その時間がたったか。一度もやっていなければ、たったものとして扱う。
+
+    整理も、バックアップも、忘却も、声かけも、通知の間隔も、やることは同じ。
+    「前にやったのを覚えていて、間を空ける」。人がそうしているのと変わらない。
+    """
+    return seconds_since(get_state(conn, key)) > seconds
+
+
+def done_today(conn, key: str, day: str) -> bool:
+    """その日のぶんを、もう済ませたか。day は呼ぶ側が決める。
+
+    朝のひとことは暦の日付で数え、夜更かしは日付をまたぐので朝を境にする。
+    どちらを使うかは、その場でしか決められない。
+    """
+    return get_state(conn, key) == day
+
+
+def mark_today(conn, key: str, day: str) -> None:
+    """済ませた印を付ける。**やる前に付ける。** 失敗しても毎分やり直させない。"""
+    set_state(conn, key, day)
+    conn.commit()
+
+
 # --- app_state に置く覚えごと ---
 # キーの名前はここにだけ書く。打ち間違えても誰も教えてくれないため。
 # **値はディスクに残っている。** 名前を変えると、それまでの覚えごとが迷子になる。

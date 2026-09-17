@@ -246,7 +246,7 @@ def _start() -> None:
         _maybe_consolidate(conn)
 
     # 終了時にメンテナンス実行。バックアップは忘却より先に取る。
-    if db.seconds_since(db.get_state(conn, db.LAST_BACKUP_AT)) > config.BACKUP_INTERVAL_SECONDS:
+    if db.overdue(conn, db.LAST_BACKUP_AT, config.BACKUP_INTERVAL_SECONDS):
         try:
             dest = db.run_backup(conn)
             if dest:

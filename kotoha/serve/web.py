@@ -50,7 +50,7 @@ def run_periodic_jobs(conn) -> None:
     """
     presence.sample(conn)
     unprocessed = _unprocessed_turns(conn)
-    idle = db.seconds_since(db.get_state(conn, db.LAST_CONVERSATION_AT)) > config.IDLE_SECONDS
+    idle = db.overdue(conn, db.LAST_CONVERSATION_AT, config.IDLE_SECONDS)
     # 会話が途切れてからにする。整理は会話と同じ順番待ちに並ぶので、話している
     # 最中に走ると返答が数秒止まる。通話だとそのまま黙り込んで聞こえる。
     if unprocessed > 0 and idle:
@@ -58,12 +58,12 @@ def run_periodic_jobs(conn) -> None:
             consolidate.run(conn)
         except Exception:
             pass  # 整理の失敗で忘却まで止めない。
-    if db.seconds_since(db.get_state(conn, db.LAST_BACKUP_AT)) > config.BACKUP_INTERVAL_SECONDS:
+    if db.overdue(conn, db.LAST_BACKUP_AT, config.BACKUP_INTERVAL_SECONDS):
         try:
             db.run_backup(conn)
         except Exception:
             pass  # 保存先の不調で忘却まで止めない。
-    if db.seconds_since(db.get_state(conn, db.LAST_FORGET_AT)) > config.MAINTENANCE_SECONDS:
+    if db.overdue(conn, db.LAST_FORGET_AT, config.MAINTENANCE_SECONDS):
         db.run_maintenance(conn)
     # 朝の一言、頼まれごと、見守り、暇なときの声かけ。
     # どれも滅多に鳴らないので、ここで待たせてよい。
@@ -128,7 +128,7 @@ def _too_soon(conn) -> bool:
     """前に鳴らしてから、まだ間が空いていない。"""
     if config.NOTIFY_GAP_MINUTES <= 0:
         return False
-    return db.seconds_since(db.get_state(conn, db.LAST_NOTIFY_AT)) < config.NOTIFY_GAP_MINUTES * 60
+    return not db.overdue(conn, db.LAST_NOTIFY_AT, config.NOTIFY_GAP_MINUTES * 60)
 
 
 def _with_ids(name, ids) -> str:
@@ -278,11 +278,9 @@ def maybe_reach_out(conn) -> None:
     """
     if not (config.REACH_OUT_ENABLED and notify.ready()):
         return
-    idle = db.seconds_since(db.get_state(conn, db.LAST_CONVERSATION_AT))
-    if idle < config.REACH_OUT_AFTER_HOURS * 3600:
+    if not db.overdue(conn, db.LAST_CONVERSATION_AT, config.REACH_OUT_AFTER_HOURS * 3600):
         return
-    if db.seconds_since(db.get_state(conn, db.LAST_REACH_OUT_AT)) < (
-            config.REACH_OUT_INTERVAL_HOURS * 3600):
+    if not db.overdue(conn, db.LAST_REACH_OUT_AT, config.REACH_OUT_INTERVAL_HOURS * 3600):
         return
     hour = datetime.now().hour
     if not config.REACH_OUT_FROM_HOUR <= hour < config.REACH_OUT_TO_HOUR:
@@ -303,9 +301,8 @@ def maybe_lookout(conn) -> None:
     # 夜更かし。日付をまたぐので、その晩ごとに一度だけ。
     if config.LOOKOUT_LATE_HOUR <= hour < config.LOOKOUT_MORNING_HOUR:
         night = (datetime.now() - timedelta(hours=config.LOOKOUT_MORNING_HOUR)).strftime("%Y-%m-%d")
-        if db.get_state(conn, db.LAST_LATE_NIGHT_ON) != night:
-            db.set_state(conn, db.LAST_LATE_NIGHT_ON, night)
-            conn.commit()
+        if not db.done_today(conn, db.LAST_LATE_NIGHT_ON, night):
+            db.mark_today(conn, db.LAST_LATE_NIGHT_ON, night)
             announce(conn, f"いま{hour}時。まだ起きて何かしている。"
                            "寝るように、一行で。責めない。")
             return
@@ -345,17 +342,14 @@ def maybe_briefing(conn) -> None:
         return
     now = datetime.now()
     today = now.strftime("%Y-%m-%d")
-    if db.get_state(conn, db.LAST_BRIEFING_ON) == today:
+    if db.done_today(conn, db.LAST_BRIEFING_ON, today):
         return
     if now.hour < config.BRIEFING_HOUR:
         return
     if now.hour >= config.BRIEFING_HOUR + config.BRIEFING_GRACE_HOURS:
-        db.set_state(conn, db.LAST_BRIEFING_ON, today)   # 今日はもう見送る
-        conn.commit()
+        db.mark_today(conn, db.LAST_BRIEFING_ON, today)   # 今日はもう見送る
         return
-    # 先に印を付ける。作るのに失敗しても、何度も試させない。
-    db.set_state(conn, db.LAST_BRIEFING_ON, today)
-    conn.commit()
+    db.mark_today(conn, db.LAST_BRIEFING_ON, today)
     # 空模様が取れなくても挨拶はする。外が落ちて朝が消えるのは違う。
     # keep=False: その日の天気を長期記憶に溜めない。画面には残る。
     announce(conn, chat.BRIEFING_CLOSING, extra=weather.block(weather.today()), keep=False)
@@ -474,7 +468,7 @@ def _call_owner(conn):
     owner = db.get_state(conn, db.CALL_OWNER)
     if not owner:
         return None
-    if db.seconds_since(db.get_state(conn, db.CALL_SEEN_AT)) > CALL_STALE_SECONDS:
+    if db.overdue(conn, db.CALL_SEEN_AT, CALL_STALE_SECONDS):
         return None
     return owner
 
