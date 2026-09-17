@@ -668,8 +668,12 @@ let callBusy = false;
 const FILLERS = ["あっ", "えっと", "んー", "うーん"];
 // これを過ぎても返答が来ないときだけ挟む。すぐ返せるなら黙って答える。
 const FILLER_AFTER_MS = 700;
+// つなぎ言葉のあとに置く間。すぐ本文へ移ると畳みかけるように聞こえる。
+const FILLER_GAP_MS = 450;
 const fillerVoices = new Map();
 let lastFiller = null;
+
+const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 // 通話のあいだに使い回すので、開始時にまとめて作っておく。
 async function prepareFillers() {
@@ -686,19 +690,20 @@ async function prepareFillers() {
 
 async function playFiller() {
   const ready = [...fillerVoices.keys()];
-  if (!ready.length) return;
+  if (!ready.length) return false;
   // 続けて同じ言葉にならないようにする。ただし1つしかないなら選ぶ余地はない。
   const choices = ready.length > 1 ? ready.filter(text => text !== lastFiller) : ready;
   lastFiller = choices[Math.floor(Math.random() * choices.length)];
   await playAudio(fillerVoices.get(lastFiller));
+  return true;
 }
 
-// 返答が間に合わなければ間をつなぐ。返す約束は鳴らし終わりまで。
+// 返答が間に合わなければ間をつなぐ。鳴らしたかどうかを返す。
 function fillPause(pending) {
   let answered = false;
   pending.then(() => { answered = true; }, () => { answered = true; });
-  return new Promise(resolve => setTimeout(resolve, FILLER_AFTER_MS))
-    .then(() => (answered || !calling ? null : playFiller()));
+  return wait(FILLER_AFTER_MS)
+    .then(() => (answered || !calling ? false : playFiller()));
 }
 
 function listen() {
@@ -719,7 +724,7 @@ async function onHeard(text) {
     // 間つなぎを鳴らし切ってから本文に移る。声が重ならないようにする。
     const filling = fillPause(pending);
     const reply = await pending;
-    await filling;
+    if (await filling) await wait(FILLER_GAP_MS);  // 言いよどんだ分の間を置く
     if (calling && reply) await speak(reply);
   } finally {
     callBusy = false;
