@@ -6,7 +6,7 @@ _COLS = "id, layer, kind, text, occurred_at, confirmed_at, pinned"
 
 def load_tag_dict(conn):
     rows = conn.execute("SELECT DISTINCT tag FROM memory_tags").fetchall()
-    return [r["tag"] for r in tags] if False else [r["tag"] for r in rows]
+    return [r["tag"] for r in rows]
 
 
 def match_tags(text: str, tags):
@@ -40,7 +40,10 @@ def retrieve(conn, user_text: str, recent_text: str = ""):
         add(
             conn.execute(
                 f"SELECT {_COLS} FROM memory_tags t JOIN memory_nodes n ON n.id = t.node_id "
-                f"WHERE t.tag IN ({ph}) AND {_ALIVE} ORDER BY n.confirmed_at DESC LIMIT ?",
+                f"WHERE t.tag IN ({ph}) AND {_ALIVE} "
+                # よく想起されたタグ・最近使った記憶を先に返す。use_count は0〜3で
+                # 頭打ちになり未使用なら日数で戻るので、古い記憶が居座り続けない。
+                f"ORDER BY t.use_count DESC, n.last_used_at DESC, n.confirmed_at DESC LIMIT ?",
                 (*hits, config.TAG_CANDIDATE_LIMIT),
             ).fetchall()
         )

@@ -1,5 +1,5 @@
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 
 from . import config, db, llm, retrieve, router
 
@@ -7,6 +7,57 @@ FAST_NOTICE = (
     "補足: 今は軽量モード。基本情報以外の過去記憶は渡されていない。"
     "回答に記憶の検索が必要なら、1行目に NEEDS_SEARCH だけを書いて返すこと。"
 )
+
+
+WEEKDAYS = ("月", "火", "水", "木", "金", "土", "日")
+
+
+def situation(hour: int) -> str:
+    """その時間のことはの様子。画面のアバターと言うことを一致させる。
+
+    区切りは static/index.html の getAvatarGroup() と対応する。
+    変更するときは両方を直すこと。
+    """
+    if 6 <= hour < 11:
+        return "起きたばかりで、まだ少し眠い"
+    if 11 <= hour < 14:
+        return "家でのんびりしている"
+    if 14 <= hour < 17:
+        return "昼寝やおやつでだらけている"
+    if 17 <= hour < 21:
+        return "風呂や夕食をすませたあと"
+    if hour >= 21 or hour < 2:
+        return "夜更かし中で、ゲームかスマホを触っている"
+    return "本当はもう寝ている時間"
+
+
+def elapsed_phrase(last: str) -> str:
+    """前回会話からの間隔。UTCの記録をそのまま渡すと時差で誤解されるため言葉にする。"""
+    if not last:
+        return "初めての会話"
+    try:
+        dt = datetime.strptime(last, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+    except ValueError:
+        return "不明"
+    seconds = (datetime.now(timezone.utc) - dt).total_seconds()
+    if seconds < 90:
+        return "たった今"
+    minutes = seconds / 60
+    if minutes < 60:
+        return f"{int(minutes)}分前"
+    hours = minutes / 60
+    if hours < 24:
+        return f"{int(hours)}時間前"
+    days = hours / 24
+    if days < 2:
+        return "昨日"
+    if days < 7:
+        return f"{int(days)}日前"
+    if days < 31:
+        return f"{int(days // 7)}週間前"
+    if days < 365:
+        return f"{int(days // 30)}か月前"
+    return "1年以上前"
 
 
 def _read(name: str) -> str:
@@ -36,9 +87,12 @@ def parse_used_ids(text: str):
 def build_prompt(conn, user_text: str, recent, pinned, related, fast: bool = False) -> str:
     fixed = _read("fixed_rules.txt")
     persona = _read("persona.txt")
-    now = datetime.now().strftime("%Y-%m-%d %H:%M (%A)")
-    last = db.get_state(conn, "last_conversation_at")
-    time_block = f"現在: {now}\n前回会話: {last or '初回'}"
+    now = datetime.now()
+    time_block = "\n".join([
+        f"現在: {now:%Y-%m-%d %H:%M}（{WEEKDAYS[now.weekday()]}曜日）",
+        f"前回の会話: {elapsed_phrase(db.get_state(conn, 'last_conversation_at'))}",
+        f"今のことは: {situation(now.hour)}",
+    ])
 
     basic_block = ""
     if pinned:

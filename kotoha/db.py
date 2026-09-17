@@ -71,8 +71,7 @@ CREATE INDEX IF NOT EXISTS idx_memory_edges_to_relation ON memory_edges(to_id, r
 CREATE INDEX IF NOT EXISTS idx_memory_sources_message_node ON memory_sources(message_id, node_id);
 
 INSERT OR IGNORE INTO app_state (key, value) VALUES
-  ('last_processed_message_id', '0'),
-  ('process_generation', '0');
+  ('last_processed_message_id', '0');
 """
 
 
@@ -198,8 +197,6 @@ def set_pinned(conn, node_id: int, pinned: bool) -> bool:
 
 def forget_node(conn, node_id: int) -> bool:
     cur = conn.execute("DELETE FROM memory_nodes WHERE id = ?", (node_id,))
-    gen = int(get_state(conn, "process_generation", "0") or 0) + 1
-    set_state(conn, "process_generation", gen)
     conn.commit()
     return cur.rowcount > 0
 
