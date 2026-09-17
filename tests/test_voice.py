@@ -39,11 +39,23 @@ class FakeEngine:
         return httpx.Response(self.synthesis_status, content=WAV)
 
 
+class StaleOnce(FakeEngine):
+    """最初の1回だけ、切れた接続のふりをする。"""
+
+    def __call__(self, method, url, **kwargs):
+        if not self.calls:
+            # 記録は親に任せる。ここで足すと同じ呼び出しを二重に数えてしまう。
+            self.calls.append((url, kwargs.get("params"), kwargs.get("json")))
+            raise httpx.RemoteProtocolError("Server disconnected")
+        return super().__call__(method, url, **kwargs)
+
+
 class SpeakTests(unittest.TestCase):
     def use(self, engine):
-        original = voice.httpx.request
-        voice.httpx.request = engine
-        self.addCleanup(setattr, voice.httpx, "request", original)
+        # 接続は使い回す1つに集約したので、差し替え先もそこになる。
+        original = voice._client.request
+        voice._client.request = engine
+        self.addCleanup(setattr, voice._client, "request", original)
         return engine
 
     def test_returns_audio(self):
@@ -92,6 +104,19 @@ class SpeakTests(unittest.TestCase):
         with self.assertRaises(voice.VoiceError):
             voice.speak("おーい")
 
+    def test_stale_connection_is_retried_once(self):
+        """エンジンが再起動すると、開いたままの接続は黙って切れている。"""
+        engine = self.use(StaleOnce())
+        self.assertEqual(voice.speak("おかえり"), WAV)
+        # 1回目の失敗ぶんを足して、audio_query が2回、synthesis が1回。
+        self.assertEqual(len(engine.calls), 3)
+
+    def test_engine_really_down_is_not_retried_forever(self):
+        engine = self.use(FakeEngine(error=httpx.RemoteProtocolError("closed")))
+        with self.assertRaises(voice.VoiceError):
+            voice.speak("おーい")
+        self.assertEqual(len(engine.calls), 2)  # やり直しは一度きり
+
 
 class EndpointTests(unittest.TestCase):
     """読み上げが落ちても会話は落ちないこと。"""
@@ -123,9 +148,9 @@ class EndpointTests(unittest.TestCase):
         )
 
     def use(self, engine):
-        original = voice.httpx.request
-        voice.httpx.request = engine
-        self.addCleanup(setattr, voice.httpx, "request", original)
+        original = voice._client.request
+        voice._client.request = engine
+        self.addCleanup(setattr, voice._client, "request", original)
 
     def test_returns_wav(self):
         config.VOICE_ENABLED = True

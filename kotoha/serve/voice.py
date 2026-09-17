@@ -11,6 +11,11 @@ from .. import config
 # 1回の合成に渡す上限。これより長い返答は切って、待たされ続けるのを避ける。
 MAX_CHARS = 300
 
+# 同じエンジンへ何度もつなぐので、接続は開いたまま使い回す。1文ごとにつなぎ直すと
+# 1文あたり0.44秒ほど余計にかかる（実測 903ms → 462ms）。通話では1文ごとに効く。
+# 相手は同じPCの中なので、プロキシ設定は見ない。見にいく時間のぶんだけ遅くなる。
+_client = httpx.Client(trust_env=False)
+
 
 class VoiceError(Exception):
     pass
@@ -21,14 +26,19 @@ def clip(text: str) -> str:
     return text[:MAX_CHARS]
 
 
+def _send(method: str, url: str, **kwargs):
+    return _client.request(method, url, timeout=config.VOICE_TIMEOUT_SECONDS, **kwargs)
+
+
 def _request(method: str, path: str, **kwargs):
+    url = f"{config.VOICE_BASE_URL}{path}"
     try:
-        response = httpx.request(
-            method,
-            f"{config.VOICE_BASE_URL}{path}",
-            timeout=config.VOICE_TIMEOUT_SECONDS,
-            **kwargs,
-        )
+        try:
+            response = _send(method, url, **kwargs)
+        except httpx.RemoteProtocolError:
+            # 開いたままの接続は、エンジンが再起動すると黙って切れている。
+            # つなぎ直せば通るので、ここだけ一度やり直す。
+            response = _send(method, url, **kwargs)
     except httpx.ConnectError:
         raise VoiceError("音声エンジンに接続できません。AivisSpeechを起動してください。") from None
     except httpx.TimeoutException:
