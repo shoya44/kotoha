@@ -32,7 +32,9 @@ class LauncherFixture:
         self.config.TAILSCALE_HTTPS_PORT = 443
         self.config.DEBUG = False
         self.config.BROWSER_AUTO_OPEN = True
-        self.config.STARTUP_TIMEOUT_SECONDS = 30
+        # 本物は30秒。そのままだと、繋がらない場面のテストが本当に30秒待つ。
+        # 何度か様子を見に行くだけの余裕があればよいので、短くしておく。
+        self.config.STARTUP_TIMEOUT_SECONDS = 2
         self.config.VOICE_BASE_URL = "http://127.0.0.1:10101"
         self.config.AIVIS_AUTO_START = True
         self.config.AIVIS_DIR = Path(self.tmp.name) / "AivisSpeech"
@@ -202,6 +204,8 @@ class LauncherTests(LauncherFixture, unittest.TestCase):
                 command.assert_not_called()
 
     def test_disconnected_tailscale_does_not_start_serve(self):
+        # 待ちきってから諦めるところを見る。待つ時間そのものは確かめない。
+        self.config.STARTUP_TIMEOUT_SECONDS = 0.01
         with patch.object(self.launcher, "tailscale_json", return_value={"BackendState": "NeedsLogin"}), \
              patch.object(self.launcher, "tailscale_command") as command:
             with self.assertRaisesRegex(self.launcher.ServeError, "未接続"):
