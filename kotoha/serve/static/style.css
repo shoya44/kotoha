@@ -376,7 +376,10 @@ textarea {
   min-width: 0;
   max-height: var(--input-max-height);
   resize: none;
+  /* 伸び切ったあとも中身は送れる。つまみは出さず、iOSの見え方に揃える。 */
   overflow-y: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
 
   padding: 10px 88px 10px 12px;
   border: 1px solid var(--input-line);
@@ -393,6 +396,10 @@ textarea {
   transition:
     border-color var(--duration-fast) ease,
     box-shadow var(--duration-fast) ease;
+}
+
+textarea::-webkit-scrollbar {
+  display: none;
 }
 
 textarea:focus {

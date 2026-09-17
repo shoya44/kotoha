@@ -35,7 +35,7 @@ let longPressTimer = null;
 
 const preferences = {
   showTime: localStorage.getItem("kotoha_show_time") !== "0",
-  voice: localStorage.getItem("kotoha_voice") === "1",
+  voice: localStorage.getItem("kotoha_voice") !== "0",
 };
 
 // ===== Date / Time =====
