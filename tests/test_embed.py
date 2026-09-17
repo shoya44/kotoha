@@ -241,6 +241,20 @@ class PeriodicJobTests(MemoryFixture, unittest.TestCase):
         self.web.run_vector_jobs()
         self.assertEqual(engine.calls, [])
 
+    def test_a_sleeping_model_is_woken_up(self):
+        """放置するとモデルはGPUから降りる。次の会話1回だけ想起が効かなくなる。"""
+        engine = self.use(FakeOllama())
+        embed._blocked_until = float("inf")   # 眠っているとみなされている状態
+        self.web.run_vector_jobs()
+        self.assertEqual(len(engine.calls), 1)
+        self.assertTrue(embed.available())
+
+    def test_a_woken_model_is_not_poked_again(self):
+        engine = self.use(FakeOllama())
+        self.web.run_vector_jobs()
+        self.web.run_vector_jobs()
+        self.assertEqual(engine.calls, [])
+
     def test_engine_down_is_survived_quietly(self):
         """Ollamaが止まっていても、次の巡回でやり直せばよい。"""
         self.add_memory(key="a")

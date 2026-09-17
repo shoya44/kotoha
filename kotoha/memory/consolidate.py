@@ -46,6 +46,25 @@ def _clip(text: str) -> str:
     return text[: config.BATCH_CHARS] + "…（以下省略）"
 
 
+def _safe_date(value, base: str) -> str:
+    """出来事の日付。会話の日から離れすぎていたら、会話の日に寄せる。
+
+    モデルは年を取り違えることがある。実際に2023年と書かれた記憶があった。
+    形だけ見て通すと、その記憶は想起でも忘却でも別の時代に置かれてしまう。
+    """
+    if not isinstance(value, str) or len(value) != 10:
+        return base[:10]
+    try:
+        said = datetime.strptime(value, "%Y-%m-%d")
+        spoken = datetime.strptime(base[:10], "%Y-%m-%d")
+    except ValueError:
+        return base[:10]
+    # 会話の前後1年まで。過去を振り返る話もあるので、幅は持たせる。
+    if abs((said - spoken).days) > 366:
+        return base[:10]
+    return value
+
+
 def _normalize_tag(tag: str) -> str:
     return " ".join(str(tag).strip().split())[:24]
 
@@ -205,9 +224,7 @@ def _validate_and_save(conn, data, messages) -> int:
             if nt and nt not in tags:
                 tags.append(nt)
         base = msg_date[src[0]]
-        occurred = spec.get("occurred_at")
-        if not isinstance(occurred, str) or len(occurred) != 10:
-            occurred = base[:10]
+        occurred = _safe_date(spec.get("occurred_at"), base)
         expires = (_parse_dt(base) + timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
         cur = conn.execute(

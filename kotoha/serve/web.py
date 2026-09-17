@@ -64,6 +64,21 @@ def run_periodic_jobs(conn) -> None:
         db.run_maintenance(conn)
 
 
+def _wake_embedder() -> None:
+    """眠ったモデルを起こしておく。
+
+    しばらく話さないとモデルはGPUから降りる。次の1回は読み込みで1.7秒ほど
+    かかり、会話側の短い待ち上限に間に合わず、その回だけ想起が効かなくなる。
+    会話を待たせないここで、長めの上限で起こしておく。
+    """
+    if embed.available():
+        return
+    try:
+        embed.embed(["おはよう"], timeout=config.EMBED_BUILD_TIMEOUT_SECONDS)
+    except embed.EmbedError:
+        pass  # 起きないなら次の巡回でまた試す。
+
+
 def run_vector_jobs() -> None:
     """記憶を意味の座標に変えて貯める。会話の順番待ちには並ばせない。
 
@@ -77,6 +92,7 @@ def run_vector_jobs() -> None:
     try:
         rows = embed.missing(conn, config.EMBED_BATCH)
         if not rows:
+            _wake_embedder()
             return
         made = embed.embed(
             [r["text"] for r in rows], timeout=config.EMBED_BUILD_TIMEOUT_SECONDS

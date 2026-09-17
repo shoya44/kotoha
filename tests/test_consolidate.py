@@ -76,6 +76,30 @@ class ClipTests(unittest.TestCase):
         self.assertTrue(clipped.endswith("（以下省略）"))
 
 
+class SafeDateTests(unittest.TestCase):
+    """出来事の日付。モデルは年を取り違えることがある。"""
+
+    BASE = "2026-09-17T00:00:00Z"
+
+    def test_a_sane_date_is_kept(self):
+        self.assertEqual(consolidate._safe_date("2026-09-17", self.BASE), "2026-09-17")
+
+    def test_a_date_months_back_is_kept(self):
+        """過去を振り返る話もあるので、少し前は通す。"""
+        self.assertEqual(consolidate._safe_date("2026-03-01", self.BASE), "2026-03-01")
+
+    def test_a_wrong_year_falls_back_to_the_conversation(self):
+        """実データに2023年と書かれた記憶があった。別の時代に置かれてしまう。"""
+        self.assertEqual(consolidate._safe_date("2023-09-17", self.BASE), "2026-09-17")
+
+    def test_an_impossible_date_falls_back(self):
+        self.assertEqual(consolidate._safe_date("2026-13-45", self.BASE), "2026-09-17")
+
+    def test_a_non_date_falls_back(self):
+        for value in ("きのう", "", None, 20260917):
+            self.assertEqual(consolidate._safe_date(value, self.BASE), "2026-09-17")
+
+
 class MergeTests(unittest.TestCase):
     """言い直しただけの記憶を作らせない。同じ話で想起の6枠が埋まるのを防ぐ。"""
 
