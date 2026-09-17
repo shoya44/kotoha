@@ -260,8 +260,59 @@ class LauncherTests(LauncherFixture, unittest.TestCase):
                 self.assertIn("Run setup.bat first", result.stdout)
 
 
-class AivisStartTests(LauncherFixture, unittest.TestCase):
+class EngineStartTests(LauncherFixture):
+    """起こす相手が違うだけで、確かめることは同じ4つ。
+
+    aivis と ollama は別のコードなので、どちらにも走らせる（本数は減らない）。
+    同じ確認を二度書いていたのをやめる、という話。子は次を与える:
+      up_name     生きているかを見る関数の名前
+      start()     起こす
+      make_engine()  それらしい実行ファイルを置く
+      disable()   自動起動を止める
+    """
+
+    def up(self, **kwargs):
+        return patch.object(self.launcher, self.up_name, **kwargs)
+
+    def test_does_not_start_twice(self):
+        self.make_engine()
+        with self.up(return_value=True),              patch.object(self.launcher.subprocess, "Popen") as popen,              patch("builtins.print"):
+            self.start()
+        popen.assert_not_called()
+
+    def test_missing_engine_is_only_reported(self):
+        """置いていないなら、黙って諦めずに一言だけ言う。"""
+        with self.up(return_value=False),              patch.object(self.launcher.subprocess, "Popen") as popen,              patch("builtins.print") as printed:
+            self.start()
+        popen.assert_not_called()
+        self.assertTrue(printed.called)
+
+    def test_disabled_does_nothing(self):
+        """止めてあるなら、生きているかどうかも見に行かない。"""
+        self.make_engine()
+        self.disable()
+        with self.up() as up, patch.object(self.launcher.subprocess, "Popen") as popen:
+            self.start()
+        popen.assert_not_called()
+        up.assert_not_called()
+
+    def test_failure_to_launch_does_not_raise(self):
+        """起こせなくても、会話はそのまま続く。"""
+        self.make_engine()
+        with self.up(return_value=False),              patch.object(self.launcher.subprocess, "Popen", side_effect=OSError),              patch("builtins.print"):
+            self.start()
+
+
+class AivisStartTests(EngineStartTests, unittest.TestCase):
     """音声エンジンは画面を出さずに起こす。失敗しても会話は続ける。"""
+
+    up_name = "aivis_is_up"
+
+    def start(self):
+        self.launcher.start_aivis()
+
+    def disable(self):
+        self.config.AIVIS_AUTO_START = False
 
     def make_engine(self):
         engine = self.config.AIVIS_DIR / "AivisSpeech-Engine"
@@ -272,8 +323,8 @@ class AivisStartTests(LauncherFixture, unittest.TestCase):
 
     def test_starts_the_engine_without_a_window(self):
         exe = self.make_engine()
-        with patch.object(self.launcher, "aivis_is_up", return_value=False),              patch.object(self.launcher.subprocess, "Popen") as popen,              patch("builtins.print"):
-            self.launcher.start_aivis()
+        with self.up(return_value=False),              patch.object(self.launcher.subprocess, "Popen") as popen,              patch("builtins.print"):
+            self.start()
         command = popen.call_args.args[0]
         self.assertEqual(command[0], str(exe))
         self.assertIn("--host", command)
@@ -283,34 +334,17 @@ class AivisStartTests(LauncherFixture, unittest.TestCase):
         self.assertEqual(popen.call_args.kwargs["creationflags"],
                          getattr(subprocess, "CREATE_NO_WINDOW", 0))
 
-    def test_does_not_start_twice(self):
-        self.make_engine()
-        with patch.object(self.launcher, "aivis_is_up", return_value=True),              patch.object(self.launcher.subprocess, "Popen") as popen,              patch("builtins.print"):
-            self.launcher.start_aivis()
-        popen.assert_not_called()
 
-    def test_missing_engine_is_only_reported(self):
-        with patch.object(self.launcher, "aivis_is_up", return_value=False),              patch.object(self.launcher.subprocess, "Popen") as popen,              patch("builtins.print") as printed:
-            self.launcher.start_aivis()
-        popen.assert_not_called()
-        self.assertTrue(printed.called)
-
-    def test_disabled_does_nothing(self):
-        self.make_engine()
-        self.config.AIVIS_AUTO_START = False
-        with patch.object(self.launcher, "aivis_is_up") as up,              patch.object(self.launcher.subprocess, "Popen") as popen:
-            self.launcher.start_aivis()
-        popen.assert_not_called()
-        up.assert_not_called()
-
-    def test_failure_to_launch_does_not_raise(self):
-        self.make_engine()
-        with patch.object(self.launcher, "aivis_is_up", return_value=False),              patch.object(self.launcher.subprocess, "Popen", side_effect=OSError),              patch("builtins.print"):
-            self.launcher.start_aivis()   # 例外が出ないこと
-
-
-class OllamaStartTests(LauncherFixture, unittest.TestCase):
+class OllamaStartTests(EngineStartTests, unittest.TestCase):
     """記憶の想起に使うローカルLLM。止まっていても会話は続ける。"""
+
+    up_name = "ollama_is_up"
+
+    def start(self):
+        self.launcher.start_ollama()
+
+    def disable(self):
+        self.config.OLLAMA_AUTO_START = False
 
     def make_engine(self):
         self.config.OLLAMA_DIR.mkdir(parents=True, exist_ok=True)
@@ -320,12 +354,8 @@ class OllamaStartTests(LauncherFixture, unittest.TestCase):
 
     def test_starts_the_server_without_a_window(self):
         exe = self.make_engine()
-        with (
-            patch.object(self.launcher, "ollama_is_up", return_value=False),
-            patch.object(self.launcher.subprocess, "Popen") as popen,
-            patch("builtins.print"),
-        ):
-            self.launcher.start_ollama()
+        with self.up(return_value=False),              patch.object(self.launcher.subprocess, "Popen") as popen,              patch("builtins.print"):
+            self.start()
         self.assertEqual(popen.call_args.args[0], [str(exe), "serve"])
         self.assertEqual(popen.call_args.kwargs["creationflags"],
                          getattr(subprocess, "CREATE_NO_WINDOW", 0))
@@ -333,65 +363,18 @@ class OllamaStartTests(LauncherFixture, unittest.TestCase):
     def test_listening_address_follows_the_setting(self):
         self.make_engine()
         self.config.EMBED_BASE_URL = "http://127.0.0.1:9999"
-        with (
-            patch.object(self.launcher, "ollama_is_up", return_value=False),
-            patch.object(self.launcher.subprocess, "Popen") as popen,
-            patch("builtins.print"),
-        ):
-            self.launcher.start_ollama()
+        with self.up(return_value=False),              patch.object(self.launcher.subprocess, "Popen") as popen,              patch("builtins.print"):
+            self.start()
         self.assertEqual(popen.call_args.kwargs["env"]["OLLAMA_HOST"], "127.0.0.1:9999")
-
-    def test_does_not_start_twice(self):
-        self.make_engine()
-        with (
-            patch.object(self.launcher, "ollama_is_up", return_value=True),
-            patch.object(self.launcher.subprocess, "Popen") as popen,
-            patch("builtins.print"),
-        ):
-            self.launcher.start_ollama()
-        popen.assert_not_called()
-
-    def test_missing_engine_is_only_reported(self):
-        with (
-            patch.object(self.launcher, "ollama_is_up", return_value=False),
-            patch.object(self.launcher.subprocess, "Popen") as popen,
-            patch("builtins.print") as printed,
-        ):
-            self.launcher.start_ollama()
-        popen.assert_not_called()
-        self.assertTrue(printed.called)
-
-    def test_disabled_does_nothing(self):
-        self.make_engine()
-        self.config.OLLAMA_AUTO_START = False
-        with (
-            patch.object(self.launcher, "ollama_is_up") as up,
-            patch.object(self.launcher.subprocess, "Popen") as popen,
-        ):
-            self.launcher.start_ollama()
-        popen.assert_not_called()
-        up.assert_not_called()
 
     def test_not_started_when_recall_is_switched_off(self):
         """想起を使わない設定なら、立ち上げる理由がない。"""
         self.make_engine()
         self.config.EMBED_ENABLED = False
-        with (
-            patch.object(self.launcher, "ollama_is_up") as up,
-            patch.object(self.launcher.subprocess, "Popen") as popen,
-        ):
-            self.launcher.start_ollama()
+        with self.up() as up, patch.object(self.launcher.subprocess, "Popen") as popen:
+            self.start()
         popen.assert_not_called()
         up.assert_not_called()
-
-    def test_failure_to_launch_does_not_raise(self):
-        self.make_engine()
-        with (
-            patch.object(self.launcher, "ollama_is_up", return_value=False),
-            patch.object(self.launcher.subprocess, "Popen", side_effect=OSError),
-            patch("builtins.print"),
-        ):
-            self.launcher.start_ollama()   # 例外が出ないこと
 
 
 if __name__ == "__main__":
