@@ -11,6 +11,7 @@ serve/voice.py と同じ約束で書いてある。
 import array
 import math
 import operator
+import time
 
 import httpx
 
@@ -33,6 +34,15 @@ def _http():
 
 class EmbedError(Exception):
     pass
+
+
+# Ollamaが止まっているのに毎回つなぎに行くと、会話のたびに待ち時間が増える。
+# 一度失敗したらしばらく諦める。巡回が60秒ごとに試し続けるので、戻れば再開する。
+_blocked_until = 0.0
+
+
+def available() -> bool:
+    return time.monotonic() >= _blocked_until
 
 
 def _post(texts, timeout):
@@ -76,10 +86,17 @@ def _unit(values):
 
 def embed(texts, timeout=None):
     """文をベクトルにする。空欄や長すぎる文はここで整える。"""
+    global _blocked_until
     if not texts:
         return []
     clipped = [(t or " ")[: config.EMBED_MAX_CHARS] for t in texts]
-    return [_unit(v) for v in _post(clipped, timeout or config.EMBED_TIMEOUT_SECONDS)]
+    try:
+        raw = _post(clipped, timeout or config.EMBED_TIMEOUT_SECONDS)
+    except EmbedError:
+        _blocked_until = time.monotonic() + config.EMBED_RETRY_SECONDS
+        raise
+    _blocked_until = 0.0
+    return [_unit(v) for v in raw]
 
 
 def similarity(a, b) -> float:

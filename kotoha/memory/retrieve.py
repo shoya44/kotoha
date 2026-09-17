@@ -1,5 +1,5 @@
 from .. import config
-from . import db
+from . import db, embed
 
 _ALIVE = f"(expires_at IS NULL OR expires_at > {db.NOW_SQL})"
 _COLS = "id, layer, kind, text, occurred_at, confirmed_at, pinned"
@@ -20,6 +20,52 @@ def pinned_only(conn):
         f"ORDER BY confirmed_at DESC LIMIT ?",
         (config.PINNED_LIMIT,),
     ).fetchall()
+
+
+def _query_text(user_text: str, recent_text: str) -> str:
+    """意味を照らし合わせる文。発言だけでは短すぎて、意味が定まらない。
+
+    発言の長さは中央値14字しかない。「しんどい」だけだと的外れな記憶を
+    引くが、直前のやりとりを足すと正しい方に寄る（実測で確認済み）。
+    """
+    lines = [line for line in recent_text.strip().split("\n") if line]
+    tail = lines[-config.EMBED_CONTEXT_LINES:] if config.EMBED_CONTEXT_LINES else []
+    return "\n".join([*tail, user_text])
+
+
+def _by_meaning(conn, query_text: str, known):
+    """意味の近い記憶を返す。タグと違い、言葉が一致しなくてもたどり着ける。
+
+    Ollamaが答えなければ静かに空を返す。読み上げと同じで、無くても会話は続く。
+    """
+    if not (config.EMBED_ENABLED and config.EMBED_RESERVE) or not embed.available():
+        return []
+    rows = embed.load_all(conn)
+    if not rows:
+        return []
+    try:
+        query = embed.embed([query_text])[0]
+    except embed.EmbedError:
+        return []
+
+    scored = []
+    for r in rows:
+        if r["node_id"] in known:
+            continue
+        score = embed.similarity(query, embed.unpack(r["vector"]))
+        # 近いものが無い回もある。無理に引くと、関係ない記憶で枠を潰す。
+        if score >= config.EMBED_FLOOR:
+            scored.append((score, r["node_id"]))
+    if not scored:
+        return []
+    scored.sort(reverse=True)
+    ids = [node_id for _, node_id in scored[: config.EMBED_RESERVE]]
+    ph = ",".join("?" * len(ids))
+    found = conn.execute(
+        f"SELECT {_COLS} FROM memory_nodes WHERE id IN ({ph}) AND {_ALIVE}", ids
+    ).fetchall()
+    order = {node_id: i for i, node_id in enumerate(ids)}
+    return sorted(found, key=lambda r: order[r["id"]])
 
 
 def retrieve(conn, user_text: str, recent_text: str = ""):
@@ -80,5 +126,10 @@ def retrieve(conn, user_text: str, recent_text: str = ""):
     )
 
     pinned = pinned_only(conn)
-    related = [c for c in cand if not c["pinned"]][:config.RELATED_LIMIT]
+    known = {c["id"] for c in cand} | {p["id"] for p in pinned}
+    by_meaning = _by_meaning(conn, _query_text(user_text, recent_text), known)
+    # 予約したぶんは必ず渡す。後ろに足すだけだと、タグが当たった回は枠が
+    # 埋まりきって出番が来ない。取り違えても割を食うのは予約枠だけで済む。
+    keep = config.RELATED_LIMIT - len(by_meaning)
+    related = [c for c in cand if not c["pinned"]][:keep] + by_meaning
     return pinned, related
