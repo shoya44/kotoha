@@ -219,5 +219,52 @@ class ConsolidationTimingTests(unittest.TestCase):
         self.assertEqual(self.runs, [])
 
 
+class RoundTests(unittest.TestCase):
+    """裏の巡回がひと回りすること。ここが落ちると、何も起きないまま静かになる。"""
+
+    def setUp(self):
+        if config.DB_PATH.exists():
+            config.DB_PATH.unlink()
+        conn = db.connect()
+        db.init(conn)
+        conn.close()
+        from kotoha import notify
+        from kotoha.serve import jobs
+
+        self.jobs, self.notify = jobs, notify
+        self.addCleanup(setattr, notify, "log", notify.log)
+        self.logged = []
+        notify.log = self.logged.append
+
+    def test_one_round_does_not_fall_over(self):
+        """名前の付け替えで巡回が丸ごと止まったことがある。実際に一周させて確かめる。"""
+        self.jobs.one_round()
+        self.assertEqual(self.logged, [])
+
+    def test_a_failure_is_written_down(self):
+        """黙って飲み込まない。落ちたことは残す。"""
+        original = self.jobs.ROUNDS
+        self.addCleanup(setattr, self.jobs, "ROUNDS", original)
+
+        def broken():
+            raise RuntimeError("こわれた")
+
+        self.jobs.ROUNDS = (("巡回", broken),) + original[1:]
+        self.jobs.one_round()
+        self.assertTrue(any("巡回で失敗" in line for line in self.logged))
+
+    def test_the_rest_keeps_going(self):
+        original = self.jobs.ROUNDS
+        self.addCleanup(setattr, self.jobs, "ROUNDS", original)
+        ran = []
+
+        def broken():
+            raise RuntimeError("こわれた")
+
+        self.jobs.ROUNDS = (("巡回", broken), ("見張り", lambda: ran.append(1)))
+        self.jobs.one_round()
+        self.assertEqual(ran, [1])
+
+
 if __name__ == "__main__":
     unittest.main()

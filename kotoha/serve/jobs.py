@@ -227,23 +227,33 @@ def run_vector_jobs() -> None:
             pass  # 声と同じで、無くても会話は続けられる。
 
 
+def _with_lock() -> None:
+    """整理・バックアップ・忘却・声かけ。会話と同じ順番待ちに並ぶ。"""
+    with turn_lock, db.session() as conn:
+        run_periodic_jobs(conn)
+
+
+ROUNDS = (("巡回", _with_lock), ("ベクトル", run_vector_jobs), ("見張り", run_watch_jobs))
+
+
+def one_round() -> None:
+    """ひと回り。どれかが落ちても残りは続ける。
+
+    **落ちたことは必ず書き残す。** 黙って飲み込むと、巡回そのものが
+    止まっていても誰も気づかない（実際に一度そうなった）。
+    """
+    for name, work in ROUNDS:
+        try:
+            work()
+        except Exception as error:
+            notify.log(f"{name}で失敗: {error!r}")
+
+
 def _bg_loop() -> None:
-    """時計: アイドル整理と日次メンテナンスを裏で回す。"""
+    """時計: 60秒ごとに目を開けて、頃合いのものだけ片づける。"""
     while True:
         time.sleep(config.BACKGROUND_INTERVAL_SECONDS)
-        try:
-            with _turn_lock, db.session() as conn:
-                run_periodic_jobs(conn)
-        except Exception:
-            pass
-        try:
-            run_vector_jobs()
-        except Exception:
-            pass
-        try:
-            run_watch_jobs()
-        except Exception:
-            pass
+        one_round()
 
 
 threading.Thread(target=_bg_loop, daemon=True).start()
