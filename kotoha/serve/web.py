@@ -1,3 +1,4 @@
+import os
 import threading
 import time
 from pathlib import Path
@@ -9,9 +10,13 @@ from fastapi.staticfiles import StaticFiles
 from .. import config
 from ..memory import consolidate, db
 from ..talk import chat, llm
-from . import voice
+from . import admin, voice
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
+# start.bat はこの終了コードを見て起動し直す。42以外は普通の終了として扱われる。
+RESTART_EXIT_CODE = 42
+# 通話中の端末はこの間隔より短く生存を知らせる。途絶えたら通話は終わったとみなす。
+CALL_STALE_SECONDS = 120
 
 app = FastAPI(title="kotoha")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
@@ -108,6 +113,128 @@ def api_chat(request: Request, payload: dict):
         finally:
             conn.close()
     return {"reply": reply, "mode": mode}
+
+
+def _call_owner(conn):
+    """いま通話している端末。見張りが途絶えた記録は無効として扱う。"""
+    owner = db.get_state(conn, "call_owner")
+    if not owner:
+        return None
+    if db.seconds_since(db.get_state(conn, "call_seen_at")) > CALL_STALE_SECONDS:
+        return None
+    return owner
+
+
+@app.get("/api/call")
+def call_state(request: Request, device: str = ""):
+    """通話を続けてよいか確かめる。持ち主が入れ替わっていれば false。"""
+    _check_token(request)
+    conn = db.connect()
+    try:
+        owner = _call_owner(conn)
+        if owner and owner == device:
+            db.set_state(conn, "call_seen_at", db.now_utc())
+            conn.commit()
+        return {"calling": bool(owner), "mine": owner == device if owner else False}
+    finally:
+        conn.close()
+
+
+@app.post("/api/call")
+def call_claim(request: Request, payload: dict):
+    """通話を始める。先に話していた端末があれば、その端末は次の確認でやめる。"""
+    _check_token(request)
+    device = (payload.get("device") or "").strip()
+    if not device:
+        raise HTTPException(status_code=400, detail="端末の指定がない")
+    conn = db.connect()
+    try:
+        previous = _call_owner(conn)
+        db.set_state(conn, "call_owner", device)
+        db.set_state(conn, "call_seen_at", db.now_utc())
+        conn.commit()
+        return {"calling": True, "mine": True, "took_over": bool(previous and previous != device)}
+    finally:
+        conn.close()
+
+
+@app.delete("/api/call")
+def call_release(request: Request):
+    """通話を終わらせる。自分の端末でも、置いてきた端末でも同じ。"""
+    _check_token(request)
+    conn = db.connect()
+    try:
+        released = bool(_call_owner(conn))
+        db.set_state(conn, "call_owner", "")
+        db.set_state(conn, "call_seen_at", "")
+        conn.commit()
+        return {"calling": False, "mine": False, "released": released}
+    finally:
+        conn.close()
+
+
+@app.post("/api/restart")
+def api_restart(request: Request):
+    """外出先から立て直すための最後の手段。start.bat が起動し直す。"""
+    _check_token(request)
+    # 先に応答を返しきってから落とす。DBへの書き込みはその都度コミットしてある。
+    threading.Timer(0.4, lambda: os._exit(RESTART_EXIT_CODE)).start()
+    return {"restarting": True}
+
+
+@app.get("/api/prompts")
+def prompts_read(request: Request):
+    """ことばの元になる3つの文。保存すると次の発言から効く。"""
+    _check_token(request)
+    return {"prompts": [
+        {
+            "name": name,
+            "label": label,
+            "text": admin.read_prompt(name),
+            "has_backup": admin.prompt_backup(name).exists(),
+        }
+        for name, label in admin.PROMPTS.items()
+    ]}
+
+
+@app.put("/api/prompts/{name}")
+def prompts_write(request: Request, name: str, payload: dict):
+    _check_token(request)
+    try:
+        admin.write_prompt(name, payload.get("text") or "")
+    except admin.AdminError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"saved": True}
+
+
+@app.post("/api/prompts/{name}/revert")
+def prompts_revert(request: Request, name: str):
+    _check_token(request)
+    try:
+        text = admin.revert_prompt(name)
+    except admin.AdminError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"text": text}
+
+
+@app.get("/api/settings")
+def settings_read(request: Request):
+    _check_token(request)
+    return {"settings": admin.read_settings()}
+
+
+@app.put("/api/settings")
+def settings_write(request: Request, payload: dict):
+    """.env に書いてから読み直す。プロセスは動いたまま新しい値になる。"""
+    _check_token(request)
+    values = payload.get("values")
+    if not isinstance(values, dict):
+        raise HTTPException(status_code=400, detail="値がない")
+    try:
+        admin.write_settings(values)
+    except admin.AdminError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"settings": admin.read_settings()}
 
 
 @app.post("/api/speak")

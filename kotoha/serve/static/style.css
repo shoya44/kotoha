@@ -703,6 +703,182 @@ textarea:focus-visible {
 }
 
 .sheet-row:last-child { border-bottom: 0; }
+.sheet-row.danger { color: var(--danger); }
+
+/* シートの中で画面を差し替える。階層を深くせず、iPhoneでも戻りやすくする。 */
+.sheet-page { display: none; }
+.sheet-page.active { display: block; }
+
+.sheet-nav {
+  position: relative;
+  min-height: var(--tap-min);
+  display: flex;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.sheet-back {
+  min-height: var(--tap-min);
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 8px 0 0;
+  background: transparent;
+  color: var(--accent);
+  font-size: 16px;
+}
+
+.sheet-back svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.sheet-nav-title {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 16px;
+  font-weight: 650;
+  pointer-events: none;
+}
+
+.segmented {
+  display: flex;
+  gap: 2px;
+  margin-bottom: 10px;
+  padding: 2px;
+  border-radius: var(--radius-sm);
+  background: var(--fill-weak);
+}
+
+.segmented button {
+  flex: 1;
+  min-height: 36px;
+  padding: 0 6px;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.segmented button[aria-selected="true"] {
+  background: var(--fill);
+  color: var(--ink);
+  font-weight: 650;
+}
+
+#promptText {
+  display: block;
+  width: 100%;
+  height: min(42dvh, 320px);
+  padding: 12px;
+  border: 1px solid var(--input-line);
+  border-radius: var(--radius-md);
+  outline: none;
+  resize: none;
+
+  background: var(--input-bg);
+  color: var(--ink);
+
+  font-size: 16px;
+  line-height: 1.6;
+  scrollbar-width: none;
+}
+
+#promptText::-webkit-scrollbar { display: none; }
+
+#promptText:focus {
+  border-color: var(--accent);
+}
+
+.setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--separator-weak);
+}
+
+.setting-row:last-child { border-bottom: 0; }
+
+.setting-label {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.setting-label b {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.setting-label small {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.setting-row input {
+  flex: none;
+  width: 124px;  /* 話者IDは10桁あるので、それが収まる幅にしてある */
+  min-height: var(--tap-min);
+  padding: 0 10px;
+
+  border: 1px solid var(--input-line);
+  border-radius: var(--radius-sm);
+  outline: none;
+
+  background: var(--input-bg);
+  color: var(--ink);
+
+  font-size: 16px;
+  text-align: right;
+}
+
+.setting-row input:focus { border-color: var(--accent); }
+
+.sheet-note {
+  margin: 10px 2px 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.sheet-note.bad { color: var(--danger); }
+
+.sheet-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.sheet-button {
+  flex: 1;
+  min-height: var(--tap-min);
+  padding: 0 14px;
+  border-radius: var(--radius-md);
+  background: var(--fill);
+  color: var(--ink);
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.sheet-button.primary {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.sheet-button:disabled {
+  opacity: .4;
+  cursor: default;
+}
 .sheet-row.secondary { color: var(--accent-soft); }
 .sheet-value { color: var(--muted); font-size: 12px; }
 

@@ -91,6 +91,8 @@
   <div class="overlay" id="settingsOverlay" aria-hidden="true">
     <section class="sheet" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
       <div class="sheet-handle" aria-hidden="true"></div>
+
+      <div class="sheet-page active" data-page="main">
       <div class="profile">
         <img class="av" src="/static/kotoha.png" alt="">
         <div>
@@ -107,11 +109,72 @@
           <span>声で話す</span>
           <span class="sheet-value" id="voiceValue">オフ</span>
         </button>
+      </div>
+
+      <div class="sheet-section">
+        <button class="sheet-row" data-open="prompts" type="button">
+          <span>ことばを直す</span>
+          <span aria-hidden="true">›</span>
+        </button>
+        <button class="sheet-row" data-open="settings" type="button">
+          <span>設定を変える</span>
+          <span aria-hidden="true">›</span>
+        </button>
+      </div>
+
+      <div class="sheet-section">
+        <button class="sheet-row" id="endRemoteCall" type="button">
+          <span>ほかの端末の通話を切る</span>
+          <span class="sheet-value" id="remoteCallValue"></span>
+        </button>
+        <button class="sheet-row danger" id="restartApp" type="button">
+          <span id="restartLabel">再起動する</span>
+        </button>
+      </div>
+
+      <div class="sheet-section">
         <button class="sheet-row secondary" id="changeToken" type="button">
           <span>接続トークンを変更</span>
           <span aria-hidden="true">›</span>
         </button>
       </div>
+      </div>
+
+      <section class="sheet-page" data-page="prompts" aria-label="ことばを直す">
+        <div class="sheet-nav">
+          <button class="sheet-back" data-back type="button">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path d="M15 5l-7 7 7 7"></path>
+            </svg>
+            <span>戻る</span>
+          </button>
+          <span class="sheet-nav-title">ことばを直す</span>
+        </div>
+        <div class="segmented" id="promptTabs" role="tablist"></div>
+        <textarea id="promptText" spellcheck="false" aria-label="本文"></textarea>
+        <p class="sheet-note" id="promptNote">保存すると次の発言から変わります。</p>
+        <div class="sheet-actions">
+          <button class="sheet-button" id="promptRevert" type="button">ひとつ前に戻す</button>
+          <button class="sheet-button primary" id="promptSave" type="button">保存</button>
+        </div>
+      </section>
+
+      <section class="sheet-page" data-page="settings" aria-label="設定を変える">
+        <div class="sheet-nav">
+          <button class="sheet-back" data-back type="button">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path d="M15 5l-7 7 7 7"></path>
+            </svg>
+            <span>戻る</span>
+          </button>
+          <span class="sheet-nav-title">設定を変える</span>
+        </div>
+        <div id="settingsList"></div>
+        <p class="sheet-note" id="settingsNote">保存すると再起動なしで反映されます。</p>
+        <div class="sheet-actions">
+          <button class="sheet-button primary" id="settingsSave" type="button">保存</button>
+        </div>
+      </section>
     </section>
   </div>
 

@@ -23,6 +23,17 @@ const elements = {
   toggleVoice: $("toggleVoice"),
   voiceValue: $("voiceValue"),
   changeToken: $("changeToken"),
+  promptTabs: $("promptTabs"),
+  promptText: $("promptText"),
+  promptNote: $("promptNote"),
+  promptSave: $("promptSave"),
+  promptRevert: $("promptRevert"),
+  settingsList: $("settingsList"),
+  settingsNote: $("settingsNote"),
+  settingsSave: $("settingsSave"),
+  endRemoteCall: $("endRemoteCall"),
+  restartApp: $("restartApp"),
+  remoteCallValue: $("remoteCallValue"),
   contextMenu: $("contextMenu"),
 };
 
@@ -33,10 +44,239 @@ const LONG_PRESS_MS = 520;
 let token = localStorage.getItem("kotoha_token") || "";
 let longPressTimer = null;
 
+const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+
 const preferences = {
   showTime: localStorage.getItem("kotoha_show_time") !== "0",
   voice: localStorage.getItem("kotoha_voice") !== "0",
 };
+
+// ===== Settings sheet =====
+// シートの中で画面を差し替える。iPhoneから片手で戻れるよう階層は1段までにする。
+function showSheetPage(name) {
+  for (const page of document.querySelectorAll(".sheet-page")) {
+    page.classList.toggle("active", page.dataset.page === name);
+  }
+  document.querySelector(".sheet").scrollTop = 0;
+}
+
+function setNote(element, text, bad = false) {
+  element.textContent = text;
+  element.classList.toggle("bad", bad);
+}
+
+// 押し間違いで走らせたくない操作は、もう一度押させる。
+function armOnce(button, label, confirmLabel, run) {
+  let armed = false;
+  let timer = null;
+  const reset = () => {
+    armed = false;
+    clearTimeout(timer);
+    button.textContent = label;
+    button.classList.remove("danger");
+  };
+  button.addEventListener("click", () => {
+    if (!armed) {
+      armed = true;
+      button.textContent = confirmLabel;
+      button.classList.add("danger");
+      timer = setTimeout(reset, 5000);
+      return;
+    }
+    reset();
+    run();
+  });
+  return reset;
+}
+
+// ===== ことばを直す =====
+let prompts = [];
+let promptName = "";
+
+async function loadPrompts() {
+  setNote(elements.promptNote, "読み込んでいます…");
+  try {
+    const response = await api("/api/prompts");
+    if (!response.ok) throw new Error();
+    prompts = (await response.json()).prompts;
+  } catch {
+    setNote(elements.promptNote, "読み込めませんでした。", true);
+    return;
+  }
+  elements.promptTabs.replaceChildren(...prompts.map(item => {
+    const tab = document.createElement("button");
+    tab.type = "button";
+    tab.textContent = item.label;
+    tab.setAttribute("role", "tab");
+    tab.addEventListener("click", () => selectPrompt(item.name));
+    return tab;
+  }));
+  selectPrompt(prompts[0]?.name || "");
+}
+
+function selectPrompt(name) {
+  promptName = name;
+  const item = prompts.find(p => p.name === name);
+  prompts.forEach((p, index) => {
+    elements.promptTabs.children[index]
+      ?.setAttribute("aria-selected", p.name === name ? "true" : "false");
+  });
+  elements.promptText.value = item ? item.text : "";
+  elements.promptRevert.disabled = !item?.has_backup;
+  setNote(elements.promptNote, "保存すると次の発言から変わります。");
+}
+
+async function savePrompt() {
+  const text = elements.promptText.value;
+  elements.promptSave.disabled = true;
+  try {
+    const response = await api(`/api/prompts/${promptName}`, { method: "PUT", body: { text } });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      setNote(elements.promptNote, data.detail || "保存できませんでした。", true);
+      return;
+    }
+    const item = prompts.find(p => p.name === promptName);
+    if (item) {
+      item.text = text;
+      item.has_backup = true;
+    }
+    elements.promptRevert.disabled = false;
+    setNote(elements.promptNote, "保存しました。次の発言から変わります。");
+  } catch {
+    setNote(elements.promptNote, "保存できませんでした。", true);
+  } finally {
+    elements.promptSave.disabled = false;
+  }
+}
+
+async function revertPrompt() {
+  try {
+    const response = await api(`/api/prompts/${promptName}/revert`, { method: "POST" });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      setNote(elements.promptNote, data.detail || "戻せませんでした。", true);
+      return;
+    }
+    elements.promptText.value = data.text;
+    const item = prompts.find(p => p.name === promptName);
+    if (item) item.text = data.text;
+    setNote(elements.promptNote, "ひとつ前に戻しました。もう一度押すと元に戻ります。");
+  } catch {
+    setNote(elements.promptNote, "戻せませんでした。", true);
+  }
+}
+
+// ===== 設定を変える =====
+async function loadSettings() {
+  setNote(elements.settingsNote, "読み込んでいます…");
+  let items;
+  try {
+    const response = await api("/api/settings");
+    if (!response.ok) throw new Error();
+    items = (await response.json()).settings;
+  } catch {
+    setNote(elements.settingsNote, "読み込めませんでした。", true);
+    return;
+  }
+  elements.settingsList.replaceChildren(...items.map(item => {
+    const row = document.createElement("div");
+    row.className = "setting-row";
+
+    const label = document.createElement("div");
+    label.className = "setting-label";
+    const name = document.createElement("b");
+    name.textContent = item.label;
+    const note = document.createElement("small");
+    note.textContent = item.note;
+    label.append(name, note);
+
+    const input = document.createElement("input");
+    input.type = "number";
+    input.inputMode = "decimal";
+    input.dataset.key = item.key;
+    input.value = item.value;
+    input.min = item.min;
+    input.max = item.max;
+    if (item.step) input.step = item.step;
+    input.setAttribute("aria-label", item.label);
+
+    row.append(label, input);
+    return row;
+  }));
+  setNote(elements.settingsNote, "保存すると再起動なしで反映されます。");
+}
+
+async function saveSettings() {
+  const values = {};
+  for (const input of elements.settingsList.querySelectorAll("input[data-key]")) {
+    values[input.dataset.key] = input.value;
+  }
+  elements.settingsSave.disabled = true;
+  try {
+    const response = await api("/api/settings", { method: "PUT", body: { values } });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      setNote(elements.settingsNote, data.detail || "保存できませんでした。", true);
+      return;
+    }
+    setNote(elements.settingsNote, "保存しました。次のやりとりから反映されます。");
+  } catch {
+    setNote(elements.settingsNote, "保存できませんでした。", true);
+  } finally {
+    elements.settingsSave.disabled = false;
+  }
+}
+
+// ===== ほかの端末の通話を切る =====
+async function endRemoteCall() {
+  const value = elements.remoteCallValue;
+  try {
+    const response = await api("/api/call", { method: "DELETE" });
+    const data = await response.json().catch(() => ({}));
+    value.textContent = data.released ? "切りました" : "通話中の端末なし";
+  } catch {
+    value.textContent = "つながらない";
+  }
+  if (calling) endCall({ release: false });
+  setTimeout(() => { value.textContent = ""; }, 4000);
+}
+
+// ===== 再起動 =====
+async function restartApp() {
+  setStatus("再起動しています…", "offline");
+  closeSettings();
+  addMessage("system", "[再起動] 立ち上がるまで少し待ってください");
+  if (calling) endCall();
+  try {
+    await api("/api/restart", { method: "POST" });
+  } catch {
+    // 落ちる側なので、応答が途切れても想定どおり。
+  }
+  await waitForServer();
+}
+
+async function waitForServer() {
+  const deadline = Date.now() + 90000;
+  while (Date.now() < deadline) {
+    await wait(2000);
+    try {
+      const response = await api("/api/history?limit=0");
+      if (response.ok) {
+        elements.log.replaceChildren();
+        lastDateKey = null;
+        await loadHistory();
+        setStatus("いるよ");
+        addMessage("system", "[再起動] 戻りました");
+        return;
+      }
+    } catch {
+      // まだ起きていない。
+    }
+  }
+  setStatus("接続できない", "offline");
+  addMessage("system", "[再起動] 戻ってこないので、PCの画面を確認してください");
+}
 
 // ===== Date / Time =====
 let lastDateKey = null;
@@ -366,6 +606,7 @@ function bindMessageInteractions(bubble) {
 
 function openSettings() {
   closeContextMenu();
+  showSheetPage("main");
   elements.settingsOverlay.classList.add("open");
   elements.settingsOverlay.setAttribute("aria-hidden", "false");
 }
@@ -677,7 +918,20 @@ let lastFiller = null;
 // 話し終わりを検知した時刻。認識が確定するのはこの数百ms後になる。
 let speechEndedAt = 0;
 
-const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+// 通話はサーバー側で1台だけにする。あとから始めた端末が持ち主になり、
+// 前の端末は次の見張りで気づいて切る。置いてきた端末を外から切るためでもある。
+const CALL_WATCH_MS = 5000;
+let deviceId = localStorage.getItem("kotoha_device") || "";
+if (!deviceId) {
+  deviceId = Math.random().toString(36).slice(2) + Date.now().toString(36);
+  try {
+    localStorage.setItem("kotoha_device", deviceId);
+  } catch {
+    // 保存できなくてもこの起動のあいだは使える。
+  }
+}
+let callWatch = null;
+
 
 // 通話のあいだに使い回すので、開始時にまとめて作っておく。
 async function prepareFillers() {
@@ -777,7 +1031,26 @@ function updateCallButton() {
   );
 }
 
-function startCall() {
+// 5秒ごとに、まだ自分が持ち主か確かめる。入れ替わっていたら黙って切る。
+function watchCall() {
+  clearInterval(callWatch);
+  callWatch = setInterval(async () => {
+    if (!calling) return;
+    try {
+      const response = await api(`/api/call?device=${encodeURIComponent(deviceId)}`);
+      if (!response.ok) return;   // 通信の不調で勝手に切らない
+      const state = await response.json();
+      if (!state.mine) {
+        addMessage("system", "[通話] ほかの端末に切り替わりました");
+        endCall({ release: false });
+      }
+    } catch {
+      // つながらないあいだは様子を見る。
+    }
+  }, CALL_WATCH_MS);
+}
+
+async function startCall() {
   if (calling) return;
   calling = true;
   recognition = createRecognition();
@@ -785,13 +1058,21 @@ function startCall() {
   setStatus("通話中", "calling");
   prepareFillers();  // 待たない。間に合ったぶんから使う。
   listen();
+  watchCall();
+  try {
+    await api("/api/call", { method: "POST", body: { device: deviceId } });
+  } catch {
+    // 名乗れなくても手元の通話は続ける。
+  }
 }
 
-function endCall() {
+function endCall({ release = true } = {}) {
   if (!calling) return;
   calling = false;
   callBusy = false;
   speechEndedAt = 0;
+  clearInterval(callWatch);
+  callWatch = null;
   stopSpeaking();
   if (recognition) {
     recognition.abort();
@@ -799,6 +1080,8 @@ function endCall() {
   }
   updateCallButton();
   setStatus("いるよ");
+  // 取り上げられた側は消さない。新しい持ち主の記録まで消してしまう。
+  if (release) api("/api/call", { method: "DELETE" }).catch(() => {});
 }
 
 // ===== Events =====
@@ -822,6 +1105,25 @@ applyPreferences();
 elements.callButton.addEventListener("click", () => {
   if (calling) endCall(); else startCall();
 });
+
+for (const row of document.querySelectorAll("[data-open]")) {
+  row.addEventListener("click", () => {
+    const name = row.dataset.open;
+    showSheetPage(name);
+    if (name === "prompts") loadPrompts();
+    if (name === "settings") loadSettings();
+  });
+}
+
+for (const back of document.querySelectorAll("[data-back]")) {
+  back.addEventListener("click", () => showSheetPage("main"));
+}
+
+elements.promptSave.addEventListener("click", savePrompt);
+elements.promptRevert.addEventListener("click", revertPrompt);
+elements.settingsSave.addEventListener("click", saveSettings);
+elements.endRemoteCall.addEventListener("click", endRemoteCall);
+armOnce(elements.restartApp, "再起動する", "もう一度押すと再起動", restartApp);
 
 elements.toggleVoice.addEventListener("click", () => {
   preferences.voice = !preferences.voice;
