@@ -1,3 +1,4 @@
+import contextlib
 import sqlite3
 from datetime import datetime, timezone
 
@@ -198,8 +199,23 @@ FRONT_TALLY = "front_tally"
 FRONT_TALLY_HOUR = "front_tally_hour"
 FRONT_STREAK_APP = "front_streak_app"
 FRONT_STREAK_FROM = "front_streak_from"
-# 道具ごとの生死。うしろに相手の名前が付く。
+# 道具ごとの生死と、ドライブごとの空き。うしろに相手の名前が付く。
 UP_PREFIX = "up:"
+DISK_PREFIX = "disk:"
+
+
+@contextlib.contextmanager
+def session():
+    """つないで、終わったら必ず閉じる。
+
+    同じ7行が23か所に書かれていた。閉じ忘れは静かに増えるので、
+    入口をひとつにする。
+    """
+    conn = connect()
+    try:
+        yield conn
+    finally:
+        conn.close()
 
 
 def get_state(conn, key: str, default=None):

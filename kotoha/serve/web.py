@@ -243,31 +243,29 @@ def run_watch_jobs() -> None:
     """
     if not notify.ready():
         return
-    conn = db.connect()
-    try:
-        for label, probe in _tool_probes().items():
-            key = db.UP_PREFIX + label
-            before = db.get_state(conn, key)
-            now = "1" if probe() else "0"
-            # 立ち上がりでは知らせない。落ちた瞬間だけ。
-            if before == "1" and now == "0":
-                announce(conn, f"{label}が止まったことに気づいた。一行で知らせる。",
-                         plain=f"{label}が止まったみたい")
-            db.set_state(conn, key, now)
-        for letter, free, _used in presence.disks():
-            key = f"disk:{letter}"
-            low = "1" if free < config.DISK_WARN_GB else "0"
-            if db.get_state(conn, key) == "0" and low == "1":
-                announce(conn,
-                         f"{letter}ドライブの空きが{free:.0f}GBまで減っている。"
-                         "一行で知らせる。",
-                         plain=f"{letter}ドライブの空き、{free:.0f}GBしかないよ")
-            db.set_state(conn, key, low)
-        conn.commit()
-    except Exception as error:
-        notify.log(f"見張りで失敗: {error!r}")
-    finally:
-        conn.close()
+    with db.session() as conn:
+        try:
+            for label, probe in _tool_probes().items():
+                key = db.UP_PREFIX + label
+                before = db.get_state(conn, key)
+                now = "1" if probe() else "0"
+                # 立ち上がりでは知らせない。落ちた瞬間だけ。
+                if before == "1" and now == "0":
+                    announce(conn, f"{label}が止まったことに気づいた。一行で知らせる。",
+                             plain=f"{label}が止まったみたい")
+                db.set_state(conn, key, now)
+            for letter, free, _used in presence.disks():
+                key = db.DISK_PREFIX + letter
+                low = "1" if free < config.DISK_WARN_GB else "0"
+                if db.get_state(conn, key) == "0" and low == "1":
+                    announce(conn,
+                             f"{letter}ドライブの空きが{free:.0f}GBまで減っている。"
+                             "一行で知らせる。",
+                             plain=f"{letter}ドライブの空き、{free:.0f}GBしかないよ")
+                db.set_state(conn, key, low)
+            conn.commit()
+        except Exception as error:
+            notify.log(f"見張りで失敗: {error!r}")
 
 
 def maybe_reach_out(conn) -> None:
@@ -364,21 +362,19 @@ def run_vector_jobs() -> None:
     """
     if not config.EMBED_ENABLED:
         return
-    conn = db.connect()
-    try:
-        rows = embed.missing(conn, config.EMBED_BATCH)
-        if not rows:
-            _wake_embedder()
-            return
-        made = embed.embed(
-            [r["text"] for r in rows], timeout=config.EMBED_BUILD_TIMEOUT_SECONDS
-        )
-        embed.store(conn, zip((r["id"] for r in rows), made))
-        embed.link_similar(conn)
-    except embed.EmbedError:
-        pass  # 声と同じで、無くても会話は続けられる。
-    finally:
-        conn.close()
+    with db.session() as conn:
+        try:
+            rows = embed.missing(conn, config.EMBED_BATCH)
+            if not rows:
+                _wake_embedder()
+                return
+            made = embed.embed(
+                [r["text"] for r in rows], timeout=config.EMBED_BUILD_TIMEOUT_SECONDS
+            )
+            embed.store(conn, zip((r["id"] for r in rows), made))
+            embed.link_similar(conn)
+        except embed.EmbedError:
+            pass  # 声と同じで、無くても会話は続けられる。
 
 
 def _bg_loop() -> None:
@@ -386,12 +382,8 @@ def _bg_loop() -> None:
     while True:
         time.sleep(config.BACKGROUND_INTERVAL_SECONDS)
         try:
-            with _turn_lock:
-                conn = db.connect()
-                try:
-                    run_periodic_jobs(conn)
-                finally:
-                    conn.close()
+            with _turn_lock, db.session() as conn:
+                run_periodic_jobs(conn)
         except Exception:
             pass
         try:
@@ -436,14 +428,11 @@ def push_settings(request: Request):
 @app.get("/api/history")
 def history(request: Request, limit: int = config.WEB_HISTORY_LIMIT):
     _check_token(request)
-    conn = db.connect()
-    try:
+    with db.session() as conn:
         rows = conn.execute(
             "SELECT role, text, created_at FROM messages ORDER BY id DESC LIMIT ?", (limit,)
         ).fetchall()
         return JSONResponse([dict(r) for r in reversed(rows)])
-    finally:
-        conn.close()
 
 
 @app.post("/api/chat")
@@ -452,14 +441,11 @@ def api_chat(request: Request, payload: dict):
     text = (payload.get("text") or "").strip()
     if not text:
         raise HTTPException(status_code=400, detail="入力が空")
-    with _turn_lock:
-        conn = db.connect()
+    with _turn_lock, db.session() as conn:
         try:
             reply, mode = chat.run_turn(conn, text)
         except llm.LLMError as e:
             raise HTTPException(status_code=502, detail=str(e))
-        finally:
-            conn.close()
     return {"reply": reply, "mode": mode}
 
 
@@ -477,15 +463,12 @@ def _call_owner(conn):
 def call_state(request: Request, device: str = ""):
     """通話を続けてよいか確かめる。持ち主が入れ替わっていれば false。"""
     _check_token(request)
-    conn = db.connect()
-    try:
+    with db.session() as conn:
         owner = _call_owner(conn)
         if owner and owner == device:
             db.set_state(conn, db.CALL_SEEN_AT, db.now_utc())
             conn.commit()
         return {"calling": bool(owner), "mine": owner == device if owner else False}
-    finally:
-        conn.close()
 
 
 @app.post("/api/call")
@@ -495,30 +478,24 @@ def call_claim(request: Request, payload: dict):
     device = (payload.get("device") or "").strip()
     if not device:
         raise HTTPException(status_code=400, detail="端末の指定がない")
-    conn = db.connect()
-    try:
+    with db.session() as conn:
         previous = _call_owner(conn)
         db.set_state(conn, db.CALL_OWNER, device)
         db.set_state(conn, db.CALL_SEEN_AT, db.now_utc())
         conn.commit()
         return {"calling": True, "mine": True, "took_over": bool(previous and previous != device)}
-    finally:
-        conn.close()
 
 
 @app.delete("/api/call")
 def call_release(request: Request):
     """通話を終わらせる。自分の端末でも、置いてきた端末でも同じ。"""
     _check_token(request)
-    conn = db.connect()
-    try:
+    with db.session() as conn:
         released = bool(_call_owner(conn))
         db.set_state(conn, db.CALL_OWNER, "")
         db.set_state(conn, db.CALL_SEEN_AT, "")
         conn.commit()
         return {"calling": False, "mine": False, "released": released}
-    finally:
-        conn.close()
 
 
 @app.post("/api/restart")
@@ -544,23 +521,19 @@ def memories_list(request: Request, kind: str = "semantic"):
     if kind not in MEMORY_LISTS:
         raise HTTPException(status_code=400, detail="その一覧はありません")
     where, order = MEMORY_LISTS[kind]
-    conn = db.connect()
-    try:
+    with db.session() as conn:
         rows = conn.execute(
             f"SELECT id, layer, kind, text, occurred_at, confirmed_at, expires_at, pinned "
             f"FROM memory_nodes WHERE {where} ORDER BY {order} LIMIT ?",
             (MEMORY_LIST_LIMIT,),
         ).fetchall()
         return {"memories": [dict(r) for r in rows]}
-    finally:
-        conn.close()
 
 
 @app.get("/api/memories/{node_id}")
 def memory_detail(request: Request, node_id: int):
     _check_token(request)
-    conn = db.connect()
-    try:
+    with db.session() as conn:
         row = conn.execute("SELECT * FROM memory_nodes WHERE id = ?", (node_id,)).fetchone()
         if row is None:
             raise HTTPException(status_code=404, detail="その記憶はありません")
@@ -573,8 +546,6 @@ def memory_detail(request: Request, node_id: int):
             conn.execute("SELECT message_id FROM memory_sources WHERE node_id = ?", (node_id,))
         ]
         return {"memory": dict(row), "tags": tags, "sources": sources}
-    finally:
-        conn.close()
 
 
 @app.put("/api/memories/{node_id}")
@@ -586,8 +557,7 @@ def memory_update(request: Request, node_id: int, payload: dict):
         raise HTTPException(status_code=400, detail="本文が空")
     if len(text) > MEMORY_TEXT_LIMIT:
         raise HTTPException(status_code=400, detail=f"{MEMORY_TEXT_LIMIT}字までにしてください")
-    conn = db.connect()
-    try:
+    with db.session() as conn:
         changed = conn.execute(
             f"UPDATE memory_nodes SET text = ?, confirmed_at = ?, {db.EXTEND_EXPIRES} WHERE id = ?",
             (text, db.now_utc(), *db.extend_args(), node_id),
@@ -598,33 +568,25 @@ def memory_update(request: Request, node_id: int, payload: dict):
         conn.execute("UPDATE memory_tags SET use_count = 0 WHERE node_id = ?", (node_id,))
         conn.commit()
         return {"saved": True}
-    finally:
-        conn.close()
 
 
 @app.put("/api/memories/{node_id}/pinned")
 def memory_pin(request: Request, node_id: int, payload: dict):
     _check_token(request)
-    conn = db.connect()
-    try:
+    with db.session() as conn:
         if not db.set_pinned(conn, node_id, bool(payload.get("pinned"))):
             raise HTTPException(status_code=404, detail="その記憶はありません")
         return {"pinned": bool(payload.get("pinned"))}
-    finally:
-        conn.close()
 
 
 @app.delete("/api/memories/{node_id}")
 def memory_delete(request: Request, node_id: int):
     """保護されていても消す。CUI の /forget と同じ扱い。"""
     _check_token(request)
-    conn = db.connect()
-    try:
+    with db.session() as conn:
         if not db.forget_node(conn, node_id):
             raise HTTPException(status_code=404, detail="その記憶はありません")
         return {"deleted": True}
-    finally:
-        conn.close()
 
 
 @app.post("/api/remind/snooze")
@@ -634,11 +596,8 @@ def remind_snooze(request: Request, payload: dict):
     ids = [i for i in payload.get("ids") or [] if isinstance(i, int)]
     if not ids:
         raise HTTPException(status_code=400, detail="番号がない")
-    conn = db.connect()
-    try:
+    with db.session() as conn:
         moved, due = remind.snooze(conn, ids, config.SNOOZE_MINUTES)
-    finally:
-        conn.close()
     if not moved:
         raise HTTPException(status_code=404, detail="その頼まれごとはありません")
     return {"moved": moved, "due_at": due.strftime(remind.STAMP)}
@@ -652,13 +611,10 @@ def machine_view(request: Request):
     止まっていると1秒待たされるので最後に置く。
     """
     _check_token(request)
-    conn = db.connect()
-    try:
+    with db.session() as conn:
         rows = [{"label": label, "value": value} for label, value in presence.snapshot(conn)]
         owner = _call_owner(conn)
         rows.append({"label": "通話", "value": owner or "していない"})
-    finally:
-        conn.close()
     for label, probe in _tool_probes().items():
         rows.append({"label": label, "value": "動いている" if probe() else "止まっている"})
     return {"rows": rows}
