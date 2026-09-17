@@ -102,20 +102,27 @@ function armOnce(button, label, confirmLabel, run) {
   return reset;
 }
 
+// 画面を開いたときの読み込み。4つとも「読む → だめなら一言 → 並べる」で同じ形をしている。
+async function fetchPanel(note, path, waiting = "読み込んでいます…") {
+  setNote(note, waiting);
+  try {
+    const response = await api(path);
+    if (!response.ok) throw new Error();
+    return await response.json();
+  } catch {
+    setNote(note, "読み込めませんでした。", true);
+    return null;
+  }
+}
+
 // ===== ことばを直す =====
 let prompts = [];
 let promptName = "";
 
 async function loadPrompts() {
-  setNote(elements.promptNote, "読み込んでいます…");
-  try {
-    const response = await api("/api/prompts");
-    if (!response.ok) throw new Error();
-    prompts = (await response.json()).prompts;
-  } catch {
-    setNote(elements.promptNote, "読み込めませんでした。", true);
-    return;
-  }
+  const data = await fetchPanel(elements.promptNote, "/api/prompts");
+  if (!data) return;
+  prompts = data.prompts;
   elements.promptTabs.replaceChildren(...prompts.map(item => {
     const tab = document.createElement("button");
     tab.type = "button";
@@ -182,16 +189,9 @@ async function revertPrompt() {
 
 // ===== 設定を変える =====
 async function loadSettings() {
-  setNote(elements.settingsNote, "読み込んでいます…");
-  let items;
-  try {
-    const response = await api("/api/settings");
-    if (!response.ok) throw new Error();
-    items = (await response.json()).settings;
-  } catch {
-    setNote(elements.settingsNote, "読み込めませんでした。", true);
-    return;
-  }
+  const data = await fetchPanel(elements.settingsNote, "/api/settings");
+  if (!data) return;
+  const items = data.settings;
   elements.settingsList.replaceChildren(...items.map(item => {
     const row = document.createElement("div");
     row.className = "setting-row";
@@ -292,16 +292,9 @@ async function handleSnoozeLink() {
 
 // ===== PCの様子 =====
 async function loadMachine() {
-  setNote(elements.machineNote, "調べています…");
-  let rows;
-  try {
-    const response = await api("/api/machine");
-    if (!response.ok) throw new Error();
-    rows = (await response.json()).rows;
-  } catch {
-    setNote(elements.machineNote, "読み込めませんでした。", true);
-    return;
-  }
+  const data = await fetchPanel(elements.machineNote, "/api/machine", "調べています…");
+  if (!data) return;
+  const rows = data.rows;
   elements.machineList.replaceChildren(...rows.map(row => {
     const line = document.createElement("div");
     line.className = "setting-row";
@@ -330,16 +323,9 @@ async function loadMemories(kind = memoryKind) {
   for (const tab of elements.memoryTabs.children) {
     tab.setAttribute("aria-selected", tab.dataset.kind === kind ? "true" : "false");
   }
-  setNote(elements.memoryNote, "読み込んでいます…");
-  let items;
-  try {
-    const response = await api(`/api/memories?kind=${kind}`);
-    if (!response.ok) throw new Error();
-    items = (await response.json()).memories;
-  } catch {
-    setNote(elements.memoryNote, "読み込めませんでした。", true);
-    return;
-  }
+  const data = await fetchPanel(elements.memoryNote, `/api/memories?kind=${kind}`);
+  if (!data) return;
+  const items = data.memories;
   elements.memoryList.replaceChildren(...items.map(item => {
     const row = document.createElement("button");
     row.type = "button";

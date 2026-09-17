@@ -768,7 +768,7 @@ textarea:focus-visible {
 
 .segmented button {
   flex: 1;
-  min-height: 36px;
+  min-height: var(--tap-min);
   padding: 0 6px;
   border-radius: 6px;
   background: transparent;
@@ -856,6 +856,7 @@ textarea:focus-visible {
 
 .snooze-offer {
   background: var(--fill);
+  min-height: var(--tap-min);
   border: 1px solid var(--line);
   border-radius: 999px;
   color: var(--ink);
