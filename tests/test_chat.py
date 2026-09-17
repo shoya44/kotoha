@@ -57,7 +57,7 @@ class SituationTests(unittest.TestCase):
                 self.assertTrue(chat.situation(hour))
 
     def test_boundaries_match_the_avatar_groups(self):
-        """static/index.html の getAvatarGroup() と区切りを揃える。"""
+        """static/app.js の getAvatarGroup() と区切りを揃える。"""
         groups = {hour: chat.situation(hour) for hour in range(24)}
         self.assertEqual(groups[6], groups[10])
         self.assertNotEqual(groups[5], groups[6])

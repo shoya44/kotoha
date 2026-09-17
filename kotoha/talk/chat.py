@@ -39,7 +39,7 @@ def current_mood(conn) -> str:
 def situation(hour: int) -> str:
     """その時間のことはの様子。画面のアバターと言うことを一致させる。
 
-    区切りは static/index.html の getAvatarGroup() と対応する。
+    区切りは static/app.js の getAvatarGroup() と対応する。
     変更するときは両方を直すこと。
     """
     if 6 <= hour < 11:
