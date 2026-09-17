@@ -478,23 +478,14 @@ let calling = false;
 function stopSpeaking() {
   if (!currentAudio) return;
   currentAudio.pause();
-  URL.revokeObjectURL(currentAudio.src);
   currentAudio = null;
 }
 
-// 通話中は設定に関わらず声を出す。再生し終えるまで待てるように解決を返す。
-async function speak(text) {
-  if ((!preferences.voice && !calling) || !text) return;
-  stopSpeaking();
+// 鳴らし終えるまで待つ。URLは呼び出し側が持つ（つなぎ言葉は使い回すため）。
+async function playAudio(url) {
+  const audio = new Audio(url);
+  currentAudio = audio;
   try {
-    const response = await api("/api/speak", { method: "POST", body: { text } });
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
-      setStatus(error.detail || "声を出せない", calling ? "calling" : "online");
-      return;
-    }
-    const audio = new Audio(URL.createObjectURL(await response.blob()));
-    currentAudio = audio;
     await audio.play();
     // pause も拾う。止められたときに待ち続けないようにする。
     await new Promise(resolve => {
@@ -502,9 +493,33 @@ async function speak(text) {
       audio.addEventListener("pause", resolve, { once: true });
       audio.addEventListener("error", resolve, { once: true });
     });
-    if (currentAudio === audio) stopSpeaking();
   } catch {
-    // 読み上げの失敗で会話を止めない。
+    // 鳴らせなくても会話は止めない。
+  }
+  if (currentAudio === audio) currentAudio = null;
+}
+
+async function fetchVoice(text) {
+  const response = await api("/api/speak", { method: "POST", body: { text } });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.detail || "声を出せない");
+  }
+  return URL.createObjectURL(await response.blob());
+}
+
+// 通話中は設定に関わらず声を出す。再生し終えるまで待てるように解決を返す。
+async function speak(text) {
+  if ((!preferences.voice && !calling) || !text) return;
+  stopSpeaking();
+  let url = null;
+  try {
+    url = await fetchVoice(text);
+    await playAudio(url);
+  } catch (error) {
+    setStatus(error.message || "声を出せない", calling ? "calling" : "online");
+  } finally {
+    if (url) URL.revokeObjectURL(url);
   }
 }
 
@@ -572,7 +587,8 @@ async function send() {
     reactAvatar();
     elements.mode.textContent = data.mode || "";
     setStatus(calling ? "通話中" : "いるよ", calling ? "calling" : "online");
-    // 呼び出し側が読み上げの終わりまで待てるように返す。
+    // 通話中はつなぎ言葉を挟む都合があるので、読み上げは呼び出し側に任せる。
+    if (calling) return data.reply;
     return speak(data.reply);
   } catch {
     typingRow?.remove();
@@ -590,6 +606,43 @@ const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecogni
 let recognition = null;
 let callBusy = false;
 
+// 返答を待たせるあいだの間つなぎ。ことはの話し方に合わせて増減してよい。
+const FILLERS = ["あっ", "えっと", "んー", "うーん"];
+// これを過ぎても返答が来ないときだけ挟む。すぐ返せるなら黙って答える。
+const FILLER_AFTER_MS = 700;
+const fillerVoices = new Map();
+let lastFiller = null;
+
+// 通話のあいだに使い回すので、開始時にまとめて作っておく。
+async function prepareFillers() {
+  for (const text of FILLERS) {
+    if (!calling) return;
+    if (fillerVoices.has(text)) continue;
+    try {
+      fillerVoices.set(text, await fetchVoice(text));
+    } catch {
+      return;  // 音声エンジンがなければ間つなぎなしで続ける。
+    }
+  }
+}
+
+async function playFiller() {
+  const ready = [...fillerVoices.keys()];
+  if (!ready.length) return;
+  // 続けて同じ言葉にならないようにする。ただし1つしかないなら選ぶ余地はない。
+  const choices = ready.length > 1 ? ready.filter(text => text !== lastFiller) : ready;
+  lastFiller = choices[Math.floor(Math.random() * choices.length)];
+  await playAudio(fillerVoices.get(lastFiller));
+}
+
+// 返答が間に合わなければ間をつなぐ。返す約束は鳴らし終わりまで。
+function fillPause(pending) {
+  let answered = false;
+  pending.then(() => { answered = true; }, () => { answered = true; });
+  return new Promise(resolve => setTimeout(resolve, FILLER_AFTER_MS))
+    .then(() => (answered || !calling ? null : playFiller()));
+}
+
 function listen() {
   if (!calling || callBusy || !recognition) return;
   try {
@@ -604,7 +657,12 @@ async function onHeard(text) {
   callBusy = true;
   elements.input.value = text;
   try {
-    await send();  // 応答の生成から読み上げ終わりまで
+    const pending = send();
+    // 間つなぎを鳴らし切ってから本文に移る。声が重ならないようにする。
+    const filling = fillPause(pending);
+    const reply = await pending;
+    await filling;
+    if (calling && reply) await speak(reply);
   } finally {
     callBusy = false;
   }
@@ -652,6 +710,7 @@ function startCall() {
   recognition = createRecognition();
   updateCallButton();
   setStatus("通話中", "calling");
+  prepareFillers();  // 待たない。間に合ったぶんから使う。
   listen();
 }
 
