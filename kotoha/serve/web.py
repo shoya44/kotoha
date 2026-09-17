@@ -117,10 +117,15 @@ def api_chat(request: Request, payload: dict):
         raise HTTPException(status_code=400, detail="入力が空")
     with jobs.turn_lock, db.session() as conn:
         try:
-            reply, mode = chat.run_turn(conn, text)
+            turn = chat.run_turn(conn, text)
         except llm.LLMError as e:
             raise HTTPException(status_code=502, detail=str(e))
-    return {"reply": reply, "mode": mode}
+    answer = {"reply": turn.reply, "mode": turn.mode}
+    if turn.kept:
+        # 預かったことを画面にも出す。ことはの言葉は変えず、印だけ足す。
+        answer["kept"] = [{"due_at": when.strftime(remind.STAMP), "text": what}
+                          for when, what in turn.kept]
+    return answer
 
 
 def _call_owner(conn):

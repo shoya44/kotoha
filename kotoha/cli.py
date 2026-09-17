@@ -236,7 +236,7 @@ def _start() -> None:
                 print("使い方: /forget <id>")
             continue
         try:
-            reply, mode = chat.run_turn(conn, text)
+            reply, mode, _ = chat.run_turn(conn, text)
         except llm.LLMError as e:
             print(f"[エラー] {e}（返答は未保存 / 再試行: {'可' if e.retryable else '不可'}）")
             continue

@@ -292,6 +292,15 @@ async function handleSnoozeLink() {
   if (ids.length) await snoozeNow(ids);
 }
 
+// 預かった印。ことはの言葉は変えないので、伝わったかどうかを目で確かめられる。
+function showKept(item) {
+  const chip = document.createElement("div");
+  chip.className = "kept-chip";
+  chip.textContent = `Rm. ${reminderWhen(item.due_at)} ${item.text}`;
+  elements.log.appendChild(chip);
+  chip.scrollIntoView({ block: "nearest" });
+}
+
 // ===== 預かっているもの =====
 function reminderWhen(due) {
   // "2026-09-18 09:00" → "9/18 09:00"。今年の予定に年は要らない。
@@ -1188,6 +1197,7 @@ async function send() {
     const data = await response.json();
     // ことは側から始まる会話も、通常のAIメッセージとして同じ見た目で扱う。
     addMessage("assistant", data.reply);
+    (data.kept || []).forEach(showKept);
     reactAvatar();
     elements.mode.textContent = data.mode || "";
     setStatus(calling ? "通話中" : "いるよ", calling ? "calling" : "online");

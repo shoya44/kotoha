@@ -252,7 +252,7 @@ class TurnWiringTests(DbCase):
 
     def test_tags_are_hidden_and_mood_is_stored(self):
         self.reply_with("おかえりー [USED: ] [MOOD: 機嫌がいい]")
-        reply, _ = chat.run_turn(self.conn, "ただいま")
+        reply = chat.run_turn(self.conn, "ただいま").reply
         self.assertEqual(reply, "おかえりー")
         self.assertEqual(db.get_state(self.conn, "mood"), "機嫌がいい")
         stored = self.conn.execute(
@@ -281,7 +281,7 @@ class TurnWiringTests(DbCase):
     def test_a_broken_tag_never_reaches_the_screen(self):
         """23:16に「スマホ見てるー。[REMIND: ]」が出た。同じ形を通しで確かめる。"""
         self.reply_with("スマホ見てるー。[REMIND: ] [MOOD: ふつう]")
-        reply, _ = chat.run_turn(self.conn, "おすー、今何してるの？")
+        reply = chat.run_turn(self.conn, "おすー、今何してるの？").reply
         self.assertEqual(reply, "スマホ見てるー。")
         stored = self.conn.execute(
             "SELECT text FROM messages WHERE role = 'assistant'"
@@ -294,7 +294,7 @@ class TurnWiringTests(DbCase):
         db.set_state(self.conn, "mood_at", db.now_utc())
         self.conn.commit()
         self.reply_with("ふーん [MOOD: ごきげん斜め]")
-        reply, _ = chat.run_turn(self.conn, "ねえ")
+        reply = chat.run_turn(self.conn, "ねえ").reply
         self.assertEqual(reply, "ふーん")
         self.assertEqual(db.get_state(self.conn, "mood"), "眠い")
 

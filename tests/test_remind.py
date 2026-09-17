@@ -342,6 +342,45 @@ class SnoozeApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 401)
 
 
+class KeptAnswerTests(DbCase):
+    """預かったことを、画面にも渡す。ことはの言葉は変えない。"""
+
+    def setUp(self):
+        from fastapi.testclient import TestClient
+
+        super().setUp()
+        original = config.WEB_TOKEN
+        config.WEB_TOKEN = "testtoken"
+        self.addCleanup(setattr, config, "WEB_TOKEN", original)
+        self.addCleanup(setattr, chat.llm, "chat", chat.llm.chat)
+        self.client = TestClient(web.app)
+        self.headers = {"X-Kotoha-Token": "testtoken"}
+
+    def reply_with(self, raw):
+        chat.llm.chat = lambda prompt, max_tokens=None: raw
+
+    def send(self, text="明日の朝9時に歯医者"):
+        response = self.client.post("/api/chat", json={"text": text}, headers=self.headers)
+        self.assertEqual(response.status_code, 200)
+        return response.json()
+
+    def test_what_was_kept_comes_back_with_the_reply(self):
+        self.reply_with("仕方ないなー。[REMIND: 2026-09-18 09:00|歯医者]")
+        answer = self.send()
+        self.assertEqual(answer["reply"], "仕方ないなー。")      # 言葉は変わらない
+        self.assertEqual(answer["kept"], [{"due_at": "2026-09-18 09:00", "text": "歯医者"}])
+
+    def test_an_ordinary_reply_has_no_mark(self):
+        self.reply_with("ふーん、そうなんだ。")
+        self.assertNotIn("kept", self.send("今日は寒いね"))
+
+    def test_a_broken_tag_keeps_nothing(self):
+        """読めない時刻は預からない。画面にも出さない。"""
+        self.reply_with("うん。[REMIND: あした|歯医者]")
+        self.assertNotIn("kept", self.send())
+        self.assertEqual(remind.pending(self.conn), [])
+
+
 class ReminderListApiTests(DbCase):
     """画面から預かりものを見て、取り消す。"""
 

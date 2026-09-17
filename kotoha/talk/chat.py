@@ -1,5 +1,6 @@
 import re
 from datetime import datetime, timezone
+from typing import NamedTuple
 
 from .. import config
 from ..memory import db, remind, retrieve
@@ -249,7 +250,7 @@ def _fetch_recent(conn, user_text: str):
     return recent
 
 
-def _finish(conn, turn_id: int, clean: str, ids, mode: str, mood: str = None):
+def _finish(conn, turn_id: int, clean: str, ids, mode: str, mood: str = None, kept=()):
     db.insert_message(conn, turn_id, "assistant", clean)
     db.set_state(conn, db.LAST_CONVERSATION_AT, db.now_utc())
     if mood:
@@ -260,18 +261,26 @@ def _finish(conn, turn_id: int, clean: str, ids, mode: str, mood: str = None):
     db.set_state(conn, db.MOOD_AT, db.now_utc())
     db.update_usage(conn, ids, turn_id)
     conn.commit()
-    return clean, mode
+    return Turn(clean, mode, list(kept))
 
 
-def _keep_reminders(conn, clean: str) -> str:
-    """頼まれごとを預かり、タグを外した文を返す。速い道でも同じ。
+class Turn(NamedTuple):
+    """1回のやりとりの結果。画面はこれを見て、返事のほかに何を出すか決める。"""
+
+    reply: str
+    mode: str
+    kept: list = []      # この回に預かった頼まれごと [(時刻, 用件), …]
+
+
+def _keep_reminders(conn, clean: str):
+    """頼まれごとを預かり、タグを外した文と、預かったものを返す。速い道でも同じ。
 
     ここで捨てると、本人は「覚えとくね」と言ったのに何も残らない。
     """
     clean, later = remind.parse(clean)
     for when, what in later:
         remind.add(conn, when, what)
-    return clean
+    return clean, later
 
 
 def _record_pending(conn, ids: list) -> None:
@@ -359,10 +368,11 @@ def run_turn(conn, user_text: str):
             allowed = {r["id"] for r in pinned}
             clean, ids = parse_used_ids(raw)
             clean, mood = parse_mood(clean)
-            clean = strip_tags(_keep_reminders(conn, clean))
+            clean, kept = _keep_reminders(conn, clean)
+            clean = strip_tags(clean)
             ids = [i for i in ids if i in allowed]
             _record_pending(conn, ids)
-            return _finish(conn, turn_id, clean, ids, mode, mood)
+            return _finish(conn, turn_id, clean, ids, mode, mood, kept)
 
     pinned, related = retrieve.retrieve(conn, user_text, recent_text)
     prompt = build_prompt(conn, user_text, recent, pinned, related)
@@ -370,9 +380,10 @@ def run_turn(conn, user_text: str):
     clean, ids = parse_used_ids(raw)
     clean, mood = parse_mood(clean)
     clean, todo = parse_action(clean)
-    clean = strip_tags(_keep_reminders(conn, clean))
+    clean, kept = _keep_reminders(conn, clean)
+    clean = strip_tags(clean)
     _record_pending(conn, ids)
-    done = _finish(conn, turn_id, clean, ids, mode, mood)
+    done = _finish(conn, turn_id, clean, ids, mode, mood, kept)
     # 頼まれごとは、返答を保存し終えてから。入れ直しならここで落ちる。
     if todo:
         actions.run(todo)

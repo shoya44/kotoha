@@ -867,6 +867,14 @@ textarea:focus-visible {
 
 .snooze-offer:disabled { opacity: .5; }
 
+/* 預かった印。吹き出しではないので、色も囲みも控えめにする。 */
+.kept-chip {
+  margin: -2px 0 6px 52px;
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
 .reminder-item {
   display: flex;
   align-items: center;
