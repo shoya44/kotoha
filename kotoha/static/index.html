@@ -350,7 +350,7 @@
       resize: none;
       overflow-y: auto;
 
-      padding: 10px 48px 10px 12px;
+      padding: 10px 88px 10px 12px;
       border: 1px solid var(--input-line);
       border-radius: 16px;
       outline: none;
@@ -430,6 +430,62 @@
     #send:active::before { transform: scale(.94); }
     #send:disabled { cursor: default; }
     #send:disabled::before { opacity: .4; }
+
+    /* 通話ボタン。送信が主操作なので、待機中は塗らずに一段控えめにする。 */
+    #call {
+      position: absolute;
+      right: 44px;
+      bottom: 0;
+      width: 44px;
+      height: 44px;
+      min-width: 44px;
+      min-height: 44px;
+      padding: 0;
+      display: grid;
+      place-items: center;
+      background: transparent;
+      color: var(--muted);
+    }
+
+    #call::before {
+      content: "";
+      position: absolute;
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      background: transparent;
+      transition: background-color .15s ease, transform .1s ease;
+    }
+
+    #call svg {
+      position: relative;
+      z-index: 1;
+      width: 17px;
+      height: 17px;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 2.2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    #call:active::before { transform: scale(.94); }
+    #call .icon-hangup { display: none; }
+
+    body.calling #call {
+      color: #fff;
+    }
+
+    body.calling #call::before {
+      background: #ff453a;
+    }
+
+    body.calling #call .icon-call { display: none; }
+    body.calling #call .icon-hangup { display: block; }
+
+    /* 音声入力に対応しない環境では通話を出さず、入力欄の余白も戻す。 */
+    body.no-call #call { display: none; }
+    body.no-call textarea { padding-right: 48px; }
 
     button:focus-visible,
     input:focus-visible,
@@ -533,6 +589,11 @@
     .status.offline .status-dot {
       background: #777;
       opacity: .7;
+    }
+
+    .status.calling .status-dot {
+      background: #30d158;
+      animation: pulse 1.2s ease-in-out infinite;
     }
 
     @keyframes pulse {
@@ -809,6 +870,15 @@
         placeholder="なにか話す…"
         aria-label="メッセージ"
       ></textarea>
+      <button id="call" type="button" aria-label="通話をはじめる" aria-pressed="false">
+        <svg class="icon-call" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <path d="M21 16.9v2.6a2 2 0 0 1-2.2 2 19.5 19.5 0 0 1-8.5-3 19.2 19.2 0 0 1-5.9-5.9 19.5 19.5 0 0 1-3-8.6A2 2 0 0 1 3.4 2H6a2 2 0 0 1 2 1.7c.1.9.3 1.8.7 2.7a2 2 0 0 1-.5 2.1L7.1 9.7a16 16 0 0 0 6 6l1.2-1.1a2 2 0 0 1 2.1-.5c.9.4 1.8.6 2.7.7a2 2 0 0 1 1.7 2z"></path>
+        </svg>
+        <svg class="icon-hangup" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <path d="M10.7 13.3a16 16 0 0 0 3.4 2.6l1.2-1.1a2 2 0 0 1 2.1-.5c.9.4 1.8.6 2.7.7a2 2 0 0 1 1.7 2v2.6a2 2 0 0 1-2.2 2 19.5 19.5 0 0 1-8.5-3 19.3 19.3 0 0 1-3.3-2.7M7.4 10a19.5 19.5 0 0 1-3-8.6A2 2 0 0 1 6.3 2h2.6a2 2 0 0 1 2 1.7c.1.9.3 1.8.7 2.7a2 2 0 0 1-.5 2.1L10 9.7"></path>
+          <line x1="2" y1="2" x2="22" y2="22"></line>
+        </svg>
+      </button>
       <button id="send" type="submit" aria-label="送信">
         <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
           <path d="M12 5l-6 6m6-6 6 6M12 5v14"></path>
@@ -866,6 +936,7 @@
       form: $("form"),
       input: $("input"),
       sendButton: $("send"),
+      callButton: $("call"),
       jumpBottom: $("jumpBottom"),
       settingsOverlay: $("settingsOverlay"),
       toggleTime: $("toggleTime"),
@@ -1002,6 +1073,7 @@
     // ===== Voice =====
     // 読み上げは会話とは独立させる。エンジンが止まっていても会話は続ける。
     let currentAudio = null;
+    let calling = false;
 
     function stopSpeaking() {
       if (!currentAudio) return;
@@ -1010,25 +1082,114 @@
       currentAudio = null;
     }
 
+    // 通話中は設定に関わらず声を出す。再生し終えるまで待てるように解決を返す。
     async function speak(text) {
-      if (!preferences.voice || !text) return;
+      if ((!preferences.voice && !calling) || !text) return;
       stopSpeaking();
       try {
         const response = await api("/api/speak", { method: "POST", body: { text } });
         if (!response.ok) {
           const error = await response.json().catch(() => ({}));
-          setStatus(error.detail || "声を出せない");
+          setStatus(error.detail || "声を出せない", calling ? "calling" : "online");
           return;
         }
         const audio = new Audio(URL.createObjectURL(await response.blob()));
         currentAudio = audio;
-        audio.addEventListener("ended", () => {
-          if (currentAudio === audio) stopSpeaking();
-        });
         await audio.play();
+        // pause も拾う。止められたときに待ち続けないようにする。
+        await new Promise(resolve => {
+          audio.addEventListener("ended", resolve, { once: true });
+          audio.addEventListener("pause", resolve, { once: true });
+          audio.addEventListener("error", resolve, { once: true });
+        });
+        if (currentAudio === audio) stopSpeaking();
       } catch {
         // 読み上げの失敗で会話を止めない。
       }
+    }
+
+    // ===== Call =====
+    // 方針: 読み上げ中はマイクを開かない。スピーカーでも自分の声を拾わない。
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    let recognition = null;
+    let callBusy = false;
+
+    function listen() {
+      if (!calling || callBusy || !recognition) return;
+      try {
+        recognition.start();
+      } catch {
+        // すでに聞いている場合の二重startは無視してよい。
+      }
+    }
+
+    async function onHeard(text) {
+      if (!calling || !text) return;
+      callBusy = true;
+      elements.input.value = text;
+      try {
+        await send();  // 応答の生成から読み上げ終わりまで
+      } finally {
+        callBusy = false;
+      }
+      if (calling) {
+        setStatus("通話中", "calling");
+        listen();
+      }
+    }
+
+    function createRecognition() {
+      const engine = new SpeechRecognition();
+      engine.lang = "ja-JP";
+      engine.continuous = false;
+      engine.interimResults = false;
+      engine.maxAlternatives = 1;
+      engine.addEventListener("result", event => {
+        onHeard((event.results[0][0].transcript || "").trim());
+      });
+      engine.addEventListener("error", event => {
+        // 無音や中断は通話の終わりではない。聞き直す。
+        if (event.error === "no-speech" || event.error === "aborted") return;
+        if (event.error === "not-allowed" || event.error === "service-not-allowed") {
+          addMessage("system", "[エラー] マイクの使用が許可されていません");
+          endCall();
+          return;
+        }
+        addMessage("system", "[エラー] 音声入力: " + event.error);
+      });
+      // 発話が切れるたびに終わるので、話していないあいだは開き直す。
+      engine.addEventListener("end", () => listen());
+      return engine;
+    }
+
+    function updateCallButton() {
+      document.body.classList.toggle("calling", calling);
+      elements.callButton.setAttribute("aria-pressed", calling ? "true" : "false");
+      elements.callButton.setAttribute(
+        "aria-label", calling ? "通話を終わる" : "通話をはじめる"
+      );
+    }
+
+    function startCall() {
+      if (calling) return;
+      calling = true;
+      recognition = createRecognition();
+      updateCallButton();
+      setStatus("通話中", "calling");
+      listen();
+    }
+
+    function endCall() {
+      if (!calling) return;
+      calling = false;
+      callBusy = false;
+      stopSpeaking();
+      if (recognition) {
+        recognition.abort();
+        recognition = null;
+      }
+      updateCallButton();
+      setStatus("いるよ");
     }
 
     // ===== Date / Time =====
@@ -1138,7 +1299,7 @@
 
     // ===== Chat UI =====
     function setStatus(label, state = "online") {
-      elements.status.classList.remove("thinking", "offline");
+      elements.status.classList.remove("thinking", "offline", "calling");
       if (state !== "online") elements.status.classList.add(state);
       elements.statusText.textContent = label;
       elements.sheetStatus.textContent = label;
@@ -1416,8 +1577,9 @@
         addMessage("assistant", data.reply);
         reactAvatar();
         elements.mode.textContent = data.mode || "";
-        setStatus("いるよ");
-        speak(data.reply);
+        setStatus(calling ? "通話中" : "いるよ", calling ? "calling" : "online");
+        // 呼び出し側が読み上げの終わりまで待てるように返す。
+        return speak(data.reply);
       } catch {
         typingRow?.remove();
         addMessage("system", "[エラー] 通信失敗");
@@ -1445,6 +1607,10 @@
       // ===== Initialize =====
     applyPreferences();
       updateJumpButton();
+    });
+
+    elements.callButton.addEventListener("click", () => {
+      if (calling) endCall(); else startCall();
     });
 
     elements.toggleVoice.addEventListener("click", () => {
@@ -1526,7 +1692,9 @@
 
     applyPreferences();
     updateMiniAvatar();
-    
+    // 音声入力に対応しない環境では通話ボタンを出さない。
+    document.body.classList.toggle("no-call", !SpeechRecognition);
+
     setInterval(updateMiniAvatar, 30 * 60 * 1000);
 
     (async () => {
