@@ -1,7 +1,9 @@
 import re
 from datetime import datetime, timezone
 
-from . import config, db, llm, retrieve, router
+from .. import config
+from ..memory import db, retrieve
+from . import llm, router
 
 FAST_NOTICE = (
     "補足: 今は軽量モード。基本情報以外の過去記憶は渡されていない。"

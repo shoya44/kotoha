@@ -1,4 +1,5 @@
-from . import config, db
+from .. import config
+from . import db
 
 _ALIVE = f"(expires_at IS NULL OR expires_at > {db.NOW_SQL})"
 _COLS = "id, layer, kind, text, occurred_at, confirmed_at, pinned"

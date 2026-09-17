@@ -4,7 +4,7 @@
 
 ## 接続先とモデル
 
-会話生成・記憶整理にはGemini APIを使用します。`kotoha/llm.py` がhttpxでOpenAI互換の `/chat/completions` へリクエストを送ります。
+会話生成・記憶整理にはGemini APIを使用します。`kotoha/talk/llm.py` がhttpxでOpenAI互換の `/chat/completions` へリクエストを送ります。
 
 | 設定 | コード上の既定値 |
 |---|---|

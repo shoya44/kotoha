@@ -11,7 +11,8 @@ from kotoha import config
 _TMP = tempfile.TemporaryDirectory(prefix="kotoha chat ")
 config.DB_PATH = Path(_TMP.name) / "test.sqlite3"
 
-from kotoha import chat, db  # noqa: E402
+from kotoha.memory import db  # noqa: E402
+from kotoha.talk import chat  # noqa: E402
 
 
 def tearDownModule():

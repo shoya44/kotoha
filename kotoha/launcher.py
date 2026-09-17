@@ -241,7 +241,7 @@ def main():
             raise SystemExit(f"配信失敗: {error}") from None
         return
 
-    from . import db
+    from .memory import db
     conn = db.connect()
     try:
         db.init(conn)
@@ -253,7 +253,7 @@ def main():
     print("ことは 起動中…")
     print("終了: Ctrl+C")
     import uvicorn
-    from .web import app
+    from .serve.web import app
 
     stopped = threading.Event()
     watcher = threading.Thread(target=open_when_ready, args=(url, stopped), daemon=True)

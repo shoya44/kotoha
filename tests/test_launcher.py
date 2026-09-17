@@ -133,7 +133,9 @@ class LauncherTests(unittest.TestCase):
         watcher = Mock()
         stopped = threading.Event()
         with patch.dict("sys.modules", {
-            "kotoha.db": db, "kotoha.web": types.SimpleNamespace(app=app),
+            "kotoha.memory": types.SimpleNamespace(db=db),
+            "kotoha.serve": types.ModuleType("kotoha.serve"),
+            "kotoha.serve.web": types.SimpleNamespace(app=app),
             "uvicorn": uvicorn,
         }), patch.object(self.launcher.importlib.util, "find_spec", return_value=True), \
              patch.object(self.launcher.socket, "create_connection", side_effect=OSError), \

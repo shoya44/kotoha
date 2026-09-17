@@ -10,7 +10,7 @@ from kotoha import config
 _TMP = tempfile.TemporaryDirectory(prefix="kotoha consolidate ")
 config.DB_PATH = Path(_TMP.name) / "test.sqlite3"
 
-from kotoha import consolidate, db  # noqa: E402
+from kotoha.memory import consolidate, db  # noqa: E402
 
 
 def tearDownModule():

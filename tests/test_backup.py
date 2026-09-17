@@ -12,7 +12,7 @@ from kotoha import config
 _TMP = tempfile.TemporaryDirectory(prefix="kotoha backup ")
 config.DB_PATH = Path(_TMP.name) / "test.sqlite3"
 
-from kotoha import db  # noqa: E402
+from kotoha.memory import db  # noqa: E402
 
 
 def tearDownModule():
@@ -137,7 +137,7 @@ class PeriodicJobOrderTests(unittest.TestCase):
 
     def test_backup_keeps_what_the_forgetting_removes(self):
         """忘却より先に取らないと、消えた直後の状態しか残らない。"""
-        from kotoha import web
+        from kotoha.serve import web
 
         self.conn.execute(
             "INSERT INTO memory_nodes(layer, kind, text, occurred_at, confirmed_at, "

@@ -6,7 +6,7 @@
 
 import httpx
 
-from . import config
+from .. import config
 
 # 1回の合成に渡す上限。これより長い返答は切って、待たされ続けるのを避ける。
 MAX_CHARS = 300

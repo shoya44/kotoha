@@ -1,7 +1,7 @@
 import sqlite3
 from datetime import datetime, timezone
 
-from . import config
+from .. import config
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS messages (

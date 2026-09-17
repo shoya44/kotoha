@@ -1,6 +1,8 @@
 import sys
 
-from . import chat, config, consolidate, db, llm
+from . import config
+from .memory import consolidate, db
+from .talk import chat, llm
 
 
 def _status(conn) -> None:
@@ -206,7 +208,7 @@ def main(argv) -> None:
         db.init(conn)
         conn.close()
         import uvicorn
-        from .web import app
+        from .serve.web import app
         print(f"http://{config.WEB_HOST}:{config.WEB_PORT} で起動")
         uvicorn.run(app, host=config.WEB_HOST, port=config.WEB_PORT,
                     log_level="info" if config.DEBUG else "warning", access_log=config.DEBUG)

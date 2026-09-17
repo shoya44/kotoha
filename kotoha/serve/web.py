@@ -6,7 +6,10 @@ from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import chat, config, consolidate, db, llm, voice
+from .. import config
+from ..memory import consolidate, db
+from ..talk import chat, llm
+from . import voice
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 

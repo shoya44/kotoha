@@ -1,4 +1,5 @@
-from . import config, retrieve
+from .. import config
+from ..memory import retrieve
 
 QUESTION_WORDS = ("?", "？", "いつ", "どこ", "誰", "なに", "何", "なぜ", "どうして", "どれ", "どう")
 PAST_WORDS = ("昨日", "一昨日", "前回", "この前", "あの時", "以前", "覚えてる", "覚えてます", "話した", "言った")

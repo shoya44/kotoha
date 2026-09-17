@@ -10,7 +10,7 @@ from kotoha import config
 _TMP = tempfile.TemporaryDirectory(prefix="kotoha retrieve ")
 config.DB_PATH = Path(_TMP.name) / "test.sqlite3"
 
-from kotoha import db, retrieve  # noqa: E402
+from kotoha.memory import db, retrieve  # noqa: E402
 
 NODE_SQL = (
     "INSERT INTO memory_nodes(layer, kind, text, occurred_at, confirmed_at, "

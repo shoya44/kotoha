@@ -1,7 +1,9 @@
 import json
 from datetime import datetime, timedelta, timezone
 
-from . import config, db, llm, retrieve
+from .. import config
+from ..talk import llm
+from . import db, retrieve
 
 MAX_NEW_NODES = 8
 

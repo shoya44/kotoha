@@ -12,7 +12,7 @@ from kotoha import config
 _TMP = tempfile.TemporaryDirectory(prefix="kotoha voice ")
 config.DB_PATH = Path(_TMP.name) / "test.sqlite3"
 
-from kotoha import voice  # noqa: E402
+from kotoha.serve import voice  # noqa: E402
 
 WAV = b"RIFF\x00\x00\x00\x00WAVEfmt "
 
@@ -99,7 +99,8 @@ class EndpointTests(unittest.TestCase):
     def setUp(self):
         from fastapi.testclient import TestClient
 
-        from kotoha import db, web
+        from kotoha.memory import db
+        from kotoha.serve import web
 
         if config.DB_PATH.exists():
             config.DB_PATH.unlink()

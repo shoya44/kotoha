@@ -88,7 +88,7 @@ class ConfigTests(unittest.TestCase):
         code = '''
 import sys, types
 sys.modules['httpx'] = types.ModuleType('httpx')
-from kotoha import db, consolidate
+from kotoha.memory import db, consolidate
 conn = db.connect()
 db.init(conn)
 for turn in (1, 2):
@@ -110,7 +110,8 @@ conn.close()
         code = '''
 import sys, types
 sys.modules['httpx'] = types.ModuleType('httpx')
-from kotoha import config, db, cli
+from kotoha import config, cli
+from kotoha.memory import db
 conn = db.connect()
 db.init(conn)
 conn.close()

@@ -1,6 +1,6 @@
 import httpx
 
-from . import config
+from .. import config
 
 
 class LLMError(Exception):

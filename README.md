@@ -184,14 +184,20 @@ requirements.txt            CUI・Web用依存関係
 kotoha/
   launcher.py               起動前確認・ブラウザー表示
   cli.py                    CUI・管理コマンド
-  web.py                    Web API・バックグラウンド整理
   config.py                 設定読み込み・型と範囲の検査
   settings.py               .envの作成・不足項目追加・編集補助
-  chat.py / llm.py           会話処理・Gemini API通信
-  db.py                     DB初期化・操作・忘却・バックアップ
-  router.py / retrieve.py   Fast/Slow判定・記憶想起
-  consolidate.py            記憶整理
-  static/                   Webチャット画面
+  talk/                     対話
+    chat.py                 プロンプト生成・返答処理・機嫌
+    llm.py                  Gemini API通信
+    router.py               Fast/Slow判定
+  memory/                   記憶
+    db.py                   スキーマ・DB操作・忘却・バックアップ
+    retrieve.py             記憶想起
+    consolidate.py          記憶整理・再固定化
+  serve/                    配信
+    web.py                  Web API・バックグラウンド処理
+    voice.py                AivisSpeechでの読み上げ
+    static/                 Webチャット画面（html / css / js）
 prompts/
   fixed_rules.txt           固定ルール
   persona.txt               人格・話し方
