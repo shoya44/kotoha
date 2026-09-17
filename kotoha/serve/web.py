@@ -99,9 +99,6 @@ def _wake_embedder() -> None:
         pass  # 起きないなら次の巡回でまた試す。
 
 
-WATCHED = ("音声エンジン", "Ollama")
-
-
 def _tool_probes():
     from ..launcher import aivis_is_up, ollama_is_up
 
