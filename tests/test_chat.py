@@ -11,7 +11,7 @@ from kotoha import config
 _TMP = tempfile.TemporaryDirectory(prefix="kotoha chat ")
 config.DB_PATH = Path(_TMP.name) / "test.sqlite3"
 
-from kotoha.memory import db  # noqa: E402
+from kotoha.memory import db, remind  # noqa: E402
 from kotoha.talk import chat  # noqa: E402
 
 
@@ -226,6 +226,33 @@ class MoodTests(unittest.TestCase):
                 self.assertIn(label, rules)
 
 
+class TagSweepTests(unittest.TestCase):
+    """崩れたタグを画面に出さない。実際に [REMIND: ] が出たことがある。"""
+
+    def test_an_empty_errand_tag_is_wiped(self):
+        self.assertEqual(chat.strip_tags("スマホ見てるー。[REMIND: ]"), "スマホ見てるー。")
+
+    def test_a_tag_with_nothing_at_all_is_wiped(self):
+        self.assertEqual(chat.strip_tags("うん。[REMIND:]"), "うん。")
+
+    def test_a_broken_tag_is_wiped(self):
+        """閉じ括弧が無くても、全角でも残さない。"""
+        self.assertEqual(chat.strip_tags("はい ［REMIND：こわれた"), "はい")
+        self.assertEqual(chat.strip_tags("ねむい [MOOD: 眠い"), "ねむい")
+
+    def test_every_tag_is_wiped(self):
+        for name in chat.TAG_NAMES:
+            with self.subTest(name=name):
+                self.assertEqual(chat.strip_tags(f"ふむ。[{name}: なにか]"), "ふむ。")
+
+    def test_plain_text_is_left_alone(self):
+        self.assertEqual(chat.strip_tags("おはよー。今日は寒いね"), "おはよー。今日は寒いね")
+
+    def test_brackets_that_are_not_tags_stay(self):
+        """タグの名前でなければ、括弧はそのまま残す。"""
+        self.assertEqual(chat.strip_tags("[明日] は雨だって"), "[明日] は雨だって")
+
+
 class TurnWiringTests(unittest.TestCase):
     """1ターン通したときに、タグが隠れて機嫌が残ることを確かめる。"""
 
@@ -250,6 +277,17 @@ class TurnWiringTests(unittest.TestCase):
             "SELECT text FROM messages WHERE role = 'assistant'"
         ).fetchone()["text"]
         self.assertEqual(stored, "おかえりー")  # 履歴にもタグを残さない
+
+    def test_a_broken_tag_never_reaches_the_screen(self):
+        """23:16に「スマホ見てるー。[REMIND: ]」が出た。同じ形を通しで確かめる。"""
+        self.reply_with("スマホ見てるー。[REMIND: ] [MOOD: ふつう]")
+        reply, _ = chat.run_turn(self.conn, "おすー、今何してるの？")
+        self.assertEqual(reply, "スマホ見てるー。")
+        stored = self.conn.execute(
+            "SELECT text FROM messages WHERE role = 'assistant'"
+        ).fetchone()["text"]
+        self.assertEqual(stored, "スマホ見てるー。")
+        self.assertEqual(remind.pending(self.conn), [])   # 妙な予定も残さない
 
     def test_unknown_label_keeps_the_previous_mood(self):
         db.set_state(self.conn, "mood", "眠い")

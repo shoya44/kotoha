@@ -119,6 +119,22 @@ def _strip_tag(text: str, name: str):
     return clean, match.group(1).strip()
 
 
+TAG_NAMES = ("USED", "MOOD", "DO", "REMIND")
+
+
+def strip_tags(text: str) -> str:
+    """内部タグを本文から落とす。**取りこぼしは、そのまま画面に出る。**
+
+    値を取り出す側は形の揃ったものだけを拾う。妙な予定を抱え込まないための
+    厳しさだが、そのぶん崩れたタグが本文に居残る。実際に [REMIND: ] が
+    画面へ出た。ここは緩く拾って、最後にひと拭きする。タグが増えても、
+    ここを通るかぎり漏れない。
+    """
+    for name in TAG_NAMES:
+        text, _ = _strip_tag(text, name)
+    return text.strip()
+
+
 def parse_used_ids(text: str):
     clean, body = _strip_tag(text, "USED")
     if body is None:
@@ -294,7 +310,7 @@ def speak(conn, closing: str, extra: str = "", keep: bool = True):
     clean, mood = parse_mood(clean)
     clean, _ = parse_action(clean)   # 頼まれてもいないのに動かさない
     clean, _ = remind.parse(clean)   # 自分で自分に予定を作らせない
-    clean = clean.strip()
+    clean = strip_tags(clean)
     if not clean:
         return ""
     remember(conn, clean, ids, mood, keep)
@@ -340,7 +356,7 @@ def run_turn(conn, user_text: str):
             allowed = {r["id"] for r in pinned}
             clean, ids = parse_used_ids(raw)
             clean, mood = parse_mood(clean)
-            clean = _keep_reminders(conn, clean)
+            clean = strip_tags(_keep_reminders(conn, clean))
             ids = [i for i in ids if i in allowed]
             _record_pending(conn, ids)
             return _finish(conn, turn_id, clean, ids, mode, mood)
@@ -351,7 +367,7 @@ def run_turn(conn, user_text: str):
     clean, ids = parse_used_ids(raw)
     clean, mood = parse_mood(clean)
     clean, todo = parse_action(clean)
-    clean = _keep_reminders(conn, clean)
+    clean = strip_tags(_keep_reminders(conn, clean))
     _record_pending(conn, ids)
     done = _finish(conn, turn_id, clean, ids, mode, mood)
     # 頼まれごとは、返答を保存し終えてから。入れ直しならここで落ちる。
