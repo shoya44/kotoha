@@ -22,6 +22,9 @@ _collecting = False
 HELD = "あとでまとめて言う"
 # 長く溜め込んでも困る。一度に言える量には限りがある。
 HELD_LIMIT = 8
+# 言えない状態が続いたときに諦める回数。**言えるまで毎分試すと、そのたびに
+# APIの枠を1回ずつ食う。** 記憶整理と同じ考え方（consolidate.GIVE_UP_AFTER）。
+GIVE_UP_AFTER = 3
 
 
 @contextlib.contextmanager
@@ -135,24 +138,40 @@ def announce(conn, closing: str, plain: str = "", extra: str = "",
             items = items[1:]
         items.append({"closing": closing, "plain": plain, "extra": extra, "keep": keep,
                       "remind_ids": list(remind_ids)})
-        db.set_state(conn, db.HELD_ANNOUNCEMENTS, json.dumps(items, ensure_ascii=False))
+        _put_held(conn, items)
         conn.commit()
         return HELD
     return _say(conn, [{"closing": closing, "plain": plain, "extra": extra, "keep": keep,
                         "remind_ids": list(remind_ids)}])
 
 
+def _put_held(conn, items) -> None:
+    db.set_state(conn, db.HELD_ANNOUNCEMENTS, json.dumps(items, ensure_ascii=False))
+
+
 def flush_held(conn) -> str:
     """預かったぶんを、間が空いてからまとめて言う。
 
-    先に置き場を空にする。ここで失敗しても、同じものを抱えたまま毎分
-    やり直すことにはしない。
+    **言えなかったら預かりは消さない。** 頼まれごとは「言った」ことにして
+    あるので、ここで落とすと二度と出てこない。ただし言えるまで毎分
+    試すと、そのたびにAPIの枠を食う。数えて、続くようなら諦める。
     """
     if not notify.ready():
         return ""
     items = _held(conn)
     if not items or _too_soon(conn):
         return ""
-    db.set_state(conn, db.HELD_ANNOUNCEMENTS, "[]")
+    spoken = _say(conn, items)
+    if spoken:
+        _put_held(conn, [])
+        db.set_state(conn, db.HELD_FAILS, 0)
+        conn.commit()
+        return spoken
+    fails = int(db.get_state(conn, db.HELD_FAILS, "0") or 0) + 1
+    if fails >= GIVE_UP_AFTER:
+        notify.log(f"まとめて言えないので諦めた: {len(items)}件")
+        _put_held(conn, [])
+        fails = 0
+    db.set_state(conn, db.HELD_FAILS, fails)
     conn.commit()
-    return _say(conn, items)
+    return ""

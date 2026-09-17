@@ -333,6 +333,58 @@ class TogetherTests(DbCase):
         self.assertEqual(announce_mod._held(self.conn), [])
 
 
+class HeldSurvivalTests(DbCase):
+    """言えなかったとき、預かったものを落とさない。頼まれごとは戻ってこない。"""
+
+    def setUp(self):
+        super().setUp()
+        self.addCleanup(setattr, config, "NOTIFY_GAP_MINUTES", config.NOTIFY_GAP_MINUTES)
+        config.NOTIFY_GAP_MINUTES = 0
+        for name in ("ready", "push", "log"):
+            self.addCleanup(setattr, notify, name, getattr(notify, name))
+        self.addCleanup(setattr, chat, "speak", chat.speak)
+        self.addCleanup(setattr, chat, "remember", chat.remember)
+        self.addCleanup(setattr, announce_mod, "_collecting", False)
+        notify.ready = lambda: True
+        self.logged = []
+        notify.log = self.logged.append
+        self.pushed = []
+        notify.push = lambda title, body, *a, **k: self.pushed.append(body) or True
+        chat.remember = lambda conn, text, ids=(), mood="", keep=True: None
+        self.mute()
+
+    def mute(self):
+        chat.speak = lambda conn, closing, extra="", keep=True: ""
+
+    def hold(self, closing="言うことがある。"):
+        announce_mod._collecting = True
+        try:
+            announce_mod.announce(self.conn, closing)
+        finally:
+            announce_mod._collecting = False
+
+    def test_what_could_not_be_said_is_kept(self):
+        self.hold()
+        announce_mod.flush_held(self.conn)
+        self.assertEqual(len(announce_mod._held(self.conn)), 1)   # 落とさない
+        self.assertEqual(self.pushed, [])
+
+    def test_it_is_said_once_it_can_be(self):
+        self.hold()
+        announce_mod.flush_held(self.conn)
+        chat.speak = lambda conn, closing, extra="", keep=True: "おまたせ"
+        self.assertEqual(announce_mod.flush_held(self.conn), "おまたせ")
+        self.assertEqual(announce_mod._held(self.conn), [])
+
+    def test_it_gives_up_after_a_few_tries(self):
+        """言えるまで毎分試すと、そのたびに枠を食う。"""
+        self.hold()
+        for _ in range(announce_mod.GIVE_UP_AFTER):
+            announce_mod.flush_held(self.conn)
+        self.assertEqual(announce_mod._held(self.conn), [])
+        self.assertTrue(any("諦めた" in line for line in self.logged))
+
+
 class SnoozeButtonTests(DbCase):
     """頼まれごとの通知にだけ「あとで」を付ける。用件はURLに載せない。"""
 
