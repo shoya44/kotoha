@@ -1,0 +1,153 @@
+"""この機械の様子。ことはが「そこに居る」ための材料。
+
+見るのは2つだけにしてある。**PCを起動してからの時間**と、**前面にあるアプリの
+名前**。ウィンドウの題名も、中身も、履歴も読まない。相手が何をしているかを
+推し量るには足り、のぞき見にはならない範囲に絞ってある。
+
+アプリは1分ごとに数えて、1時間ぶんの多数決で「いま何をしているか」とする。
+会話している瞬間はブラウザが前面に来てしまうので、その一瞬では判断しない。
+"""
+
+import ctypes
+import json
+import sys
+from datetime import datetime
+
+from .. import config
+from ..memory import db
+
+# 数えた結果を持つ場所。1時間ごとに捨てて数え直す。
+TALLY_KEY = "front_tally"
+TALLY_HOUR_KEY = "front_tally_hour"
+# 1時間ぶん数えても、これ未満のアプリは「触っている」と言わない。
+MIN_SAMPLES = 5
+
+# 実行ファイル名から、口に出せる名前へ。載っていないものはそのまま使う。
+FRIENDLY = {
+    "code": "VS Code",
+    "devenv": "Visual Studio",
+    "chrome": "Chrome",
+    "brave": "Brave",
+    "msedge": "Edge",
+    "firefox": "Firefox",
+    "explorer": "エクスプローラー",
+    "windowsterminal": "ターミナル",
+    "powershell": "PowerShell",
+    "cmd": "コマンドプロンプト",
+    "slack": "Slack",
+    "discord": "Discord",
+    "ms-teams": "Teams",
+    "outlook": "Outlook",
+    "excel": "Excel",
+    "winword": "Word",
+    "powerpnt": "PowerPoint",
+    "notepad": "メモ帳",
+    "steam": "Steam",
+    "spotify": "Spotify",
+    "obs64": "OBS",
+    "vlc": "VLC",
+    "photoshop": "Photoshop",
+    "illustrator": "Illustrator",
+    "clipstudiopaint": "クリスタ",
+    "blender": "Blender",
+    "claude": "Claude",
+    "cursor": "Cursor",
+}
+
+
+def enabled() -> bool:
+    return config.PRESENCE_ENABLED and sys.platform == "win32"
+
+
+def uptime_hours():
+    """PCを起動してからの時間。眠らずに使い続けているかが分かる。"""
+    if sys.platform != "win32":
+        return None
+    try:
+        return ctypes.windll.kernel32.GetTickCount64() / 3600000.0
+    except (AttributeError, OSError):
+        return None
+
+
+def foreground_app():
+    """前面にあるアプリの名前。題名は読まない。"""
+    if sys.platform != "win32":
+        return None
+    try:
+        user32, kernel32 = ctypes.windll.user32, ctypes.windll.kernel32
+        window = user32.GetForegroundWindow()
+        if not window:
+            return None
+        pid = ctypes.c_ulong()
+        user32.GetWindowThreadProcessId(window, ctypes.byref(pid))
+        if not pid.value:
+            return None
+        # 0x1000 = PROCESS_QUERY_LIMITED_INFORMATION。名前を聞くだけの権限。
+        handle = kernel32.OpenProcess(0x1000, False, pid.value)
+        if not handle:
+            return None
+        try:
+            buffer = ctypes.create_unicode_buffer(260)
+            size = ctypes.c_ulong(len(buffer))
+            if not kernel32.QueryFullProcessImageNameW(handle, 0, buffer, ctypes.byref(size)):
+                return None
+            stem = buffer.value.rsplit("\\", 1)[-1].rsplit(".", 1)[0].lower()
+        finally:
+            kernel32.CloseHandle(handle)
+    except (AttributeError, OSError, ValueError):
+        return None
+    return FRIENDLY.get(stem, stem) if stem else None
+
+
+def sample(conn) -> None:
+    """巡回から1分ごとに呼ぶ。いま前面のアプリを1つ数える。"""
+    if not enabled():
+        return
+    app = foreground_app()
+    if not app:
+        return
+    hour = datetime.now().strftime("%Y-%m-%d %H")
+    tally = {}
+    if db.get_state(conn, TALLY_HOUR_KEY) == hour:
+        try:
+            tally = json.loads(db.get_state(conn, TALLY_KEY) or "{}")
+        except ValueError:
+            tally = {}
+    if not isinstance(tally, dict):
+        tally = {}
+    tally[app] = int(tally.get(app, 0)) + 1
+    db.set_state(conn, TALLY_HOUR_KEY, hour)
+    db.set_state(conn, TALLY_KEY, json.dumps(tally, ensure_ascii=False))
+
+
+def busy_with(conn):
+    """この1時間で、いちばん長く触っていたアプリと、そのおおよその分数。"""
+    if not enabled():
+        return None
+    if db.get_state(conn, TALLY_HOUR_KEY) != datetime.now().strftime("%Y-%m-%d %H"):
+        return None
+    try:
+        tally = json.loads(db.get_state(conn, TALLY_KEY) or "{}")
+    except ValueError:
+        return None
+    if not isinstance(tally, dict) or not tally:
+        return None
+    app, count = max(tally.items(), key=lambda kv: kv[1])
+    if count < MIN_SAMPLES:
+        return None
+    return app, count
+
+
+def describe(conn) -> str:
+    """プロンプトに入れる1行。分からなければ空を返す。"""
+    if not enabled():
+        return ""
+    parts = []
+    hours = uptime_hours()
+    if hours is not None and hours >= 1:
+        parts.append(f"PCは{int(hours)}時間つけっぱなし")
+    busy = busy_with(conn)
+    if busy:
+        app, minutes = busy
+        parts.append(f"この1時間は{app}を触っている（{minutes}分ほど）")
+    return "、".join(parts)

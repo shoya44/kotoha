@@ -9,7 +9,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .. import config
 from ..memory import consolidate, db, embed
-from ..talk import chat, llm
+from ..talk import chat, llm, presence
 from . import admin, voice
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -46,6 +46,7 @@ def run_periodic_jobs(conn) -> None:
     順番に意味がある。バックアップは忘却より先に取らないと、
     消えた直後の状態しか残らない。前段の失敗で後段を止めない。
     """
+    presence.sample(conn)
     unprocessed = _unprocessed_turns(conn)
     idle = db.seconds_since(db.get_state(conn, "last_conversation_at")) > config.IDLE_SECONDS
     # 会話が途切れてからにする。整理は会話と同じ順番待ちに並ぶので、話している

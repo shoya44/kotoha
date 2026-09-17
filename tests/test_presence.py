@@ -1,0 +1,120 @@
+"""PCの様子の検証。実際のWindows APIには触れない。"""
+
+import json
+import tempfile
+import unittest
+from datetime import datetime
+from pathlib import Path
+from unittest.mock import patch
+
+from kotoha import config
+
+# db が参照する前に保存先を一時DBへ向ける。
+_TMP = tempfile.TemporaryDirectory(prefix="kotoha presence ")
+config.DB_PATH = Path(_TMP.name) / "test.sqlite3"
+
+from kotoha.memory import db  # noqa: E402
+from kotoha.talk import presence  # noqa: E402
+
+
+def tearDownModule():
+    _TMP.cleanup()
+
+
+class PresenceTests(unittest.TestCase):
+    def setUp(self):
+        if config.DB_PATH.exists():
+            config.DB_PATH.unlink()
+        self.conn = db.connect()
+        self.addCleanup(self.conn.close)
+        db.init(self.conn)
+        self.addCleanup(setattr, config, "PRESENCE_ENABLED", config.PRESENCE_ENABLED)
+        config.PRESENCE_ENABLED = True
+        # 実機のAPIは叩かない。Windows以外でも同じ結果になるようにする。
+        self.addCleanup(setattr, presence, "enabled", presence.enabled)
+        self.addCleanup(setattr, presence, "uptime_hours", presence.uptime_hours)
+        presence.enabled = lambda: config.PRESENCE_ENABLED
+        presence.uptime_hours = lambda: 6.4
+
+    def front(self, app):
+        return patch.object(presence, "foreground_app", return_value=app)
+
+    def sample_many(self, app, times):
+        with self.front(app):
+            for _ in range(times):
+                presence.sample(self.conn)
+        self.conn.commit()
+
+    def tally(self):
+        return json.loads(db.get_state(self.conn, presence.TALLY_KEY) or "{}")
+
+    def test_samples_are_counted(self):
+        self.sample_many("VS Code", 3)
+        self.assertEqual(self.tally(), {"VS Code": 3})
+
+    def test_several_apps_are_counted_separately(self):
+        self.sample_many("VS Code", 4)
+        self.sample_many("Chrome", 2)
+        self.assertEqual(self.tally(), {"VS Code": 4, "Chrome": 2})
+
+    def test_a_short_stay_is_not_reported(self):
+        """一瞬前面に来ただけのアプリを「触っている」とは言わない。"""
+        self.sample_many("Chrome", presence.MIN_SAMPLES - 1)
+        self.assertIsNone(presence.busy_with(self.conn))
+
+    def test_the_longest_app_is_reported(self):
+        self.sample_many("VS Code", presence.MIN_SAMPLES + 3)
+        self.sample_many("Chrome", presence.MIN_SAMPLES)
+        self.assertEqual(presence.busy_with(self.conn)[0], "VS Code")
+
+    def test_last_hour_only(self):
+        """時間が変われば数え直す。半日前の作業を今の様子として語らない。"""
+        self.sample_many("VS Code", presence.MIN_SAMPLES + 2)
+        db.set_state(self.conn, presence.TALLY_HOUR_KEY, "2020-01-01 03")
+        self.conn.commit()
+        self.assertIsNone(presence.busy_with(self.conn))
+
+    def test_a_new_hour_starts_from_zero(self):
+        self.sample_many("VS Code", 3)
+        db.set_state(self.conn, presence.TALLY_HOUR_KEY, "2020-01-01 03")
+        self.conn.commit()
+        self.sample_many("Chrome", 1)
+        self.assertEqual(self.tally(), {"Chrome": 1})
+
+    def test_unreadable_tally_does_not_raise(self):
+        db.set_state(self.conn, presence.TALLY_KEY, "こわれている")
+        db.set_state(self.conn, presence.TALLY_HOUR_KEY,
+                     datetime.now().strftime("%Y-%m-%d %H"))
+        self.conn.commit()
+        self.sample_many("Chrome", 1)
+        self.assertEqual(self.tally(), {"Chrome": 1})
+
+    def test_an_unknown_window_is_skipped(self):
+        with self.front(None):
+            presence.sample(self.conn)
+        self.assertEqual(self.tally(), {})
+
+    def test_the_line_mentions_uptime_and_app(self):
+        self.sample_many("VS Code", presence.MIN_SAMPLES)
+        line = presence.describe(self.conn)
+        self.assertIn("6時間", line)
+        self.assertIn("VS Code", line)
+
+    def test_switched_off_says_nothing(self):
+        self.sample_many("VS Code", presence.MIN_SAMPLES)
+        config.PRESENCE_ENABLED = False
+        self.assertEqual(presence.describe(self.conn), "")
+
+    def test_switched_off_stops_counting(self):
+        config.PRESENCE_ENABLED = False
+        self.sample_many("VS Code", 3)
+        self.assertEqual(self.tally(), {})
+
+    def test_a_fresh_machine_only_mentions_the_app(self):
+        presence.uptime_hours = lambda: 0.2
+        self.sample_many("VS Code", presence.MIN_SAMPLES)
+        self.assertNotIn("つけっぱなし", presence.describe(self.conn))
+
+
+if __name__ == "__main__":
+    unittest.main()

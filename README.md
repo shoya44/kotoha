@@ -99,6 +99,7 @@ KOTOHA_WEB_PORT=8000
 | `.\kotoha.bat status` | DBパス・モデル・メッセージ数・処理時刻の表示 |
 | `.\kotoha.bat test-llm` | APIへ短い生成リクエストを送って接続確認 |
 | `.\kotoha.bat consolidate` | 未処理会話の記憶整理（対象があればAPIを使用） |
+| `.\kotoha.bat note "…"` | ことは自身のことを記憶として書き込む（更新の共有） |
 | `.\kotoha.bat memory` | 意味記憶の一覧 |
 | `.\kotoha.bat memory episodes` | エピソード記憶の一覧 |
 | `.\kotoha.bat memory semantics` | 意味記憶の一覧 |

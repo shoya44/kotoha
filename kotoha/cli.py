@@ -1,3 +1,4 @@
+import hashlib
 import sys
 
 from . import config
@@ -91,6 +92,42 @@ def _memory(conn, args) -> None:
         print("出典: " + (", ".join(f"msg{s['message_id']}" for s in srcs) or "なし（要約のみ）"))
     else:
         print("使い方: memory [episodes|semantics|pinned|tags|show <id>]")
+
+
+def _note(conn, args) -> None:
+    """ことは自身のことを、記憶として書き込む。
+
+    更新を伝えるのに使う。プロンプトに欄を足すと毎回トークンを食うが、
+    記憶にしておけば関係する話題のときだけ想起される。期限は付けない。
+    自分が何者かは、放っておいても薄れる類のことではないため。
+    """
+    text = " ".join(args).strip()
+    if not text:
+        print('使い方: kotoha.bat note "ことはは…できるようになった"')
+        return
+    if len(text) > 200:
+        print("200字までにして。")
+        return
+    now = db.now_utc()
+    cur = conn.execute(
+        "INSERT OR IGNORE INTO memory_nodes(layer, kind, text, occurred_at, "
+        "confirmed_at, last_used_at, expires_at, pinned, source_key) "
+        # ピン留めで置く。自分が何者かは、想起で引き当てるものではない。
+        "VALUES ('semantic','fact',?,?,?,?,NULL,1,?)",
+        # 鍵は本文から作る。時刻だと、同じ秒に2件書いたとき片方が黙って消える。
+        (text, now[:10], now, now, "note:" + hashlib.sha1(text.encode()).hexdigest()[:12]),
+    )
+    if not cur.rowcount:
+        print("同じものが既にある。")
+        return
+    for tag in ("ことは", "更新"):
+        conn.execute(
+            "INSERT OR IGNORE INTO memory_tags(node_id, tag) VALUES (?,?)",
+            (cur.lastrowid, tag),
+        )
+    conn.commit()
+    print(f"覚えさせた [id:{cur.lastrowid}] {text}")
+    print("意味で引けるようになるのは、次の巡回のあと。")
 
 
 def _start() -> None:
@@ -191,6 +228,11 @@ def main(argv) -> None:
         conn = db.connect()
         db.init(conn)
         _memory(conn, argv[2:])
+        conn.close()
+    elif cmd == "note":
+        conn = db.connect()
+        db.init(conn)
+        _note(conn, argv[2:])
         conn.close()
     elif cmd == "consolidate":
         config.require_keys()

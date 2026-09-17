@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 
 from .. import config
 from ..memory import db, retrieve
+from . import presence
 from . import llm, router
 
 FAST_NOTICE = (
@@ -139,17 +140,36 @@ def parse_mood(text: str):
     return clean, body if body in MOODS else None
 
 
+def _memory_count(conn) -> int:
+    return conn.execute(
+        "SELECT COUNT(*) FROM memory_nodes WHERE expires_at IS NULL OR expires_at > "
+        + db.NOW_SQL
+    ).fetchone()[0]
+
+
 def build_prompt(conn, user_text: str, recent, pinned, related, fast: bool = False) -> str:
     fixed = _read("fixed_rules.txt")
     persona = _read("persona.txt")
     now = datetime.now()
     mood = current_mood(conn)
-    time_block = "\n".join([
+    lines = [
         f"現在: {now:%Y-%m-%d %H:%M}（{WEEKDAYS[now.weekday()]}曜日）",
         f"前回の会話: {elapsed_phrase(db.get_state(conn, 'last_conversation_at'))}",
         f"今のことは: {situation(now.hour)}",
         f"今の機嫌: {mood}（{MOODS[mood]}）",
-    ])
+    ]
+    # 自分がどれだけ覚えているかを、自分で言えるようにしておく。
+    if not fast:
+        lines.append(
+            f"覚えていること: {_memory_count(conn)}件"
+            f"（最後に整理したのは{elapsed_phrase(db.get_state(conn, 'last_consolidation_at'))}）"
+        )
+        machine = presence.describe(conn)
+        if machine:
+            # 「PCの様子」と書くと機械の計測値に見え、返答に使われにくい。
+            # 相手を見て言ったこと、という顔にしておく。
+            lines.append(f"相手の様子: {machine}")
+    time_block = "\n".join(lines)
 
     basic_block = ""
     if pinned:
