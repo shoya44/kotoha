@@ -28,11 +28,20 @@ def fetch_unprocessed(conn):
     for r in rows:
         if r["turn_id"] not in turns:
             turns.append(r["turn_id"])
-        if len(turns) > config.BATCH_TURNS or chars + len(r["text"]) > config.BATCH_CHARS:
+        # 先頭の1通は上限を超えていても必ず含める。ここで空を返すと
+        # last_processed_message_id が永久に進まず、記憶が作られなくなる。
+        if out and (len(turns) > config.BATCH_TURNS or chars + len(r["text"]) > config.BATCH_CHARS):
             break
         chars += len(r["text"])
         out.append(r)
     return out
+
+
+def _clip(text: str) -> str:
+    """上限超えの1通を切り詰める。落とすのではなく、入る分だけ記憶に残す。"""
+    if len(text) <= config.BATCH_CHARS:
+        return text
+    return text[: config.BATCH_CHARS] + "…（以下省略）"
 
 
 def _normalize_tag(tag: str) -> str:
@@ -65,7 +74,7 @@ def _build_prompt(conn, messages, pending_nodes) -> str:
         lines = []
         for m in messages:
             who = "ユーザー" if m["role"] == "user" else "ことは"
-            lines.append(f"[id:{m['id']}] {who}: {m['text']}")
+            lines.append(f"[id:{m['id']}] {who}: {_clip(m['text'])}")
         parts.append(f"未処理の会話:\n" + "\n".join(lines))
         existing = _existing_block(conn, messages)
         if existing:
