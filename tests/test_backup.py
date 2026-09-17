@@ -134,6 +134,10 @@ class PeriodicJobOrderTests(unittest.TestCase):
         self.conn = db.connect()
         self.addCleanup(self.conn.close)
         db.init(self.conn)
+        # 巡回には声かけが含まれる。テストが本物のGeminiを叩いて
+        # 持ち主の電話を鳴らさないよう、ここで止める。
+        self.addCleanup(setattr, config, "REACH_OUT_ENABLED", config.REACH_OUT_ENABLED)
+        config.REACH_OUT_ENABLED = False
 
     def test_backup_keeps_what_the_forgetting_removes(self):
         """忘却より先に取らないと、消えた直後の状態しか残らない。"""
@@ -170,6 +174,10 @@ class ConsolidationTimingTests(unittest.TestCase):
         self.conn = db.connect()
         self.addCleanup(self.conn.close)
         db.init(self.conn)
+        # 巡回には声かけが含まれる。テストが本物のGeminiを叩いて
+        # 持ち主の電話を鳴らさないよう、ここで止める。
+        self.addCleanup(setattr, config, "REACH_OUT_ENABLED", config.REACH_OUT_ENABLED)
+        config.REACH_OUT_ENABLED = False
 
         from kotoha.serve import web
 

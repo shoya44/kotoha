@@ -103,7 +103,9 @@ class ReachOutTests(unittest.TestCase):
             setattr(config, name, value)
         self.addCleanup(setattr, notify, "ready", notify.ready)
         self.addCleanup(setattr, notify, "push", notify.push)
+        self.addCleanup(setattr, notify, "log", notify.log)
         self.addCleanup(setattr, chat, "reach_out", chat.reach_out)
+        notify.log = lambda text: None   # 本物のログに書き込まない
         notify.ready = lambda: True
         self.pushed = []
         notify.push = lambda title, body, *a, **k: self.pushed.append(body) or True
@@ -161,7 +163,9 @@ class WatchTests(unittest.TestCase):
         conn.close()
         self.addCleanup(setattr, notify, "ready", notify.ready)
         self.addCleanup(setattr, notify, "push", notify.push)
+        self.addCleanup(setattr, notify, "log", notify.log)
         self.addCleanup(setattr, presence, "disks", presence.disks)
+        notify.log = lambda text: None   # 本物のログに書き込まない
         notify.ready = lambda: True
         self.pushed = []
         notify.push = lambda title, body, *a, **k: self.pushed.append(body) or True
