@@ -22,6 +22,8 @@ const elements = {
   timeValue: $("timeValue"),
   toggleVoice: $("toggleVoice"),
   voiceValue: $("voiceValue"),
+  togglePush: $("togglePush"),
+  pushValue: $("pushValue"),
   changeToken: $("changeToken"),
   promptTabs: $("promptTabs"),
   promptText: $("promptText"),
@@ -1271,6 +1273,7 @@ elements.toggleTime.addEventListener("click", () => {
   preferences.showTime = !preferences.showTime;
   localStorage.setItem("kotoha_show_time", preferences.showTime ? "1" : "0");
 applyPreferences();
+  setupPush();
   updateJumpButton();
 });
 
@@ -1312,6 +1315,56 @@ elements.promptRevert.addEventListener("click", revertPrompt);
 elements.settingsSave.addEventListener("click", saveSettings);
 elements.endRemoteCall.addEventListener("click", endRemoteCall);
 armOnce(elements.restartApp, "再起動する", "もう一度押すと再起動", restartApp);
+
+// ===== 通知 =====
+// 受け取りの面倒（鍵・購読の保存・iOSの作法）はOneSignalに任せている。
+// iPhoneは iOS 16.4 以降で、ホーム画面に追加したときだけ受け取れる。
+let pushReady = null;
+
+function whenOneSignal(run) {
+  window.OneSignalDeferred = window.OneSignalDeferred || [];
+  window.OneSignalDeferred.push(run);
+}
+
+async function setupPush() {
+  let appId = "";
+  try {
+    const response = await api("/api/push");
+    if (response.ok) appId = (await response.json()).appId || "";
+  } catch {
+    return;   // つながらないだけ。会話には関係ない。
+  }
+  if (!appId || !("serviceWorker" in navigator)) return;
+
+  elements.togglePush.hidden = false;
+  whenOneSignal(async OneSignal => {
+    await OneSignal.init({ appId });
+    pushReady = OneSignal;
+    showPushState();
+    OneSignal.User.PushSubscription.addEventListener("change", showPushState);
+  });
+}
+
+function showPushState() {
+  if (!pushReady) { elements.pushValue.textContent = "準備中"; return; }
+  const on = pushReady.User.PushSubscription.optedIn;
+  elements.pushValue.textContent = on ? "オン" : "オフ";
+}
+
+async function togglePush() {
+  if (!pushReady) return;
+  const subscription = pushReady.User.PushSubscription;
+  if (subscription.optedIn) {
+    await subscription.optOut();
+  } else {
+    // 端末に許可を聞く。触れた流れの中でないと、iOSは出してくれない。
+    await pushReady.Notifications.requestPermission();
+    await subscription.optIn();
+  }
+  showPushState();
+}
+
+elements.togglePush.addEventListener("click", togglePush);
 
 elements.toggleVoice.addEventListener("click", () => {
   preferences.voice = !preferences.voice;

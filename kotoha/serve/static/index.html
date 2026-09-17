@@ -7,6 +7,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <link rel="manifest" href="/static/manifest.webmanifest">
+  <script src="https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.page.js" defer></script>
   <link rel="apple-touch-icon" href="/static/kotoha.png">
   <title>ことは</title>
   <link rel="stylesheet" href="/static/style.css">
@@ -108,6 +109,10 @@
         <button class="sheet-row" id="toggleVoice" type="button">
           <span>声で話す</span>
           <span class="sheet-value" id="voiceValue">オフ</span>
+        </button>
+        <button class="sheet-row" id="togglePush" type="button" hidden>
+          <span>通知を受け取る</span>
+          <span class="sheet-value" id="pushValue">オフ</span>
         </button>
       </div>
 

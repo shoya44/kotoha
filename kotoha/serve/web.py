@@ -1,13 +1,14 @@
 import os
 import threading
 import time
+from datetime import datetime
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from .. import config
+from .. import config, notify
 from ..memory import consolidate, db, embed
 from ..talk import chat, llm, presence
 from . import admin, voice
@@ -63,6 +64,8 @@ def run_periodic_jobs(conn) -> None:
             pass  # 保存先の不調で忘却まで止めない。
     if db.seconds_since(db.get_state(conn, "last_forget_at")) > config.MAINTENANCE_SECONDS:
         db.run_maintenance(conn)
+    # 暇なときの声かけ。会話が5時間途切れた前提なので、ここで待たせても困らない。
+    maybe_reach_out(conn)
 
 
 def _wake_embedder() -> None:
@@ -78,6 +81,74 @@ def _wake_embedder() -> None:
         embed.embed(["おはよう"], timeout=config.EMBED_BUILD_TIMEOUT_SECONDS)
     except embed.EmbedError:
         pass  # 起きないなら次の巡回でまた試す。
+
+
+WATCHED = ("音声エンジン", "Ollama")
+
+
+def _tool_probes():
+    from ..launcher import aivis_is_up, ollama_is_up
+
+    return {"音声エンジン": aivis_is_up, "Ollama": ollama_is_up}
+
+
+def run_watch_jobs() -> None:
+    """管理人としての見張り。落ちたときと、空きが減ったときだけ知らせる。
+
+    会話の順番待ちには並ばせない。止まっている相手を確かめるのに1秒ずつ
+    かかるので、ここで並ぶと毎分そのぶん会話が止まる。
+    """
+    if not notify.ready():
+        return
+    conn = db.connect()
+    try:
+        for label, probe in _tool_probes().items():
+            key = f"up:{label}"
+            before = db.get_state(conn, key)
+            now = "1" if probe() else "0"
+            # 立ち上がりでは知らせない。落ちた瞬間だけ。
+            if before == "1" and now == "0":
+                notify.push("ことは", f"{label}が止まったみたい")
+            db.set_state(conn, key, now)
+        for letter, free, _used in presence.disks():
+            key = f"disk:{letter}"
+            low = "1" if free < config.DISK_WARN_GB else "0"
+            if db.get_state(conn, key) == "0" and low == "1":
+                notify.push("ことは", f"{letter}ドライブの空き、{free:.0f}GBしかないよ")
+            db.set_state(conn, key, low)
+        conn.commit()
+    except Exception as error:
+        notify.log(f"見張りで失敗: {error!r}")
+    finally:
+        conn.close()
+
+
+def maybe_reach_out(conn) -> None:
+    """暇なとき、ことはのほうから声をかける。
+
+    間が空いていること、時間帯、前回からの間隔。3つとも満たしたときだけ。
+    APIを1回使うので、頻繁には出さない。
+    """
+    if not (config.REACH_OUT_ENABLED and notify.ready()):
+        return
+    idle = db.seconds_since(db.get_state(conn, "last_conversation_at"))
+    if idle < config.REACH_OUT_AFTER_HOURS * 3600:
+        return
+    if db.seconds_since(db.get_state(conn, "last_reach_out_at")) < (
+            config.REACH_OUT_INTERVAL_HOURS * 3600):
+        return
+    hour = datetime.now().hour
+    if not config.REACH_OUT_FROM_HOUR <= hour < config.REACH_OUT_TO_HOUR:
+        return
+    db.set_state(conn, "last_reach_out_at", db.now_utc())
+    conn.commit()
+    try:
+        text = chat.reach_out(conn)
+    except Exception as error:
+        notify.log(f"声をかけられなかった: {error!r}")
+        return
+    if text:
+        notify.push("ことは", text)
 
 
 def run_vector_jobs() -> None:
@@ -123,6 +194,10 @@ def _bg_loop() -> None:
             run_vector_jobs()
         except Exception:
             pass
+        try:
+            run_watch_jobs()
+        except Exception:
+            pass
 
 
 threading.Thread(target=_bg_loop, daemon=True).start()
@@ -131,6 +206,22 @@ threading.Thread(target=_bg_loop, daemon=True).start()
 @app.get("/")
 def index():
     return FileResponse(STATIC_DIR / "index.html")
+
+
+@app.get("/OneSignalSDKWorker.js")
+def onesignal_worker():
+    """OneSignalが根元に置くよう求めるファイル。中身は読み込みの1行だけ。"""
+    return Response(
+        'importScripts("https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.sw.js");',
+        media_type="application/javascript",
+    )
+
+
+@app.get("/api/push")
+def push_settings(request: Request):
+    """画面に、通知を出せる状態かどうかと、つなぎ先を教える。"""
+    _check_token(request)
+    return {"appId": config.ONESIGNAL_APP_ID if config.PUSH_ENABLED else ""}
 
 
 @app.get("/api/history")

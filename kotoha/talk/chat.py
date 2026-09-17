@@ -155,7 +155,8 @@ def _memory_count(conn) -> int:
     ).fetchone()[0]
 
 
-def build_prompt(conn, user_text: str, recent, pinned, related, fast: bool = False) -> str:
+def build_prompt(conn, user_text: str, recent, pinned, related, fast: bool = False,
+                 closing: str = "") -> str:
     fixed = _read("fixed_rules.txt")
     persona = _read("persona.txt")
     now = datetime.now()
@@ -211,7 +212,7 @@ def build_prompt(conn, user_text: str, recent, pinned, related, fast: bool = Fal
         basic_block,
         related_block,
         recent_block,
-        f"今回の発言:\nユーザー: {user_text}",
+        closing or f"今回の発言:\nユーザー: {user_text}",
     ]
     if fast:
         blocks.append(FAST_NOTICE)
@@ -243,6 +244,40 @@ def _record_pending(conn, ids: list) -> None:
     # 最新を先頭に、重複を排除して最大50件保持
     pending = list(dict.fromkeys(ids + pending))[:50]
     db.set_pending_ids(conn, pending)
+
+
+REACH_OUT_CLOSING = (
+    "いまは話しかけられていない。しばらく間が空いたので、そちらから一声かける。\n"
+    "一行だけ、短く。用がなくてもいい。記憶にある小さなことに触れてもいい。\n"
+    "返事を求めすぎない。責めない。"
+)
+
+
+def reach_out(conn):
+    """ことはのほうから一声かける。返した文は画面にも通知にも出る。
+
+    話しかけられていないので「今回の発言」が無い。そこだけ差し替えて、
+    人格も記憶も時刻も、普段と同じものを渡す。
+    """
+    recent = db.fetch_recent(conn, config.RECENT_TURNS, config.RECENT_CHARS)
+    seed = "\n".join(r["text"] for r in recent[-4:])
+    pinned, related = retrieve.retrieve(conn, seed, "")
+    prompt = build_prompt(conn, "", recent, pinned, related, closing=REACH_OUT_CLOSING)
+    raw = llm.chat(prompt)
+    clean, ids = parse_used_ids(raw)
+    clean, mood = parse_mood(clean)
+    clean, _ = parse_action(clean)   # 頼まれてもいないのに動かさない
+    clean = clean.strip()
+    if not clean:
+        return ""
+    turn_id = db.next_turn_id(conn)
+    db.insert_message(conn, turn_id, "assistant", clean)
+    if mood:
+        db.set_state(conn, "mood", mood)
+        db.set_state(conn, "mood_at", db.now_utc())
+    db.update_usage(conn, ids, turn_id)
+    conn.commit()
+    return clean
 
 
 def run_turn(conn, user_text: str):

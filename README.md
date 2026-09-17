@@ -75,6 +75,49 @@ APIの利用条件・料金・利用可能なモデルは、利用するアカ�
 
 `KOTOHA_ACTIONS_ENABLED=false` で何もしなくなります。
 
+## 通知
+
+何かあったときと、ことはが暇なときに、iPhoneへ通知を送れます。送るところは[OneSignal](https://onesignal.com/) に任せています。Web Push を自前で作ると鍵と暗号化のために依存が増えるので、REST APIを1回叩くだけにしてあります。
+
+### 準備
+
+1. OneSignal でアプリを作り、**App ID** と **REST APIキー**を控える
+2. `settings.bat` で `.env` に入れる（**REST APIキーは秘密です**。人に見せないでください）
+
+```
+KOTOHA_PUSH_ENABLED=true
+KOTOHA_ONESIGNAL_APP_ID=（App ID）
+KOTOHA_ONESIGNAL_API_KEY=（REST APIキー）
+KOTOHA_PUSH_OPEN_URL=https://端末名.…ts.net
+```
+
+3. OneSignal 側の Site URL に、同じ Tailscale の URL を登録する
+4. iPhoneで**ホーム画面に追加したことは**を開き、設定の「通知を受け取る」をオンにする
+
+> **iPhoneは iOS 16.4 以降で、ホーム画面に追加したときだけ**受け取れます。Safariのタブから開いている場合は届きません。
+
+### 届くもの
+
+| きっかけ | 中身 |
+|---|---|
+| 音声エンジンやOllamaが**落ちた** | 「音声エンジンが止まったみたい」。落ちた瞬間だけで、繰り返しません |
+| 空きが減った | 「Cドライブの空き、15GBしかないよ」。`KOTOHA_DISK_WARN_GB` を切ったとき一度だけ |
+| **ことはが暇なとき** | ことはが書いた一言。会話としても履歴に残ります |
+
+声かけは既定で止めてあります。使うなら次を設定してください。
+
+```
+KOTOHA_REACH_OUT_ENABLED=true
+KOTOHA_REACH_OUT_AFTER_HOURS=5      会話が途切れてからの時間
+KOTOHA_REACH_OUT_INTERVAL_HOURS=6   次に声をかけるまで空ける時間
+KOTOHA_REACH_OUT_FROM_HOUR=9        声をかけてよい時間帯
+KOTOHA_REACH_OUT_TO_HOUR=23
+```
+
+> **会話の中身は OneSignal を通ります。** 渡したくない場合は `KOTOHA_PUSH_SHOW_TEXT=false` にしてください。通知は「ことはから」とだけ出て、中身は開いてから読む形になります。
+
+送れたかどうかは `data/notify.log` に残ります（鍵は記録しません）。
+
 常駐は**本体を子として動かし、落ちたら5秒後に上げ直します**。`start.bat` から先に上がっている
 ときは横取りせず、見守るだけにします。二重に常駐することはありません。
 うまく動かないときは `data/tray.log` を見てください。
