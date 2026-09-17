@@ -254,7 +254,10 @@ def _finish(conn, turn_id: int, clean: str, ids, mode: str, mood: str = None):
     db.set_state(conn, db.LAST_CONVERSATION_AT, db.now_utc())
     if mood:
         db.set_state(conn, db.MOOD, mood)
-        db.set_state(conn, db.MOOD_AT, db.now_utc())
+    # 機嫌は変わったときだけ書かせるので、同じ機嫌が続いてもタグは来ない。
+    # 話しているあいだは続いているものとして時刻を進める。6時間の薄れは、
+    # 黙っている時間に効かせたい。
+    db.set_state(conn, db.MOOD_AT, db.now_utc())
     db.update_usage(conn, ids, turn_id)
     conn.commit()
     return clean, mode

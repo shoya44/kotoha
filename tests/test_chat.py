@@ -278,6 +278,24 @@ class TurnWiringTests(unittest.TestCase):
         ).fetchone()["text"]
         self.assertEqual(stored, "おかえりー")  # 履歴にもタグを残さない
 
+    def test_no_mood_tag_keeps_the_mood(self):
+        """機嫌は変わったときだけ書かせる。来なくても、前のまま続く。"""
+        db.set_state(self.conn, db.MOOD, "眠い")
+        db.set_state(self.conn, db.MOOD_AT, db.now_utc())
+        self.conn.commit()
+        self.reply_with("ふーん")
+        chat.run_turn(self.conn, "ねえ")
+        self.assertEqual(db.get_state(self.conn, db.MOOD), "眠い")
+
+    def test_talking_keeps_the_mood_from_fading(self):
+        """6時間の薄れは、黙っている時間に効かせたい。話していれば進まない。"""
+        db.set_state(self.conn, db.MOOD, "眠い")
+        db.set_state(self.conn, db.MOOD_AT, "2020-01-01T00:00:00Z")
+        self.conn.commit()
+        self.reply_with("ふーん")
+        chat.run_turn(self.conn, "ねえ")
+        self.assertEqual(chat.current_mood(self.conn), "眠い")
+
     def test_a_broken_tag_never_reaches_the_screen(self):
         """23:16に「スマホ見てるー。[REMIND: ]」が出た。同じ形を通しで確かめる。"""
         self.reply_with("スマホ見てるー。[REMIND: ] [MOOD: ふつう]")
