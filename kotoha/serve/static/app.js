@@ -668,6 +668,15 @@ let callBusy = false;
 const FILLERS = ["あっ…", "えっと…", "んー…", "うーん…"];
 // これを過ぎても返答が来ないときだけ挟む。すぐ返せるなら黙って答える。
 const FILLER_AFTER_MS = 700;
+// 考えさせる問いかけだと見込めるときは、待たずに早めに言い淀む。
+const FILLER_MIN_MS = 250;
+const LONG_INPUT_CHARS = 18;  // これまでの発言の中央値14字より一回り長いあたり
+// 目的は serve 側の router.py の Fast/Slow 判定とは別だが、語はそちらに揃えてある。
+const THINKING_WORDS =
+  /[?？]|いつ|どこ|誰|なに|何|なぜ|どうして|どれ|どう|昨日|一昨日|前回|この前|あの時|以前|覚えて|話した|言った/;
+const REPLY_SAMPLES = 5;
+const SLOW_REPLY_MS = 2500;
+const recentReplies = [];
 // つなぎ言葉のあとに置く間。すぐ本文へ移ると畳みかけるように聞こえる。
 const FILLER_GAP_MS = 450;
 const fillerVoices = new Map();
@@ -700,14 +709,34 @@ async function playFiller() {
   return true;
 }
 
+function median(values) {
+  const sorted = [...values].sort((a, b) => a - b);
+  const half = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[half] : (sorted[half - 1] + sorted[half]) / 2;
+}
+
+function rememberReplyTime(ms) {
+  recentReplies.push(ms);
+  if (recentReplies.length > REPLY_SAMPLES) recentReplies.shift();
+}
+
+// 返答までの見込み。長い問い、尋ねる言い回し、最近の遅さで早めに構える。
+function fillerDelay(text) {
+  let ms = FILLER_AFTER_MS;
+  if (text.length >= LONG_INPUT_CHARS) ms -= 250;
+  if (THINKING_WORDS.test(text)) ms -= 200;
+  if (recentReplies.length >= 2 && median(recentReplies) > SLOW_REPLY_MS) ms -= 200;
+  return Math.max(FILLER_MIN_MS, ms);
+}
+
 // 返答が間に合わなければ間をつなぐ。鳴らしたかどうかを返す。
-function fillPause(pending) {
+function fillPause(pending, text) {
   // 話し終わりから数える。認識が確定するまでの間も、相手にとっては無言の待ち時間。
   const since = speechEndedAt ? Date.now() - speechEndedAt : 0;
   speechEndedAt = 0;
   let answered = false;
   pending.then(() => { answered = true; }, () => { answered = true; });
-  return wait(Math.max(0, FILLER_AFTER_MS - since))
+  return wait(Math.max(0, fillerDelay(text) - since))
     .then(() => (answered || !calling ? false : playFiller()));
 }
 
@@ -725,10 +754,12 @@ async function onHeard(text) {
   callBusy = true;
   elements.input.value = text;
   try {
+    const startedAt = Date.now();
     const pending = send();
     // 間つなぎを鳴らし切ってから本文に移る。声が重ならないようにする。
-    const filling = fillPause(pending);
+    const filling = fillPause(pending, text);
     const reply = await pending;
+    rememberReplyTime(Date.now() - startedAt);  // 次回の見込みに使う
     if (await filling) await wait(FILLER_GAP_MS);  // 言いよどんだ分の間を置く
     if (calling && reply) await speak(reply);
   } finally {
