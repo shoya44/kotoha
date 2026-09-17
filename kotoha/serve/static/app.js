@@ -665,13 +665,15 @@ let recognition = null;
 let callBusy = false;
 
 // 返答を待たせるあいだの間つなぎ。ことはの話し方に合わせて増減してよい。
-const FILLERS = ["あっ", "えっと", "んー", "うーん"];
+const FILLERS = ["あっ…", "えっと…", "んー…", "うーん…"];
 // これを過ぎても返答が来ないときだけ挟む。すぐ返せるなら黙って答える。
 const FILLER_AFTER_MS = 700;
 // つなぎ言葉のあとに置く間。すぐ本文へ移ると畳みかけるように聞こえる。
 const FILLER_GAP_MS = 450;
 const fillerVoices = new Map();
 let lastFiller = null;
+// 話し終わりを検知した時刻。認識が確定するのはこの数百ms後になる。
+let speechEndedAt = 0;
 
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -700,9 +702,12 @@ async function playFiller() {
 
 // 返答が間に合わなければ間をつなぐ。鳴らしたかどうかを返す。
 function fillPause(pending) {
+  // 話し終わりから数える。認識が確定するまでの間も、相手にとっては無言の待ち時間。
+  const since = speechEndedAt ? Date.now() - speechEndedAt : 0;
+  speechEndedAt = 0;
   let answered = false;
   pending.then(() => { answered = true; }, () => { answered = true; });
-  return wait(FILLER_AFTER_MS)
+  return wait(Math.max(0, FILLER_AFTER_MS - since))
     .then(() => (answered || !calling ? false : playFiller()));
 }
 
@@ -741,6 +746,9 @@ function createRecognition() {
   engine.continuous = false;
   engine.interimResults = false;
   engine.maxAlternatives = 1;
+  engine.addEventListener("speechend", () => {
+    speechEndedAt = Date.now();
+  });
   engine.addEventListener("result", event => {
     onHeard((event.results[0][0].transcript || "").trim());
   });
@@ -781,6 +789,7 @@ function endCall() {
   if (!calling) return;
   calling = false;
   callBusy = false;
+  speechEndedAt = 0;
   stopSpeaking();
   if (recognition) {
     recognition.abort();
