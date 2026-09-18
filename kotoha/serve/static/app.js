@@ -736,6 +736,10 @@ function applyPreferences() {
   elements.voiceValue.textContent = preferences.voice ? "オン" : "オフ";
 }
 
+// 一番下に居たかどうか。**高さが変わる前の気持ちを覚えておく。** キーボードが
+// 出たあとに測っても、もう「下に居ない」ことになってしまう。
+let stickToBottom = true;
+
 function isNearBottom(threshold = 80) {
   const distance =
     elements.log.scrollHeight -
@@ -750,12 +754,19 @@ function updateJumpButton() {
 }
 
 function scrollToBottom(behavior = "auto") {
+  stickToBottom = true;
   elements.log.scrollTo({
     top: elements.log.scrollHeight,
     behavior,
   });
 
   requestAnimationFrame(updateJumpButton);
+}
+
+// 会話欄の高さが変わったあとに呼ぶ。下に居た人だけを、下に置いたままにする。
+// 上を読み返している最中に引きずり下ろされるほうが、よほど使いづらい。
+function keepBottomInView() {
+  if (stickToBottom) requestAnimationFrame(() => scrollToBottom());
 }
 
 function createAvatar() {
@@ -1245,6 +1256,10 @@ async function send() {
   if (!text || elements.sendButton.disabled) return;
 
   closeContextMenu();
+  // iPhoneでは、送信ボタンを押した拍子に焦点が外れてキーボードが閉じる。
+  // **指の動きが続いているこの瞬間なら戻せる。** 返事を待ってから戻しても、
+  // そのときにはもう指が離れていて、キーボードは開かない（下の finally）。
+  elements.input.focus();
   elements.input.value = "";
   resizeInput();
   addMessage("user", text);
@@ -1663,7 +1678,20 @@ elements.changeToken.addEventListener("click", () => {
   elements.tokenInput.focus();
 });
 
-elements.log.addEventListener("scroll", updateJumpButton, { passive: true });
+elements.log.addEventListener("scroll", () => {
+  stickToBottom = isNearBottom();
+  updateJumpButton();
+}, { passive: true });
+
+// 入力中はことはの顔を畳む。キーボードで縮むぶんを、会話欄だけがかぶらない
+// ようにする。畳んだ直後は高さが変わるので、最新を置き直す。
+function setTyping(on) {
+  document.body.classList.toggle("typing", on);
+  keepBottomInView();
+}
+
+elements.input.addEventListener("focus", () => setTyping(true));
+elements.input.addEventListener("blur", () => setTyping(false));
 
 elements.jumpBottom.addEventListener("click", () => {
   scrollToBottom("smooth");
@@ -1719,6 +1747,9 @@ function syncVisualViewport() {
     );
 
     viewportRaf = null;
+    // キーボードが出ると会話欄がその場で縮む。誰も戻さないと、縮んだぶん
+    // だけ最新が下へはみ出して見えなくなる。
+    keepBottomInView();
   });
 }
 

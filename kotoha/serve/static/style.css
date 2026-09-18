@@ -147,7 +147,12 @@ header {
   height: 140px;
   overflow: hidden;
   background: var(--bg);
+  transition: height var(--duration) ease;
 }
+
+/* 入力中は顔を畳む。キーボードで縮むぶんを、会話欄だけがかぶらないように。
+   キーボードを閉じれば戻る。 */
+body.typing .mini-avatar { height: 0; }
 
 .mini-avatar img {
   display: block;
