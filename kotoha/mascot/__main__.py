@@ -196,8 +196,8 @@ class Mascot:
             time.sleep(0.45)
         self.dot.visible(False)
         x, _ = self.dot.center()
-        # 姿と同じ幅に収まるよう、2行に分けて置く。1行だと切れる。
-        self.bubble.say("外出中\n押すと呼び戻す", (x, self.dot.y + self.dot.height),
+        # ひとことだけ。押せば戻ることは、押してみれば分かる。
+        self.bubble.say("外出中", (x, self.dot.y + self.dot.height),
                         width=self.dot.width, center=True)
         self.bubble_until = 0
 

@@ -36,10 +36,10 @@
       "blink": true
     },
     "sleep": {
-      "blink": true
+      "blink": false
     },
     "snack": {
-      "blink": true
+      "blink": false
     },
     "sulk": {
       "blink": true
