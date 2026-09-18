@@ -2,7 +2,11 @@
 <html lang="ja">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <!-- 倍率を1に釘付けする。iPhoneは入力欄に触れたとき、収まりが悪いと判断すると
+       画面を引いて見せ、そのぶん端に地の色が覗く。ホーム画面から開くPWAでは
+       この指定が効く（Safariのタブでは無視される）。 -->
+  <meta name="viewport"
+        content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
   <meta name="theme-color" content="#17181b">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
