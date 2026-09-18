@@ -4,7 +4,7 @@ from typing import NamedTuple
 
 from .. import config
 from ..memory import db, remind, retrieve
-from . import actions, presence
+from . import actions, presence, schedule
 from . import llm, router
 
 FAST_NOTICE = (
@@ -180,6 +180,8 @@ def build_prompt(conn, user_text: str, recent, pinned, related, fast: bool = Fal
     mood = current_mood(conn)
     lines = [
         f"現在: {now:%Y-%m-%d %H:%M}（{WEEKDAYS[now.weekday()]}曜日）",
+        # 今日が仕事か休みかは、毎日変わる。書き置きにできないので毎回渡す。
+        schedule.line(schedule.today(now.date())),
         f"前回の会話: {elapsed_phrase(db.get_state(conn, 'last_conversation_at'))}",
         f"今のことは: {situation(now.hour)}",
         f"今の機嫌: {mood}（{MOODS[mood]}）",

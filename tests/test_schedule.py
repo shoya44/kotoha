@@ -80,3 +80,48 @@ class CalendarAgeTests(unittest.TestCase):
             date.fromisoformat(max(schedule.MEETINGS)), date.today(),
             "全体会議の日程が尽きた。来年度ぶんを入れる",
         )
+
+
+class LineTests(unittest.TestCase):
+    """毎回のプロンプトに添える1行。**土日も平日も、必ず何か返す。**
+
+    block（朝のひとこと用）と違い、こちらは黙らない。ことはが今日を
+    知っているための事実なので、「普通の平日」も伝える値打ちがある。
+    """
+
+    def said(self, day):
+        return schedule.line(schedule.today(day))
+
+    def test_a_plain_weekday_says_the_working_hours(self):
+        said = self.said(date(2026, 9, 24))
+        self.assertIn("仕事", said)
+        self.assertIn("17:30", said)
+
+    def test_the_weekend_is_a_day_off(self):
+        self.assertEqual(self.said(date(2026, 9, 19)), "今日: 休み")
+
+    def test_a_holiday_says_which_one(self):
+        said = self.said(date(2026, 9, 21))
+        self.assertIn("休み", said)
+        self.assertIn("敬老の日", said)
+
+    def test_the_meeting_day_says_both(self):
+        said = self.said(date(2026, 9, 18))
+        self.assertIn("仕事", said)
+        self.assertIn("全体会議", said)
+
+    def test_it_never_goes_silent(self):
+        """1行も返さない日があると、ことはは今日を知らないまま話す。"""
+        day = date(2026, 4, 1)
+        for _ in range(400):
+            with self.subTest(day=day):
+                self.assertTrue(self.said(day))
+            day = date.fromordinal(day.toordinal() + 1)
+
+    def test_it_does_not_tell_her_what_to_do(self):
+        """渡すのは事実だけ。指示を混ぜると窮屈になる。"""
+        for day in (date(2026, 9, 18), date(2026, 9, 21), date(2026, 9, 24)):
+            with self.subTest(day=day):
+                said = self.said(day)
+                for pushy in ("しろ", "すること", "ように", "手短"):
+                    self.assertNotIn(pushy, said)
