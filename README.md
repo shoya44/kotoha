@@ -442,7 +442,7 @@ prompts/
   fixed_rules.txt           固定ルール
   persona.txt               人格・話し方
   consolidation_system.txt  記憶整理用の指示
-docs/                       現行仕様・将来拡張の候補
+docs/                       01-05・07が現行仕様、08-09が検討と見送りの記録
 data/                       DB・バックアップ（Git管理外）
 ```
 
