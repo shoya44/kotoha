@@ -18,6 +18,11 @@ ENDPOINT = "https://api.onesignal.com/notifications"
 LOG_PATH = config.BASE_DIR / "data" / "notify.log"
 TIMEOUT = 10.0
 
+# 宛先の束の名前。**OneSignalが最初から用意する束で、名前は作った時期で違う。**
+# 古い案内に出てくる "Subscribed Users" は、いまのアプリには無い。無い束を
+# 指すと、断られもせず、ただ誰にも届かない（実際にそうなっていた）。
+SEGMENT = "Total Subscriptions"
+
 # voice.py と同じ理由で、接続は開いたまま使い回す。相手は外なのでプロキシは見る。
 _client = None
 
@@ -54,7 +59,7 @@ def push(title: str, body: str, quiet_body: str = "ことはから", buttons=Non
     shown = body if config.PUSH_SHOW_TEXT else quiet_body
     payload = {
         "app_id": config.ONESIGNAL_APP_ID,
-        "included_segments": ["Subscribed Users"],
+        "included_segments": [SEGMENT],
         "headings": {"en": title},
         # 言語別に入れる決まりで、en は必ず要る。日本語をそのまま入れてよい。
         "contents": {"en": shown},
@@ -74,6 +79,16 @@ def push(title: str, body: str, quiet_body: str = "ことはから", buttons=Non
     if response.status_code >= 300:
         # 鍵は出さない。本文だけ短く残す。
         log(f"断られた ({response.status_code}): {response.text[:200]}")
+        return False
+    # **200が返っても、届いたとはかぎらない。** 宛先が0件でも、向こうは
+    # 受け取りましたと答える。本文まで見ないと、鳴っていないことに気づけない。
+    try:
+        body = response.json()
+    except ValueError:
+        body = {}
+    trouble = body.get("errors")
+    if trouble or body.get("recipients") == 0:
+        log(f"誰にも届かなかった: {str(trouble or '宛先0件')[:200]}")
         return False
     log(f"送った: {title} / {shown[:60]}")
     return True

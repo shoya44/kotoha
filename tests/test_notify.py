@@ -32,12 +32,12 @@ class PushTests(unittest.TestCase):
         notify.log = self.logged.append
         self.sent = []
 
-    def use(self, status=200, error=None):
+    def use(self, status=200, error=None, body='{"recipients": 1}'):
         def post(url, **kwargs):
             self.sent.append(kwargs.get("json"))
             if error:
                 raise error
-            return httpx.Response(status, text="{}")
+            return httpx.Response(status, text=body)
 
         client = notify._http()
         self.addCleanup(setattr, client, "post", client.post)
@@ -76,6 +76,24 @@ class PushTests(unittest.TestCase):
     def test_a_network_failure_does_not_escape(self):
         self.use(error=httpx.ConnectError("圏外"))
         self.assertFalse(notify.push("ことは", "おかえり"))
+
+    def test_nobody_received_it_is_not_a_success(self):
+        """**200でも届いていないことがある。** 宛先0件を「送った」と書くと、
+        鳴っていないことに誰も気づけない（実際に丸一日そうだった）。"""
+        self.use(body='{"recipients": 0}')
+        self.assertFalse(notify.push("ことは", "おかえり"))
+        self.assertIn("誰にも届かなかった", " ".join(self.logged))
+
+    def test_a_complaint_in_the_answer_is_not_a_success(self):
+        self.use(body='{"errors": ["All included players are not subscribed"]}')
+        self.assertFalse(notify.push("ことは", "おかえり"))
+        self.assertTrue(self.logged)
+
+    def test_it_aims_at_a_segment_that_exists(self):
+        """束の名前は作った時期で違う。古い案内の名前を指すと黙って消える。"""
+        self.use()
+        notify.push("ことは", "おかえり")
+        self.assertEqual(self.sent[0]["included_segments"], ["Total Subscriptions"])
 
     def test_the_key_is_not_written_down(self):
         """記録に鍵が混ざると、ログを人に見せられなくなる。"""
