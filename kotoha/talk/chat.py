@@ -335,8 +335,7 @@ def remember(conn, text: str, ids=(), mood: str = "", keep: bool = True):
     keep=False は、画面には残すが長期記憶には昇格させない。天気のように
     その日限りのものを毎朝1件ずつ溜めても、後から邪魔になるだけ。
     """
-    turn_id = db.next_turn_id(conn)
-    db.insert_message(conn, turn_id, "assistant", text, extractable=1 if keep else 0)
+    turn_id = db.start_turn(conn, "assistant", text, extractable=1 if keep else 0)
     if mood:
         db.set_state(conn, db.MOOD, mood)
         db.set_state(conn, db.MOOD_AT, db.now_utc())
@@ -344,14 +343,8 @@ def remember(conn, text: str, ids=(), mood: str = "", keep: bool = True):
     conn.commit()
 
 
-def reach_out(conn):
-    """暇なときの一声。"""
-    return speak(conn, REACH_OUT_CLOSING)
-
-
 def run_turn(conn, user_text: str):
-    turn_id = db.next_turn_id(conn)
-    db.insert_message(conn, turn_id, "user", user_text)
+    turn_id = db.start_turn(conn, "user", user_text)
     conn.commit()
 
     recent = _fetch_recent(conn, user_text)

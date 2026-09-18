@@ -35,7 +35,7 @@ class HistoryApiTests(unittest.TestCase):
         self.headers = {"X-Kotoha-Token": "testtoken"}
 
     def say(self, role, text):
-        db.insert_message(self.conn, db.next_turn_id(self.conn), role, text)
+        db.start_turn(self.conn, role, text)
         self.conn.commit()
 
     def history(self, **params):
@@ -98,8 +98,8 @@ class ChatCursorTests(unittest.TestCase):
         self.addCleanup(setattr, chat, "run_turn", chat.run_turn)
 
         def answer(conn, text):
-            db.insert_message(conn, db.next_turn_id(conn), "user", text)
-            db.insert_message(conn, db.next_turn_id(conn), "assistant", "へんじ")
+            db.start_turn(conn, "user", text)
+            db.start_turn(conn, "assistant", "へんじ")
             conn.commit()
             return chat.Turn(reply="へんじ", mode="fast", kept=())
 

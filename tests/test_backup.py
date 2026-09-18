@@ -290,3 +290,113 @@ class RoundTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TurnNumberTests(unittest.TestCase):
+    """往復の番号を、2人が同時に取りに来ても取り合わないこと。
+
+    **2026-09-18に一度落ちた。** 番号を見る文と書き込む文が分かれていて、
+    そのあいだにもう一方が書き込むと同じ番号になり、UNIQUE(turn_id, role)
+    で弾かれた。頼まれごとが定型に落ち、同じ用件が2通届いた。
+    """
+
+    def setUp(self):
+        if config.DB_PATH.exists():
+            config.DB_PATH.unlink()
+        conn = db.connect()
+        db.init(conn)
+        conn.close()
+
+    def test_numbers_do_not_collide_when_two_write_at_once(self):
+        import threading
+
+        start = threading.Barrier(7)   # 6人 + 合図を出すこちら
+        failures = []
+
+        def write(n):
+            conn = db.connect()
+            try:
+                start.wait(timeout=5)
+                for i in range(4):
+                    db.start_turn(conn, "assistant", f"{n}-{i}")
+                    conn.commit()
+            except Exception as error:      # noqa: BLE001 見たいのは落ちたこと自体
+                failures.append(error)
+            finally:
+                conn.close()
+
+        hands = [threading.Thread(target=write, args=(n,)) for n in range(6)]
+        for hand in hands:
+            hand.start()
+        start.wait(timeout=5)
+        for hand in hands:
+            hand.join(timeout=10)
+
+        self.assertEqual(failures, [], "同じ番号を取り合って落ちた")
+
+        conn = db.connect()
+        self.addCleanup(conn.close)
+        rows = conn.execute("SELECT turn_id FROM messages").fetchall()
+        numbers = [r["turn_id"] for r in rows]
+        self.assertEqual(len(numbers), 24)
+        self.assertEqual(len(set(numbers)), 24, "同じ番号が二度使われた")
+
+    def test_the_number_used_comes_back(self):
+        conn = db.connect()
+        self.addCleanup(conn.close)
+        first = db.start_turn(conn, "user", "はなしかけ")
+        db.insert_message(conn, first, "assistant", "へんじ")
+        conn.commit()
+        pair = conn.execute("SELECT COUNT(*) AS n FROM messages WHERE turn_id = ?",
+                            (first,)).fetchone()["n"]
+        self.assertEqual(pair, 2, "同じ往復の2件が揃わない")
+
+
+class WatchLockTests(unittest.TestCase):
+    """見張りが何か言うときは、他の書き手と順番を分け合うこと。"""
+
+    def setUp(self):
+        if config.DB_PATH.exists():
+            config.DB_PATH.unlink()
+        conn = db.connect()
+        db.init(conn)
+        conn.close()
+
+        from kotoha import notify
+        from kotoha.serve import jobs
+
+        self.jobs = jobs
+        for name, value in (("PUSH_ENABLED", True), ("ONESIGNAL_APP_ID", "app-1"),
+                            ("ONESIGNAL_API_KEY", "key-1")):
+            self.addCleanup(setattr, config, name, getattr(config, name))
+            setattr(config, name, value)
+        self.addCleanup(setattr, notify, "log", notify.log)
+        notify.log = lambda message: None
+
+        # 落ちたことにして、必ず何か言わせる。
+        self.addCleanup(setattr, jobs, "tool_probes", jobs.tool_probes)
+        jobs.tool_probes = lambda: {"音声エンジン": lambda: False}
+
+        self.addCleanup(setattr, jobs, "presence", jobs.presence)
+
+        class NoDisks:
+            @staticmethod
+            def disks():
+                return []
+
+        jobs.presence = NoDisks
+
+    def test_it_takes_its_turn_before_speaking(self):
+        held = []
+        original = self.jobs.announce
+        self.addCleanup(setattr, self.jobs, "announce", original)
+        self.jobs.announce = lambda *a, **k: held.append(self.jobs.turn_lock.locked())
+
+        conn = db.connect()
+        db.set_state(conn, db.UP_PREFIX + "音声エンジン", "1")   # 前回は動いていた
+        conn.commit()
+        conn.close()
+
+        self.jobs.run_watch_jobs()
+
+        self.assertEqual(held, [True], "順番待ちに並ばずに書き込んでいる")

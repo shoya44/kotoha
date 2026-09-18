@@ -91,32 +91,37 @@ def tool_probes():
 def run_watch_jobs() -> None:
     """管理人としての見張り。落ちたときと、空きが減ったときだけ知らせる。
 
-    会話の順番待ちには並ばせない。止まっている相手を確かめるのに1秒ずつ
-    かかるので、ここで並ぶと毎分そのぶん会話が止まる。
+    **確かめるあいだは順番待ちに並ばない。** 止まっている相手を確かめるのに
+    1秒ずつかかるので、ここで並ぶと毎分そのぶん会話が止まる。並ぶのは、
+    実際に何か言うときだけ。言うと会話が1件増えるので、そこは他の書き手と
+    順番を分け合う必要がある。
     """
     if not notify.ready():
         return
     with db.session() as conn:
         try:
+            said = []
             for label, probe in tool_probes().items():
                 key = db.UP_PREFIX + label
                 before = db.get_state(conn, key)
                 now = "1" if probe() else "0"
                 # 立ち上がりでは知らせない。落ちた瞬間だけ。
                 if before == "1" and now == "0":
-                    announce(conn, f"{label}が止まったことに気づいた。一行で知らせる。",
-                             plain=f"{label}が止まったみたい")
+                    said.append((f"{label}が止まったことに気づいた。一行で知らせる。",
+                                 f"{label}が止まったみたい"))
                 db.set_state(conn, key, now)
             for letter, free, _used in presence.disks():
                 key = db.DISK_PREFIX + letter
                 low = "1" if free < config.DISK_WARN_GB else "0"
                 if db.get_state(conn, key) == "0" and low == "1":
-                    announce(conn,
-                             f"{letter}ドライブの空きが{free:.0f}GBまで減っている。"
-                             "一行で知らせる。",
-                             plain=f"{letter}ドライブの空き、{free:.0f}GBしかないよ")
+                    said.append((f"{letter}ドライブの空きが{free:.0f}GBまで減っている。"
+                                 "一行で知らせる。",
+                                 f"{letter}ドライブの空き、{free:.0f}GBしかないよ"))
                 db.set_state(conn, key, low)
             conn.commit()
+            for closing, plain in said:
+                with turn_lock:
+                    announce(conn, closing, plain=plain)
         except Exception as error:
             notify.log(f"見張りで失敗: {error!r}")
 

@@ -128,8 +128,22 @@ def insert_message(conn, turn_id: int, role: str, text: str, extractable: int = 
     )
 
 
-def next_turn_id(conn) -> int:
-    return conn.execute("SELECT COALESCE(MAX(turn_id), 0) + 1 AS n FROM messages").fetchone()["n"]
+def start_turn(conn, role: str, text: str, extractable: int = 1) -> int:
+    """新しい往復として1件書き、使った番号を返す。
+
+    **番号を見るのと書くのを、1つの文で済ませる。** 2つに分けると、その
+    あいだにもう一方が書き込んだとき同じ番号になり、UNIQUE(turn_id, role)
+    で落ちる（2026-09-18に一度起きた）。SQLiteは書き込みを文の単位で
+    直列化するので、この形なら同じ番号は出ない。
+    """
+    cursor = conn.execute(
+        "INSERT INTO messages(turn_id, role, text, created_at, extractable) "
+        "VALUES ((SELECT COALESCE(MAX(turn_id), 0) + 1 FROM messages), ?,?,?,?)",
+        (role, text, now_utc(), extractable),
+    )
+    return conn.execute(
+        "SELECT turn_id AS n FROM messages WHERE id = ?", (cursor.lastrowid,)
+    ).fetchone()["n"]
 
 
 def fetch_recent(conn, turns: int, char_limit: int):
