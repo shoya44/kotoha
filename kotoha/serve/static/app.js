@@ -1698,7 +1698,13 @@ elements.jumpBottom.addEventListener("click", () => {
 });
 
 elements.input.addEventListener("input", resizeInput);
+// 指で触る画面では、確定キーは改行にする。送信はボタンだけ。**物理キーボードの
+// あるPCでは今までどおり Enter で送る。** マウスに手を伸ばさないと送れないのは
+// 遅い。分けるのは端末の見分けであって、画面の幅ではない。
+const BY_FINGER = window.matchMedia?.("(pointer: coarse)").matches ?? false;
+
 elements.input.addEventListener("keydown", event => {
+  if (BY_FINGER) return;
   if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
     event.preventDefault();
     send();

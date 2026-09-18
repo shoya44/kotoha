@@ -51,12 +51,14 @@
   --radius-lg: 14px;
   --radius-xl: 16px;
   --radius-sheet: 22px;
+  --radius-card: 20px;
   --radius-full: 999px;
 
   /* 寸法。--tap-min はHIGの最小タップ領域 */
   --tap-min: 44px;
   --chat-max-width: 860px;
-  --input-max-height: 120px;
+  --input-min-height: 76px;   /* 3行ぶん。打ち始める前から余裕を見せる */
+  --input-max-height: 140px;
 
   /* 動き */
   --duration-fast: .15s;
@@ -361,31 +363,47 @@ body.typing .mini-avatar { height: 0; }
   background: var(--line);
 }
 
-/* ===== Composer ===== */
+/* ===== Composer =====
+   入力まわりはひとつのカード。文字が上、通話と送信がその下の右端に並ぶ。
+   帯で仕切らず地の色に置くことで、会話の続きに見せる。 */
 #form {
   flex: none;
+  position: relative;
   width: 100%;
   padding:
-    10px
+    0
     max(12px, env(safe-area-inset-right))
     calc(10px + env(safe-area-inset-bottom))
     max(12px, env(safe-area-inset-left));
 
-  border-top: 1px solid var(--line);
-  background: var(--panel);
+  background: var(--bg);
 }
 
 .form-inner {
-  position: relative;
   width: 100%;
   max-width: var(--chat-max-width);
   margin: 0 auto;
+
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 12px 10px;
+
+  border: 1px solid var(--input-line);
+  border-radius: var(--radius-card);
+  background: var(--input-bg);
+
+  transition: border-color var(--duration-fast) ease;
 }
+
+/* 焦点はカードの枠で示す。中の欄にも枠を持たせると、枠が二重になる。 */
+.form-inner:focus-within { border-color: var(--accent); }
 
 textarea {
   display: block;
   width: 100%;
   min-width: 0;
+  min-height: var(--input-min-height);
   max-height: var(--input-max-height);
   resize: none;
   /* 伸び切ったあとも中身は送れる。つまみは出さず、iOSの見え方に揃える。 */
@@ -393,30 +411,28 @@ textarea {
   scrollbar-width: none;
   -ms-overflow-style: none;
 
-  padding: 10px 88px 10px 12px;
-  border: 1px solid var(--input-line);
-  border-radius: var(--radius-xl);
+  padding: 0;
+  border: 0;
   outline: none;
 
-  background: var(--input-bg);
+  background: transparent;
   color: var(--ink);
 
   font-size: 16px;
-  line-height: 1.45;
+  line-height: 1.5;
   field-sizing: content;
+}
 
-  transition:
-    border-color var(--duration-fast) ease,
-    box-shadow var(--duration-fast) ease;
+/* 押すものはカードの下辺、右端に寄せる。左側は今のところ空けておく。 */
+.composer-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
 }
 
 textarea::-webkit-scrollbar {
   display: none;
-}
-
-textarea:focus {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 20%, transparent);
 }
 
 button {
@@ -438,9 +454,7 @@ button {
 }
 
 #send {
-  position: absolute;
-  right: 0;
-  bottom: 0;
+  position: relative;
   width: 44px;
   height: 44px;
   min-width: 44px;
@@ -480,9 +494,7 @@ button {
 
 /* 通話ボタン。送信が主操作なので、待機中は塗らずに一段控えめにする。 */
 #call {
-  position: absolute;
-  right: 44px;
-  bottom: 0;
+  position: relative;
   width: 44px;
   height: 44px;
   min-width: 44px;
@@ -548,11 +560,8 @@ body.calling .volume {
     max(16px, env(safe-area-inset-left));
 
   border-top: 1px solid var(--line);
-  background: var(--panel);
+  background: var(--bg);
 }
-
-/* つまみの上に線が来るので、入力欄側の線は消す。二重に引かない。 */
-body.calling #form { border-top: none; }
 
 .volume svg {
   flex: none;
@@ -594,9 +603,8 @@ body.calling #form { border-top: none; }
 
 #volumeRange:active::-webkit-slider-thumb { transform: scale(1.1); }
 
-/* 音声入力に対応しない環境では通話を出さず、入力欄の余白も戻す。 */
+/* 音声入力に対応しない環境では通話を出さない。 */
 body.no-call #call { display: none; }
-body.no-call textarea { padding-right: 48px; }
 
 /* 入力欄は枠の色そのもので焦点を示す。ここに輪郭まで足すと枠が二重になる。 */
 button:focus-visible {
@@ -1196,10 +1204,12 @@ body.hide-time .msg[data-time]::after { display: none; }
 }
 
 /* ===== Utilities ===== */
+/* 入力欄の高さは打つほど変わる。真上に貼り付ければ、どの高さでもずれない。 */
 #jumpBottom {
   position: absolute;
-  right: max(14px, env(safe-area-inset-right));
-  bottom: calc(78px + env(safe-area-inset-bottom));
+  left: 50%;
+  bottom: 100%;
+  margin-bottom: 8px;
   z-index: 12;
 
   width: var(--tap-min);
@@ -1218,7 +1228,7 @@ body.hide-time .msg[data-time]::after { display: none; }
 
   opacity: 0;
   pointer-events: none;
-  transform: translateY(6px);
+  transform: translate(-50%, 6px);
 
   transition:
     opacity var(--duration-fast) ease,
@@ -1229,12 +1239,12 @@ body.hide-time .msg[data-time]::after { display: none; }
 #jumpBottom.show {
   opacity: 1;
   pointer-events: auto;
-  transform: translateY(0);
+  transform: translate(-50%, 0);
 }
 
 #jumpBottom:active {
   background: var(--float-bg-active);
-  transform: translateY(0) scale(.96);
+  transform: translate(-50%, 0) scale(.96);
 }
 
 #jumpBottom svg {
@@ -1257,7 +1267,7 @@ body.hide-time .msg[data-time]::after { display: none; }
     --muted: #b8b8bd;
   }
 
-  textarea:focus {
+  .form-inner:focus-within {
     border-color: var(--accent);
     box-shadow: 0 0 0 2px var(--accent);
   }
