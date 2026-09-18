@@ -18,6 +18,7 @@
     kotoha/serve/static/sprite/full/*.png      ドットと会話画面のアバター
     kotoha/serve/static/sprite/face.png        会話の行やヘッダーに出る顔
     kotoha/serve/static/sprite/sprites.json    対応表。器はこれだけを見る
+    kotoha/serve/static/icons/icon-*.png       ホーム画面のアイコン
 """
 
 import json
@@ -39,6 +40,15 @@ HEIGHTS = {"full": 140}
 FACE_SIZE = 32
 # 顔を切り出す絵。こちらを向いているものを使う。
 FACE_FROM = "talk"
+
+# ホーム画面のアイコン。**要る大きさぴったりで出す。**
+# 端末側で縮めさせると、ドット絵の輪郭が潰れて荒く見える。
+ICON_DIR = "icons"
+ICON_SIZES = (120, 152, 167, 180, 192, 256, 384)
+# 透けたままだと、iOSでは黒く塗られる。会話画面と同じ下地を敷く。
+ICON_BG = (0x17, 0x18, 0x1B)
+# 角を丸められても頭が欠けないよう、まわりに空ける割合。
+ICON_PADDING = 0.12
 
 BLINK_SUFFIX = "-blink"
 # キャンバスの余白。動きで1ドット上下させるぶんと、影のぶん。
@@ -133,6 +143,39 @@ def _face(canvas):
     return _shrink(crop, FACE_SIZE, FACE_SIZE)
 
 
+def _icon(canvas, size: int):
+    """ホーム画面のアイコン1枚。頭と肩が入る正方形に切って、下地を敷く。"""
+    left, top, right, bottom = png.bounds(canvas)
+    side = min(int((bottom - top + 1) * 0.72), canvas.width, canvas.height)
+    center = (left + right) // 2
+    x0 = max(0, min(center - side // 2, canvas.width - side))
+    y0 = max(0, min(top - side // 20, canvas.height - side))
+    crop = png.Image(side, side)
+    for y in range(side):
+        start = ((y0 + y) * canvas.width + x0) * 4
+        crop.px[y * side * 4:(y + 1) * side * 4] = canvas.px[start:start + side * 4]
+
+    inner = max(1, int(size * (1 - ICON_PADDING * 2)))
+    small = _shrink(crop, inner, inner)
+    out = png.Image(size, size)
+    red, green, blue = ICON_BG
+    for i in range(size * size):
+        out.px[i * 4:i * 4 + 4] = bytes((red, green, blue, 255))
+    offset = (size - inner) // 2
+    for y in range(inner):
+        for x in range(inner):
+            j = (y * inner + x) * 4
+            alpha = small.px[j + 3]
+            if not alpha:
+                continue
+            i = ((y + offset) * size + x + offset) * 4
+            # 下地の上に重ねる。掛け算はここで1回だけ。
+            for channel in range(3):
+                over, under = small.px[j + channel], out.px[i + channel]
+                out.px[i + channel] = (over * alpha + under * (255 - alpha)) // 255
+    return out
+
+
 def main() -> int:
     if not SOURCE_DIR.is_dir():
         print(f"素材が見つからない: {SOURCE_DIR}")
@@ -182,6 +225,11 @@ def main() -> int:
         sprites[name] = {"blink": blink is not None}
         if name == FACE_FROM:
             png.save(OUT_DIR / "face.png", _face(placed))
+            icons = OUT_DIR.parent / ICON_DIR
+            icons.mkdir(parents=True, exist_ok=True)
+            for size in ICON_SIZES:
+                png.save(icons / f"icon-{size}.png", _icon(placed, size))
+            print(f"  書いた: アイコン {len(ICON_SIZES)}枚")
         print(f"  書いた: {name}{'（まばたきあり）' if blink else ''}")
 
     manifest = {
@@ -198,6 +246,7 @@ def main() -> int:
     print(f"\n{len(sprites)}種類（まばたきあり {blinks}種類）")
     print(f"実寸: " + "、".join(f"{k} {v[0]}x{v[1]}" for k, v in sizes.items()))
     print(f"対応表: {OUT_DIR / 'sprites.json'}")
+    print(f"アイコン: " + "、".join(f"{n}px" for n in ICON_SIZES))
     return 0
 
 

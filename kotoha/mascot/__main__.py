@@ -19,7 +19,7 @@ from .. import config
 from . import client, sheet, window
 from .bubble import Bubble
 from .client import Brain
-from .window import Dot, user32
+from .window import Dot, kernel32, user32
 
 PLACE_PATH = config.BASE_DIR / "data" / "mascot.json"
 LOG_PATH = config.BASE_DIR / "data" / "mascot.log"
@@ -33,6 +33,12 @@ BLINK_MIN, BLINK_MAX, BLINK_MS = 4.0, 10.0, 0.13
 BUBBLE_SECONDS = 12.0
 # 繋がっていないときの濃さ。沈んだ色で座って待つ。
 DIM = 120
+# 画面の端から空けるぶん。壁に貼り付いているように見えると窮屈。
+MARGIN_RIGHT, MARGIN_BOTTOM = 28, 10
+
+# 同じ姿を二重に出さない。トレイと同じ作法（tray.already_running）。
+MUTEX_NAME = "kotoha-mascot-single-instance"
+_mutex = None
 
 ID_OPEN, ID_TALK, ID_CALL, ID_HERE, ID_QUIT = 1, 2, 3, 4, 5
 WM_KEYDOWN, VK_RETURN, VK_ESCAPE = 0x0100, 0x0D, 0x1B
@@ -80,7 +86,7 @@ class Mascot:
     def first_place(self, width: int, height: int):
         """前に置いた場所。無ければ右下。**画面の外には出さない。**"""
         left, top, right, bottom = window.work_area()
-        x, y = right - width - 8, bottom - height
+        x, y = right - width - MARGIN_RIGHT, bottom - height - MARGIN_BOTTOM
         try:
             saved = json.loads(PLACE_PATH.read_text(encoding="utf-8"))
             x, y = int(saved["x"]), int(saved["y"])
@@ -89,6 +95,11 @@ class Mascot:
         x = max(left, min(x, right - width))
         y = max(top, min(y, bottom - height))
         return x, y
+
+    def anchor(self):
+        """ふきだしを出す位置。**頭の少し上**を指す。"""
+        x, _ = self.dot.center()
+        return x, self.dot.y + 10
 
     def remember_place(self, x: int, y: int) -> None:
         """運ばれた先を覚える。**DBには入れない**（表示の都合は記憶と混ぜない）。"""
@@ -115,8 +126,7 @@ class Mascot:
         self.dot.draw(frame, lift=lift, opacity=opacity)
 
     def say(self, text: str, asking: bool = False) -> None:
-        x, _ = self.dot.center()
-        self.bubble.say(text, (x, self.dot.y + 6), asking=asking)
+        self.bubble.say(text, self.anchor(), asking=asking)
         self.bubble_until = 0 if asking else time.time() + BUBBLE_SECONDS
 
     # --- 時計 ---
@@ -181,7 +191,7 @@ class Mascot:
             time.sleep(0.45)
         self.dot.visible(False)
         x, _ = self.dot.center()
-        self.bubble.say("外出中　―　押すと呼び戻す", (x, self.dot.y + self.dot.height - 10))
+        self.bubble.say("外出中　―　押すと呼び戻す", (x, self.dot.y + self.dot.height))
         self.bubble_until = 0
 
     # --- 押されたとき ---
@@ -257,8 +267,24 @@ class Mascot:
         self.brain.stop()
 
 
+def already_running() -> bool:
+    """二重に出さない。掴んだ印はプロセスが終わるまで持ったままにする。
+
+    同時に立ち上がると印の取り合いになるので、窓の有無も見る。どちらかが
+    見つかれば、もう1つは黙って引き下がる。
+    """
+    global _mutex
+    _mutex = kernel32.CreateMutexW(None, False, MUTEX_NAME)
+    if ctypes.get_last_error() == 183:      # ERROR_ALREADY_EXISTS
+        return True
+    return bool(user32.FindWindowW(Dot.CLASS_NAME, None))
+
+
 def main() -> None:
     if not config.MASCOT_ENABLED:
+        return
+    if already_running():
+        log("すでに姿が出ているので、何もしない")
         return
     try:
         Mascot().run()

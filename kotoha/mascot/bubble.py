@@ -1,8 +1,12 @@
 """ふきだしと、一行の入力。
 
-⚠️ **ここはレイヤードウィンドウにしない。** GDIで文字を描くと不透明さが0のまま
-残るので、透過する窓に書いた文字は見えなくなる。ふきだしは**不透明な普通の窓**に
-して、角だけリージョンで丸める。ドット本体だけが透過する。
+⚠️ **絵と同じやり方（UpdateLayeredWindow）は使わない。** GDIで文字を描くと
+不透明さが0のまま残るので、その道で透過させると文字が消える。ここは普通に
+描いたうえで、**窓全体をまとめて薄くする**（SetLayeredWindowAttributes）。
+文字も背景も同じだけ透けるので、字は消えない。
+
+見た目は会話画面に合わせてある（`static/style.css` の色をそのまま使う）。
+角はリージョンで丸め、縁を1本引く。
 
 立て札（外出中）も同じ窓で出す。絵を用意しなくてよく、**押せる場所**にもなる。
 """
@@ -10,27 +14,39 @@
 import ctypes
 import ctypes.wintypes as w
 
-from .window import (WNDCLASS, WNDPROC, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
-                     SW_HIDE, SW_SHOWNOACTIVATE, HWND_TOPMOST, SWP_NOACTIVATE,
+from .window import (WNDCLASS, WNDPROC, WS_EX_LAYERED, WS_EX_TOOLWINDOW, WS_EX_TOPMOST,
+                     WS_POPUP, SW_HIDE, SW_SHOWNOACTIVATE, HWND_TOPMOST, SWP_NOACTIVATE,
                      WM_CLOSE, WM_DESTROY, WM_LBUTTONUP, gdi32, kernel32, user32, _signature,
-                     LRESULT)
+                     LRESULT, work_area)
 
 WS_CHILD, WS_VISIBLE, WS_BORDER = 0x40000000, 0x10000000, 0x00800000
 ES_AUTOHSCROLL = 0x0080
 WM_PAINT, WM_SETFONT, WM_GETTEXT, WM_SETTEXT = 0x000F, 0x0030, 0x000D, 0x000C
 WM_GETTEXTLENGTH = 0x000E
+WM_CTLCOLOREDIT = 0x0133
+EM_SETCUEBANNER = 0x1501
 DT_WORDBREAK, DT_CALCRECT, DT_NOPREFIX = 0x0010, 0x0400, 0x0800
 TRANSPARENT = 1
 DEFAULT_CHARSET = 1
+LWA_ALPHA = 0x00000002
 
-# 見た目。淡い紙に濃い字。どんな壁紙の上でも読める濃さにしてある。
-PAPER = 0x00FAFCFC          # COLORREF は 0x00BBGGRR
-INK = 0x002B2123
-FADED = 0x00807878
+# 画面の端から空けるぶん。ぴったり寄せると窮屈に見える。
+MARGIN = 16
+
+# 会話画面と同じ色。style.css の --panel / --input-bg / --ink / --muted / --input-line。
+# COLORREF は 0x00BBGGRR なので、CSSの並びとは逆になる。
+PANEL = 0x00241F1E          # #1e1f24
+INPUT_BG = 0x002C2726       # #26272c
+INK = 0x00E2E7E9            # #e9e7e2
+MUTED = 0x009D9898          # #98989d
+EDGE = 0x00423B3A           # #3a3b42
+# 窓ごと薄くする。壁紙が透けるが、字は読める濃さ。
+OPACITY = 232
 MAX_WIDTH = 280
-PADDING = 11
-INPUT_HEIGHT = 26
-GAP = 8
+PADDING = 13
+INPUT_HEIGHT = 30
+GAP = 9
+ROUND = 16
 
 
 class PAINTSTRUCT(ctypes.Structure):
@@ -55,8 +71,12 @@ _signature(gdi32.CreateFontW, w.HANDLE,
            w.DWORD, w.DWORD, w.DWORD, w.DWORD, w.DWORD, w.DWORD, w.DWORD, w.DWORD,
            w.LPCWSTR)
 _signature(gdi32.SetTextColor, w.DWORD, w.HDC, w.DWORD)
+_signature(gdi32.SetBkColor, w.DWORD, w.HDC, w.DWORD)
 _signature(gdi32.SetBkMode, ctypes.c_int, w.HDC, ctypes.c_int)
 _signature(gdi32.SelectObject, w.HGDIOBJ, w.HDC, w.HGDIOBJ)
+_signature(gdi32.FrameRgn, w.BOOL, w.HDC, w.HANDLE, w.HBRUSH, ctypes.c_int, ctypes.c_int)
+_signature(gdi32.FillRgn, w.BOOL, w.HDC, w.HANDLE, w.HBRUSH)
+_signature(user32.SetLayeredWindowAttributes, w.BOOL, w.HWND, w.DWORD, w.BYTE, w.DWORD)
 
 
 class Bubble:
@@ -71,17 +91,26 @@ class Bubble:
         self.width = self.height = 0
         self.asking = False
         self._proc = WNDPROC(self._handle)
-        self._brush = gdi32.CreateSolidBrush(PAPER)
+        self._brush = gdi32.CreateSolidBrush(PANEL)
+        self._input_brush = gdi32.CreateSolidBrush(INPUT_BG)
+        self._edge_brush = gdi32.CreateSolidBrush(EDGE)
+        self._region = None
         self._font = gdi32.CreateFontW(-14, 0, 0, 0, 400, 0, 0, 0, DEFAULT_CHARSET,
                                        0, 0, 0, 0, "Yu Gothic UI")
         self._register()
         self.hwnd = user32.CreateWindowExW(
-            WS_EX_TOOLWINDOW | WS_EX_TOPMOST, self.CLASS_NAME, "ことは",
+            WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_TOPMOST, self.CLASS_NAME, "ことは",
             WS_POPUP, 0, 0, 10, 10, None, None, kernel32.GetModuleHandleW(None), None)
+        # 窓ごと薄くする。**字も背景も同じだけ透ける**ので、文字は消えない。
+        user32.SetLayeredWindowAttributes(self.hwnd, 0, OPACITY, LWA_ALPHA)
         self.edit = user32.CreateWindowExW(
             0, "EDIT", "", WS_CHILD | ES_AUTOHSCROLL, 0, 0, 10, INPUT_HEIGHT,
             self.hwnd, None, kernel32.GetModuleHandleW(None), None)
         user32.SendMessageW(self.edit, WM_SETFONT, self._font, 1)
+        # 打つ前の薄い案内。会話画面の入力欄と同じ文句にしてある。
+        user32.SendMessageW(self.edit, EM_SETCUEBANNER, 1,
+                            ctypes.cast(ctypes.create_unicode_buffer("なにか話す…"),
+                                        ctypes.c_void_p).value)
 
     def _register(self) -> None:
         klass = WNDCLASS()
@@ -98,18 +127,25 @@ class Bubble:
         """言葉を出す。anchor は (中心X, 上端Y)。その上に置く。"""
         self.text = text
         self.asking = asking
-        inner = self._measure(text)
+        inner = self._measure(text) if text else (MAX_WIDTH - PADDING * 2, 0)
         self.width = inner[0] + PADDING * 2
-        self.height = inner[1] + PADDING * 2 + (INPUT_HEIGHT + GAP if asking else 0)
-        x = max(8, anchor[0] - self.width // 2)
-        y = max(8, anchor[1] - self.height - 6)
+        # 言葉が無いなら、その場所は空けない（入力欄だけのふきだしになる）。
+        self.height = (inner[1] + (GAP if text else 0) + PADDING * 2
+                       + (INPUT_HEIGHT if asking else 0))
+        left, top, right, bottom = work_area()
+        x = min(max(left + MARGIN, anchor[0] - self.width // 2), right - self.width - MARGIN)
+        y = min(max(top + MARGIN, anchor[1] - self.height - 8), bottom - self.height - MARGIN)
         user32.SetWindowPos(self.hwnd, HWND_TOPMOST, x, y, self.width, self.height,
                             SWP_NOACTIVATE)
-        region = gdi32.CreateRoundRectRgn(0, 0, self.width + 1, self.height + 1, 14, 14)
-        user32.SetWindowRgn(self.hwnd, region, True)
+        self._region = gdi32.CreateRoundRectRgn(0, 0, self.width + 1, self.height + 1,
+                                                ROUND, ROUND)
+        user32.SetWindowRgn(self.hwnd, self._region, True)
         if asking:
-            user32.SetWindowPos(self.edit, None, PADDING, self.height - PADDING - INPUT_HEIGHT,
-                                self.width - PADDING * 2, INPUT_HEIGHT, SWP_NOACTIVATE)
+            # 入力欄は、下地の角丸から少し内側に置く。
+            user32.SetWindowPos(self.edit, None, PADDING + 8,
+                                self.height - PADDING - INPUT_HEIGHT + 6,
+                                self.width - (PADDING + 8) * 2, INPUT_HEIGHT - 12,
+                                SWP_NOACTIVATE)
             user32.ShowWindow(self.edit, SW_SHOWNOACTIVATE)
         else:
             user32.ShowWindow(self.edit, SW_HIDE)
@@ -159,16 +195,32 @@ class Bubble:
             dc = user32.BeginPaint(hwnd, ctypes.byref(paint))
             rect = w.RECT(0, 0, self.width, self.height)
             user32.FillRect(dc, ctypes.byref(rect), self._brush)
+            if self.asking:
+                # 入力欄の下地。会話画面の入力と同じ、少し明るい角丸。
+                field = gdi32.CreateRoundRectRgn(
+                    PADDING, self.height - PADDING - INPUT_HEIGHT,
+                    self.width - PADDING + 1, self.height - PADDING + 1, 12, 12)
+                gdi32.FillRgn(dc, field, self._input_brush)
+                gdi32.DeleteObject(field)
+            if self._region:
+                gdi32.FrameRgn(dc, self._region, self._edge_brush, 1, 1)
             old = gdi32.SelectObject(dc, self._font)
             gdi32.SetBkMode(dc, TRANSPARENT)
-            gdi32.SetTextColor(dc, INK if self.text else FADED)
-            area = w.RECT(PADDING, PADDING, self.width - PADDING,
-                          self.height - PADDING - (INPUT_HEIGHT + GAP if self.asking else 0))
-            user32.DrawTextW(dc, self.text, -1, ctypes.byref(area),
-                             DT_WORDBREAK | DT_NOPREFIX)
+            gdi32.SetTextColor(dc, INK if self.text else MUTED)
+            if self.text:
+                area = w.RECT(PADDING + 1, PADDING, self.width - PADDING - 1,
+                              self.height - PADDING
+                              - (INPUT_HEIGHT + GAP if self.asking else 0))
+                user32.DrawTextW(dc, self.text, -1, ctypes.byref(area),
+                                 DT_WORDBREAK | DT_NOPREFIX)
             gdi32.SelectObject(dc, old)
             user32.EndPaint(hwnd, ctypes.byref(paint))
             return 0
+        if message == WM_CTLCOLOREDIT:
+            # 入力欄も同じ色にする。何もしないと白いままで、ここだけ浮く。
+            gdi32.SetTextColor(wparam, INK)
+            gdi32.SetBkColor(wparam, INPUT_BG)
+            return self._input_brush
         if message == WM_LBUTTONUP:
             self.on_click()
             return 0

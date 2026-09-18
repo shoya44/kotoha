@@ -979,8 +979,17 @@ function closeSettings() {
 // 実体（姿を出す場所）も脳が決める。ことはは1人なので、姿が出るのは
 // ドットか会話画面のどちらか片方だけ。こちらに居ないあいだは「外出中」。
 
-// この画面の名乗り。開くたびに作る。どの器に届けるかの宛先になる。
-const VESSEL = "web-" + Math.random().toString(36).slice(2, 8);
+// この画面の名乗り。**端末ごとに覚えておく。** 裏に回ったり開き直したりしても
+// 同じ器として戻れる（ことはは、そこに居たまま待っている）。
+let VESSEL = localStorage.getItem("kotoha_vessel") || "";
+if (!VESSEL) {
+  VESSEL = "web-" + Math.random().toString(36).slice(2, 8);
+  try {
+    localStorage.setItem("kotoha_vessel", VESSEL);
+  } catch {
+    // 保存できなくても、この起動のあいだは使える。
+  }
+}
 const SPRITE_URL = "/static/sprite/full/";
 
 let presenceStream = null;
@@ -1055,6 +1064,8 @@ function disconnectPresence() {
 
 // **見えなくなったことは、こちらから言う。** 切断を待つと、iPhoneでは
 // 繋がりが残ったままになり、脳が「まだ居る」と思い込んでPushが鳴らなくなる。
+// 居場所は動かない。**ことははこの画面に居たまま**で、見ていないあいだの
+// 言葉だけがスマホの通知で届く。
 function sayGoodbye() {
   if (!token) return;
   const url = `/api/presence/bye?token=${encodeURIComponent(token)}`;

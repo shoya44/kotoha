@@ -160,12 +160,21 @@ class PresenceApiTests(BodyCase):
         self.assertEqual(response.json()["body"], "web-1")
         self.assertEqual(hub.body(), "web-1")
 
-    def test_bye_hands_her_back(self):
+    def test_bye_only_means_not_watching(self):
+        """裏に回っただけ。**居場所は動かさない**ので、戻ればそこに居る。"""
         self.connect(hub.DESKTOP)
         self.connect("web-1")
         self.client.post("/api/presence/here", json={"vessel": "web-1"}, headers=self.headers)
         self.client.post("/api/presence/bye", json={"vessel": "web-1"}, headers=self.headers)
-        self.assertEqual(hub.body(), hub.DESKTOP)
+        self.assertEqual(hub.body(), "web-1")
+        self.assertFalse(hub.watching())
+
+    def test_the_phone_rings_while_she_is_not_watched(self):
+        """iPhoneにしまわれているあいだの言葉は、通知で届く。"""
+        self.connect("web-1")
+        hub.forget("web-1")
+        announce._deliver("おかえり", [])
+        self.assertEqual(self.pushed, ["おかえり"])
 
 
 if __name__ == "__main__":

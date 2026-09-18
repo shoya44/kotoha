@@ -96,42 +96,53 @@ class CallingTests(HubCase):
 
 
 class LeavingTests(HubCase):
-    def test_she_goes_home_when_the_screen_closes(self):
-        desktop = self.connect(hub.DESKTOP)
+    def test_she_stays_where_she_was(self):
+        """**裏に回っても居場所は動かない。** 戻ってくれば、そこに居る。"""
+        self.connect(hub.DESKTOP)
         web = self.connect("web-1")
         hub.claim("web-1")
         hub.leave(web)
-        self.assertEqual(hub.body(), hub.DESKTOP)
-        self.assertEqual(self.last(hub.DESKTOP), {"type": "here"})
-        self.assertIsNotNone(desktop)
+        self.assertEqual(hub.body(), "web-1")
+        self.assertFalse(hub.watching())
 
-    def test_she_moves_to_whoever_is_left(self):
+    def test_coming_back_finds_her_there(self):
+        self.connect("web-1")
+        hub.forget("web-1")
+        self.connect("web-1")
+        self.assertEqual(hub.body(), "web-1")
+        self.assertTrue(hub.watching())
+        self.assertEqual(self.last("web-1"), {"type": "here"})
+
+    def test_another_screen_does_not_inherit_her(self):
+        """開いたままの画面があっても、そちらへは移らない。"""
         self.connect("web-1")
         self.connect("web-2")
         hub.forget("web-1")
-        self.assertEqual(hub.body(), "web-2")
+        self.assertEqual(hub.body(), "web-1")
+        self.assertNotIn({"type": "here"}, self.events("web-2"))
 
-    def test_nobody_left_means_no_body(self):
-        vessel = self.connect(hub.DESKTOP)
-        hub.leave(vessel)
-        self.assertIsNone(hub.body())
-        self.assertIsNone(hub.body_kind())
-        self.assertFalse(hub.anyone())
+    def test_talking_brings_her_over(self):
+        """動かすのは呼ばれたときだけ。"""
+        self.connect("web-1")
+        hub.forget("web-1")
+        self.connect(hub.DESKTOP)
+        hub.claim(hub.DESKTOP, "話しかけられた")
+        self.assertEqual(hub.body(), hub.DESKTOP)
 
     def test_bye_does_not_wait_for_the_connection_to_drop(self):
         """iPhoneのPWAは背景でも繋がりが残る。待つとPushが鳴らなくなる。"""
         self.connect("web-1")
         hub.forget("web-1")
-        self.assertIsNone(hub.body())
+        self.assertFalse(hub.watching())
         self.assertFalse(hub.anyone())
 
-    def test_a_stale_connection_does_not_take_her_away(self):
-        """bye のあとに切断が来ても、そのとき居る器を巻き添えにしない。"""
+    def test_a_stale_connection_is_not_mistaken_for_the_new_one(self):
+        """bye のあとに切断が来ても、繋ぎ直したぶんを巻き添えにしない。"""
         old = self.connect("web-1")
         hub.forget("web-1")
-        self.connect(hub.DESKTOP)
+        self.connect("web-1")
         hub.leave(old)
-        self.assertEqual(hub.body(), hub.DESKTOP)
+        self.assertTrue(hub.watching())
 
 
 class SpeakingTests(HubCase):
@@ -141,6 +152,12 @@ class SpeakingTests(HubCase):
         self.assertTrue(hub.say("おかえり"))
         self.assertEqual(self.last(hub.DESKTOP), {"type": "say", "text": "おかえり"})
         self.assertEqual(self.last("web-1"), {"type": "away", "where": "desktop"})
+
+    def test_nothing_to_say_to_a_screen_that_is_not_there(self):
+        """居場所はあっても、見ていなければ届かない（そのときは通知になる）。"""
+        self.connect("web-1")
+        hub.forget("web-1")
+        self.assertFalse(hub.say("おかえり"))
 
     def test_nothing_to_say_to_nobody(self):
         self.assertFalse(hub.say("おかえり"))
@@ -164,11 +181,11 @@ class RememberingTests(HubCase):
         with db.session() as conn:
             self.assertEqual(db.get_state(conn, db.BODY_WHERE), "web-1")
 
-    def test_an_empty_place_when_nobody_is_left(self):
+    def test_the_place_stays_written_when_she_is_not_watched(self):
         vessel = self.connect(hub.DESKTOP)
         hub.leave(vessel)
         with db.session() as conn:
-            self.assertEqual(db.get_state(conn, db.BODY_WHERE), "")
+            self.assertEqual(db.get_state(conn, db.BODY_WHERE), hub.DESKTOP)
 
     def test_snapshot_shows_the_room(self):
         self.connect(hub.DESKTOP)

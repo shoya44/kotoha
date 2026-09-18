@@ -122,6 +122,9 @@ def reaches_the_person() -> bool:
     ⚠️ **測るのはこの瞬間だけ。** 巡回では測らない。ことはが口を開くのは
     1日に数回で、常時見張る理由がない。
     """
+    if not hub.watching():
+        # 居場所はあるが、その画面はもう見られていない（閉じた・裏に回った）。
+        return False
     kind = hub.body_kind()
     if kind is None:
         return False

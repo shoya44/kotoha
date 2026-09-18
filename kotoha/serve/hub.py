@@ -102,7 +102,12 @@ def join(name: str, queue, loop) -> Vessel:
 
 
 def leave(vessel) -> None:
-    """繋がりが切れた。実体がそこにあったなら、残っている器へ移す。"""
+    """繋がりが切れた。**居場所は動かさない。**
+
+    切れたのは「見ていない」というだけで、置いてきたわけではない。iPhoneを
+    ポケットにしまっても、ことははそこに居たままにする。戻ってくれば、また
+    その画面に出る。見ていないあいだの言葉はスマホの通知で届く。
+    """
     with _lock:
         if _vessels.get(vessel.name) is not vessel:
             return                     # すでに繋ぎ直されている。何もしない。
@@ -114,6 +119,8 @@ def forget(name: str) -> None:
 
     ⚠️ **切断を待たない。** iPhoneのPWAは背景に回っても繋がりが残ることが
     あり、待っていると「まだ居る」と思い込んでPushが鳴らなくなる。
+
+    切断と同じ扱いで、**居場所は動かさない**。見ていないだけ。
     """
     with _lock:
         if name in _vessels:
@@ -145,6 +152,17 @@ def body_kind():
 def anyone() -> bool:
     with _lock:
         return bool(_vessels)
+
+
+def watching() -> bool:
+    """実体のある器が、いま繋がっているか。
+
+    **居場所と、見ているかどうかは別のこと。** iPhoneに居たままポケットに
+    しまわれていれば、居場所はiPhoneのまま、見てはいない。そのときの言葉は
+    通知で届ける。
+    """
+    with _lock:
+        return _body in _vessels
 
 
 def say(text: str) -> bool:
@@ -264,25 +282,17 @@ def _move(name: str, reason: str) -> None:
 
 
 def _drop(name: str) -> None:
-    """器が1つ消えた。実体がそこにあったなら、行き先を決め直す。
+    """器が1つ消えた。**居場所はそのまま。**
 
-    戻る先は家（タスクトレイ）を先に見る。**無ければどこでもよい**が、
-    誰も残っていなければ実体なしになり、次からはPushで届く。
+    移すのは、呼ばれたときだけ（話しかける・立て札を押す・通知から開く）。
+    勝手に行き来すると落ち着かないし、iPhoneを見ていた続きが消える。
+
+    通話だけは終わる。マイクの開いた画面がもう無い。
     """
-    global _body, _since, _reason, _calling
+    global _calling
     if _calling == name:
         _calling = None
     _vessels.pop(name, None)
-    if _body != name:
-        return
-    if DESKTOP in _vessels:
-        _move(DESKTOP, "器が消えた")
-        return
-    for other in _vessels:
-        _move(other, "器が消えた")
-        return
-    _body, _since, _reason = None, db.now_utc(), "器が消えた"
-    _remember(None)
 
 
 def _remember(name) -> None:
