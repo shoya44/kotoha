@@ -517,7 +517,7 @@ kotoha/
     announce.py             ことはから言う（通知はここだけ）
     voice.py                AivisSpeechでの読み上げ
     static/                 Webチャット画面（html / css / js）
-    static/sprite/          ことはの絵（build_sprites.py が作る）
+    static/sprite/          ことはの絵（build_sprites.py が作る。full=ドット、web=会話画面）
   mascot/                   画面に出る器
     __main__.py             組み立てと、絵を進める時計
     window.py               枠なしの窓（透過・当たり判定・運ぶ）

@@ -40,7 +40,7 @@ class ManifestTests(unittest.TestCase):
                 self.assertIn(choice, names)
 
     def test_files_exist_in_every_size(self):
-        for size in ("full",):
+        for size in ("full", "web"):
             for name, info in self.manifest["sprites"].items():
                 with self.subTest(size=size, sprite=name):
                     self.assertTrue((SPRITE_DIR / size / f"{name}.png").exists())
@@ -48,13 +48,13 @@ class ManifestTests(unittest.TestCase):
                         self.assertTrue((SPRITE_DIR / size / f"{name}-blink.png").exists())
 
     def test_sizes_are_listed(self):
-        for size in ("full", "face"):
+        for size in ("full", "web", "face"):
             self.assertIn(size, self.manifest["sizes"])
         self.assertTrue((SPRITE_DIR / "face.png").exists())
 
     def test_every_frame_has_the_same_shape(self):
         """大きさが揃っていないと、絵を切り替えるたびに位置が跳ねる。"""
-        for size in ("full",):
+        for size in ("full", "web"):
             width, height = self.manifest["sizes"][size]
             for name in self.manifest["sprites"]:
                 with self.subTest(size=size, sprite=name):

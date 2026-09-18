@@ -35,9 +35,14 @@ SOURCE_DIR = BASE_DIR / "img" / "dot"
 OUT_DIR = BASE_DIR / "kotoha" / "serve" / "static" / "sprite"
 
 # 出す実寸。高さで揃える（横幅はキャンバスの比で決まる）。
-# **1つで足りる。** タスクトレイのドットも、会話画面の顔も、同じ大きさで出す。
-HEIGHTS = {"full": 140}
-FACE_SIZE = 32
+#
+# ⚠️ **画面の点と、絵の点は同じではない。** iPhoneは1ポイントを3画素で描くので、
+# 140ポイントの枠に140pxの絵を置くと3倍に引き伸ばされて眠くなる。会話画面用は
+# 元絵と同じ大きさ（縮めない）で出し、枠側で縮めてもらう。
+HEIGHTS = {"full": 140, "web": 0}     # web は 0 で「縮めない」の意
+# 会話の行やヘッダーに並ぶ顔。いちばん大きい使い方で56ポイント＝168画素なので、
+# これだけあれば常に縮める側になる（拡大した絵は眠くなる）。
+FACE_SIZE = 192
 # 顔を切り出す絵。こちらを向いているものを使う。
 FACE_FROM = "talk"
 
@@ -125,6 +130,25 @@ def _shrink(image, out_w: int, out_h: int):
     return out
 
 
+def _fit(image, out_w: int, out_h: int):
+    """その大きさにする。同じなら何もしない（縮めないぶんは元のまま渡す）。"""
+    if (image.width, image.height) == (out_w, out_h):
+        return image
+    return _shrink(image, out_w, out_h)
+
+
+def _grow(image, out_w: int, out_h: int):
+    """大きくする。線の間を埋めず、点をそのまま並べる（ドット絵の輪郭を保つ）。"""
+    out = png.Image(out_w, out_h)
+    for y in range(out_h):
+        sy = min(image.height - 1, y * image.height // out_h)
+        for x in range(out_w):
+            sx = min(image.width - 1, x * image.width // out_w)
+            i, j = (y * out_w + x) * 4, (sy * image.width + sx) * 4
+            out.px[i:i + 4] = image.px[j:j + 4]
+    return out
+
+
 def _face(canvas):
     """顔のあたりを正方形で切り出す。会話の行に並べる小さな顔になる。"""
     left, top, right, bottom = png.bounds(canvas)
@@ -140,7 +164,10 @@ def _face(canvas):
             break
         start = (sy * canvas.width + x0) * 4
         crop.px[y * side * 4:(y + 1) * side * 4] = canvas.px[start:start + side * 4]
-    return _shrink(crop, FACE_SIZE, FACE_SIZE)
+    if side >= FACE_SIZE:
+        return _shrink(crop, FACE_SIZE, FACE_SIZE)
+    # 元より大きくするときは、ぼかさずに点を並べる。
+    return _grow(crop, FACE_SIZE, FACE_SIZE)
 
 
 def _icon(canvas, size: int):
@@ -156,7 +183,7 @@ def _icon(canvas, size: int):
         crop.px[y * side * 4:(y + 1) * side * 4] = canvas.px[start:start + side * 4]
 
     inner = max(1, int(size * (1 - ICON_PADDING * 2)))
-    small = _shrink(crop, inner, inner)
+    small = _shrink(crop, inner, inner) if side >= inner else _grow(crop, inner, inner)
     out = png.Image(size, size)
     red, green, blue = ICON_BG
     for i in range(size * size):
@@ -208,20 +235,25 @@ def main() -> int:
 
     sizes = {}
     for folder, height in HEIGHTS.items():
-        sizes[folder] = [max(1, round(canvas_w * height / canvas_h)), height]
+        if height:
+            sizes[folder] = [max(1, round(canvas_w * height / canvas_h)), height]
+        else:
+            sizes[folder] = [canvas_w, canvas_h]      # 縮めない
     sizes["face"] = [FACE_SIZE, FACE_SIZE]
 
     sprites = {}
     for name, image, box, blink in loaded:
         placed, offset = _place(image, box, canvas_w, canvas_h)
-        for folder, (out_w, out_h) in ((f, tuple(sizes[f])) for f in HEIGHTS):
-            png.save(OUT_DIR / folder / f"{name}.png", _shrink(placed, out_w, out_h))
+        for folder in HEIGHTS:
+            out_w, out_h = sizes[folder]
+            png.save(OUT_DIR / folder / f"{name}.png", _fit(placed, out_w, out_h))
         if blink is not None:
             # **本体と同じ置き方**。測り直すと、まばたきのたびに顔がずれる。
             shifted, _ = _place(blink, box, canvas_w, canvas_h, offset)
-            for folder, (out_w, out_h) in ((f, tuple(sizes[f])) for f in HEIGHTS):
+            for folder in HEIGHTS:
+                out_w, out_h = sizes[folder]
                 png.save(OUT_DIR / folder / f"{name}{BLINK_SUFFIX}.png",
-                         _shrink(shifted, out_w, out_h))
+                         _fit(shifted, out_w, out_h))
         sprites[name] = {"blink": blink is not None}
         if name == FACE_FROM:
             png.save(OUT_DIR / "face.png", _face(placed))

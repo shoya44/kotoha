@@ -25,7 +25,9 @@
 
 <body>
   <div id="gate" aria-modal="true" role="dialog" aria-labelledby="gate-title">
-    <img class="av gate-av" src="/static/sprite/face.png" alt="">
+    <!-- 鍵の画面の絵は150ポイント＝450画素ぶん使う。顔の切り抜きでは足りないので、
+         ホーム画面と同じ大きい絵を出す。 -->
+    <img class="av gate-av" src="/static/icons/icon-384.png" alt="">
     <div class="t" id="gate-title">ことは の鍵</div>
     <input
       id="token"
@@ -60,7 +62,7 @@
     </header>
 
     <section class="mini-avatar">
-      <img id="miniAvatarImage" src="/static/sprite/full/talk.png" alt="ことは">
+      <img id="miniAvatarImage" src="/static/sprite/web/talk.png" alt="ことは">
       <!-- 姿がこちらに無いあいだの立て札。押せば呼べる。 -->
       <button id="awaySign" type="button">
         <span id="awayWhere">外出中</span>

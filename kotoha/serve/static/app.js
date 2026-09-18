@@ -990,7 +990,9 @@ if (!VESSEL) {
     // 保存できなくても、この起動のあいだは使える。
   }
 }
-const SPRITE_URL = "/static/sprite/full/";
+// 会話画面は大きく出す。iPhoneは1ポイントを3画素で描くので、小さい絵を
+// 置くと引き伸ばされて眠くなる。
+const SPRITE_URL = "/static/sprite/web/";
 
 let presenceStream = null;
 let blinkTimer = null;
