@@ -156,6 +156,34 @@ class PeriodicJobOrderTests(unittest.TestCase):
         self.assertIsNotNone(rescued, "忘却後にバックアップを取ると取り戻せなくなる")
         self.assertEqual(rescued[0], "消える記憶")
 
+    def test_a_failed_backup_is_written_down(self):
+        """**控えが取れていないことに、要るときまで気づけないのが一番困る。**"""
+        from kotoha import notify
+        from kotoha.serve import jobs, web
+
+        self.addCleanup(setattr, notify, "log", notify.log)
+        logged = []
+        notify.log = logged.append
+
+        def broken(conn):
+            raise OSError("保存先が無い")
+
+        self.addCleanup(setattr, db, "run_backup", db.run_backup)
+        db.run_backup = broken
+        self.conn.execute(
+            "INSERT INTO memory_nodes(layer, kind, text, occurred_at, confirmed_at, "
+            "last_used_at, expires_at, pinned, source_key) VALUES (?,?,?,?,?,?,?,?,?)",
+            ("semantic", "fact", "消える記憶", "2020-01-01", "2020-01-01T00:00:00Z",
+             "2020-01-01T00:00:00Z", "2020-01-02T00:00:00Z", 0, "doomed"),
+        )
+        self.conn.commit()
+
+        jobs.run_periodic_jobs(self.conn)
+
+        self.assertTrue(any("バックアップ" in one for one in logged), logged)
+        remaining = self.conn.execute("SELECT COUNT(*) FROM memory_nodes").fetchone()[0]
+        self.assertEqual(remaining, 0, "保存先の不調で忘却まで止めない")
+
 
 class ConsolidationTimingTests(DbCase):
     """整理を始める頃合い。巡回は会話と同じ順番待ちに並ぶ。"""

@@ -47,8 +47,10 @@ def run_periodic_jobs(conn) -> None:
     if db.overdue(conn, db.LAST_BACKUP_AT, config.BACKUP_INTERVAL_SECONDS):
         try:
             db.run_backup(conn)
-        except Exception:
-            pass  # 保存先の不調で忘却まで止めない。
+        except Exception as error:
+            # 保存先の不調で忘却まで止めない。ただし黙っては済ませない。
+            # 控えが取れていないことに、要るときまで気づけないのが一番困る。
+            notify.log(f"バックアップで失敗: {error!r}")
     if db.overdue(conn, db.LAST_FORGET_AT, config.MAINTENANCE_SECONDS):
         db.run_maintenance(conn)
     # 朝の一言、頼まれごと、見守り、暇なときの声かけ。どれも滅多に鳴らない。
