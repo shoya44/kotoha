@@ -54,11 +54,19 @@ const elements = {
 };
 
 const AVATAR_URL = "/static/kotoha.png";
+// ことはのほうからの発言を見に行く間隔。裏の巡回が60秒なので、これで
+// 取りこぼさない。画面が隠れているあいだは見に行かない。
+const CATCH_UP_MS = 30000;
 const MAX_INPUT_HEIGHT = 120;
 const LONG_PRESS_MS = 520;
 
 let token = localStorage.getItem("kotoha_token") || "";
 let longPressTimer = null;
+// 画面がすでに並べた最後のメッセージ。ここから後ろだけを取りに行く。
+let lastMessageId = 0;
+let catchUpTimer = null;
+// 送信の往復のあいだは見に行かない。返事より先に自分の発言を拾うと二重に並ぶ。
+let talking = false;
 
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -1228,8 +1236,32 @@ async function loadHistory() {
   lastDateKey = null;
 
   rows.forEach(message => addMessage(message.role, message.text, message.created_at));
+  lastMessageId = rows.length ? rows[rows.length - 1].id : 0;
   scrollToBottom();
   return true;
+}
+
+// ことはのほうからの発言は、通知と同時に履歴へ残る。開いたままの画面はそれを
+// 知らないので、**自分が持っている最後のぶんより後ろだけ**を取りに行く。
+// 全部を読み直すと、そのたびに画面を組み直すことになる。
+async function catchUp() {
+  if (!token || !lastMessageId || document.hidden || talking) return;
+  try {
+    const response = await api(`/api/history?after=${lastMessageId}`);
+    if (!response.ok) return;
+    for (const message of await response.json()) {
+      addMessage(message.role, message.text, message.created_at);
+      lastMessageId = message.id;
+    }
+  } catch {
+    // つながらないあいだは、次の番を待つだけでよい。
+  }
+}
+
+function watchHistory() {
+  clearInterval(catchUpTimer);
+  catchUpTimer = setInterval(catchUp, CATCH_UP_MS);
+  catchUp();
 }
 
 async function unlock() {
@@ -1245,6 +1277,7 @@ async function unlock() {
     setStatus("いるよ");
     elements.input.focus();
     setupPush();
+    watchHistory();
   } catch {
     setStatus("接続できない", "offline");
     elements.gateError.textContent = "接続できませんでした";
@@ -1256,6 +1289,7 @@ async function send() {
   if (!text || elements.sendButton.disabled) return;
 
   closeContextMenu();
+  talking = true;
   // iPhoneでは、送信ボタンを押した拍子に焦点が外れてキーボードが閉じる。
   // **指の動きが続いているこの瞬間なら戻せる。** 返事を待ってから戻しても、
   // そのときにはもう指が離れていて、キーボードは開かない（下の finally）。
@@ -1280,6 +1314,7 @@ async function send() {
     }
 
     const data = await response.json();
+    if (data.last_id) lastMessageId = data.last_id;
     // ことは側から始まる会話も、通常のAIメッセージとして同じ見た目で扱う。
     addMessage("assistant", data.reply);
     (data.kept || []).forEach(showKept);
@@ -1294,6 +1329,7 @@ async function send() {
     addMessage("system", "[エラー] 通信失敗");
     setStatus("接続できない", "offline");
   } finally {
+    talking = false;
     elements.sendButton.disabled = false;
     elements.input.focus();
   }
@@ -1764,6 +1800,10 @@ function syncVisualViewport() {
 }
 
 syncVisualViewport();
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) catchUp();
+});
+
 window.visualViewport?.addEventListener("resize", syncVisualViewport);
 window.visualViewport?.addEventListener("scroll", syncVisualViewport);
 
@@ -1786,6 +1826,7 @@ setInterval(updateMiniAvatar, 30 * 60 * 1000);
       setStatus("いるよ");
       elements.input.focus();
       setupPush();
+      watchHistory();
       handleSnoozeLink();      // Chromeの通知ボタンから開かれたとき
       offerSnooze();           // 頼まれごとの通知から開かれたとき
       return;

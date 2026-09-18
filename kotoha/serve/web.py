@@ -100,11 +100,22 @@ def push_settings(request: Request):
 
 
 @app.get("/api/history")
-def history(request: Request, limit: int = config.WEB_HISTORY_LIMIT):
+def history(request: Request, limit: int = config.WEB_HISTORY_LIMIT, after: int = 0):
+    """会話の履歴。`after` を渡すと、その番号より後ろだけを古い順に返す。
+
+    開いたままの画面が、ことはのほうからの発言に気づくための道。全部を
+    読み直させると、そのたびに画面を組み直すことになる。
+    """
     _check_token(request)
     with db.session() as conn:
+        if after:
+            rows = conn.execute(
+                "SELECT id, role, text, created_at FROM messages "
+                "WHERE id > ? ORDER BY id LIMIT ?", (after, limit),
+            ).fetchall()
+            return JSONResponse([dict(r) for r in rows])
         rows = conn.execute(
-            "SELECT role, text, created_at FROM messages ORDER BY id DESC LIMIT ?", (limit,)
+            "SELECT id, role, text, created_at FROM messages ORDER BY id DESC LIMIT ?", (limit,)
         ).fetchall()
         return JSONResponse([dict(r) for r in reversed(rows)])
 
@@ -120,7 +131,10 @@ def api_chat(request: Request, payload: dict):
             turn = chat.run_turn(conn, text)
         except llm.LLMError as e:
             raise HTTPException(status_code=502, detail=str(e))
-    answer = {"reply": turn.reply, "mode": turn.mode}
+        # いま増えたぶんまで画面の目印を進める。これが無いと、次の見に行きで
+        # 自分が送ったばかりの往復をもう一度拾って、二重に並ぶ。
+        last_id = conn.execute("SELECT MAX(id) AS id FROM messages").fetchone()["id"]
+    answer = {"reply": turn.reply, "mode": turn.mode, "last_id": last_id}
     if turn.kept:
         # 預かったことを画面にも出す。ことはの言葉は変えず、印だけ足す。
         answer["kept"] = [{"due_at": when.strftime(remind.STAMP), "text": what}
