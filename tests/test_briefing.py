@@ -11,9 +11,8 @@ from tests.support import DbCase, use_temp_db
 _TMP = use_temp_db("briefing")
 
 from kotoha import notify  # noqa: E402
-from kotoha.memory import db  # noqa: E402
+from kotoha.memory import db, remind  # noqa: E402
 from kotoha.serve import announce as announce_mod, jobs, web  # noqa: E402
-from kotoha.memory import remind  # noqa: E402
 from kotoha.talk import chat, quake, weather  # noqa: E402
 
 
@@ -107,6 +106,15 @@ class BriefingTests(DbCase):
         chat.speak = lambda conn, closing, extra="", keep=True: (
             self.given.append(extra) or "おはよ。傘いるよ。")
         jobs.weather = FakeSky()
+        self.quiet_day()
+
+    def quiet_day(self):
+        """今日が何の日でも同じように試せるよう、ほかの材料を黙らせる。"""
+        for owner, name, still in ((jobs.schedule, "today", lambda day=None: None),
+                                   (jobs.quake, "night", lambda now=None: []),
+                                   (jobs.garbage, "today", lambda day=None: [])):
+            self.addCleanup(setattr, owner, name, getattr(owner, name))
+            setattr(owner, name, still)
 
     def at(self, hour):
         """時計を動かす代わりに、その時刻で呼んだことにする。"""
@@ -324,6 +332,10 @@ class MorningMaterialTests(DbCase):
                                       "clothes": "長袖"}
         self.addCleanup(setattr, jobs.garbage, "today", jobs.garbage.today)
         jobs.garbage.today = lambda day=None: ["燃やすごみ"]
+        for owner, name, still in ((jobs.schedule, "today", lambda day=None: None),
+                                   (jobs.quake, "night", lambda now=None: [])):
+            self.addCleanup(setattr, owner, name, getattr(owner, name))
+            setattr(owner, name, still)
 
         self.addCleanup(setattr, chat, "speak", chat.speak)
         self.asked = []
