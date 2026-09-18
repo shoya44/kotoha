@@ -728,6 +728,14 @@ function formatTime(value) {
   return `${date.getFullYear()}/${date.getMonth() + 1}/${date.getDate()} ${time}`;
 }
 
+// **指で触る画面では、開いた拍子に焦点を当てない。** キーボードが立ち上がって
+// 画面が縮み、ことはの顔が畳まれる。縮んだ高さの指定が残ると、端に地の黒が
+// 出たままになることもある。PCでは今までどおり、開いたらすぐ打てる。
+function focusInput() {
+  if (window.matchMedia?.("(pointer: coarse)").matches) return;
+  elements.input.focus();
+}
+
 // ===== API =====
 function api(path, options = {}) {
   const headers = {
@@ -1337,7 +1345,7 @@ async function unlock() {
     connectPresence();
     elements.gate.style.display = "none";
     setStatus("いるよ");
-    elements.input.focus();
+    focusInput();
     setupPush();
     watchHistory();
   } catch {
@@ -1758,7 +1766,14 @@ function setTyping(on) {
 }
 
 elements.input.addEventListener("focus", () => setTyping(true));
-elements.input.addEventListener("blur", () => setTyping(false));
+elements.input.addEventListener("blur", () => {
+  setTyping(false);
+  // キーボードが引っ込んだことを、端末が知らせてこないことがある。**その場で
+  // 捨てる。** 残ると画面が縮んだままで、端に地の黒が出る。まだ出ているなら、
+  // 次の測り直しでまた立つ。
+  document.documentElement.style.removeProperty("--vv-height");
+  document.documentElement.style.removeProperty("--vv-top");
+});
 
 elements.jumpBottom.addEventListener("click", () => {
   scrollToBottom("smooth");
@@ -1868,7 +1883,7 @@ window.addEventListener("pagehide", sayGoodbye);
     if (await loadHistory()) {
       elements.gate.style.display = "none";
       setStatus("いるよ");
-      elements.input.focus();
+      focusInput();
       setupPush();
       watchHistory();
       connectPresence();
