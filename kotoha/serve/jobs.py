@@ -207,12 +207,13 @@ def maybe_briefing(conn) -> None:
         return
     db.mark_today(conn, db.LAST_BRIEFING_ON, today)
     # 空模様が取れなくても挨拶はする。外が落ちて朝が消えるのは違う。
-    # ゴミは曜日で決まるので必ず出る。**2つを1通にまとめる。** 別々に鳴らすと、
-    # 減らしたい通知が朝から2通になる。
+    # **3つを1通にまとめる。** 別々に鳴らすと、減らしたい通知が朝から3通になる。
+    # 渡したものには必ず触れさせる（BRIEFING_CLOSING）。無いものは渡さない。
     # keep=False: その日の天気やゴミを長期記憶に溜めない。画面には残る。
     extra = "\n".join(part for part in (
         weather.block(weather.today()),
         garbage.block(garbage.today()),
+        remind.morning_block(remind.today(conn)),
     ) if part)
     announce(conn, chat.BRIEFING_CLOSING, extra=extra, keep=False)
 

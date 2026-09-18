@@ -445,3 +445,47 @@ class ReminderListApiTests(DbCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MorningTests(DbCase):
+    """朝いちばんに、その日ぶんの頼まれごとを予告すること。"""
+
+    def add(self, when: str, text: str):
+        remind.add(self.conn, datetime.strptime(when, remind.STAMP), text)
+        self.conn.commit()
+
+    def test_todays_errands_come_back_in_order(self):
+        now = datetime(2026, 9, 18, 7, 0)
+        self.add("2026-09-18 18:00", "夕方の薬")
+        self.add("2026-09-18 09:00", "歯医者")
+        rows = remind.today(self.conn, now)
+        self.assertEqual([r["text"] for r in rows], ["歯医者", "夕方の薬"])
+
+    def test_other_days_are_left_out(self):
+        now = datetime(2026, 9, 18, 7, 0)
+        self.add("2026-09-19 09:00", "あしたの用")
+        self.add("2026-09-17 09:00", "きのうの用")
+        self.assertEqual(remind.today(self.conn, now), [])
+
+    def test_what_has_already_passed_is_not_announced_again(self):
+        """朝7時に、6時半のぶんを今から予告しても仕方がない。"""
+        now = datetime(2026, 9, 18, 7, 0)
+        self.add("2026-09-18 06:30", "もう過ぎた用")
+        self.assertEqual(remind.today(self.conn, now), [])
+
+    def test_what_was_already_said_is_left_out(self):
+        now = datetime(2026, 9, 18, 7, 0)
+        self.add("2026-09-18 09:00", "歯医者")
+        remind.done(self.conn, remind.today(self.conn, now)[0]["id"])
+        self.conn.commit()
+        self.assertEqual(remind.today(self.conn, now), [])
+
+    def test_the_time_is_handed_over_with_the_errand(self):
+        now = datetime(2026, 9, 18, 7, 0)
+        self.add("2026-09-18 09:00", "歯医者")
+        said = remind.morning_block(remind.today(self.conn, now))
+        self.assertIn("09:00", said)
+        self.assertIn("歯医者", said)
+
+    def test_nothing_to_say_when_there_is_nothing(self):
+        self.assertEqual(remind.morning_block([]), "")

@@ -518,12 +518,18 @@ class BriefingTests(DbCase):
         chat.speak = lambda conn, closing, extra="", keep=True: (
             self.asked.append((closing, extra, keep)) or "おはよー")
 
-    def test_the_weather_and_the_rubbish_go_out_together(self):
+    def test_the_three_go_out_together(self):
+        """天気・ゴミ・頼まれごとの3つを、1通にまとめて渡す。"""
+        remind.add(self.conn, datetime.now().replace(hour=23, minute=0), "歯医者")
+        self.conn.commit()
+
         jobs.maybe_briefing(self.conn)
+
         self.assertEqual(len(self.asked), 1, "朝のひとことは1通だけ")
         extra = self.asked[0][1]
         self.assertIn("くもり", extra)
         self.assertIn("燃やすごみ", extra)
+        self.assertIn("歯医者", extra)
 
     def test_a_day_without_collection_says_nothing_about_it(self):
         jobs.garbage.today = lambda day=None: []

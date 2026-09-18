@@ -100,6 +100,27 @@ def snooze(conn, ids, minutes: int):
     return moved, due
 
 
+def today(conn, now=None):
+    """今日のうちに来る、まだ言っていない頼まれごと。朝いちばんの予告に使う。
+
+    時刻が来れば改めて鳴るが、朝に一日ぶんが見えるのは別の値打ちがある。
+    """
+    now = now or datetime.now()
+    return conn.execute(
+        "SELECT id, due_at, text FROM reminders WHERE done_at IS NULL "
+        "AND due_at LIKE ? AND due_at >= ? ORDER BY due_at",
+        (now.strftime("%Y-%m-%d") + "%", now.strftime(STAMP)),
+    ).fetchall()
+
+
+def morning_block(rows) -> str:
+    """ことはに渡す形。判断はこちらで済ませ、言い方は向こうに任せる。"""
+    if not rows:
+        return ""
+    items = "\n".join(f"  {r['due_at'][11:]} {r['text']}" for r in rows)
+    return "今日の頼まれごと:\n" + items
+
+
 def block(conn) -> str:
     """プロンプトに載せる一行。無ければ空。"""
     rows = pending(conn)
