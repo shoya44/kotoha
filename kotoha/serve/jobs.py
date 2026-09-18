@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 
 from .. import config, notify
 from ..memory import consolidate, db, embed, remind
-from ..talk import chat, presence, weather
+from ..talk import chat, garbage, presence, weather
 from .announce import announce, collecting, flush_held
 
 # 会話と巡回が共有する順番待ち。同時にDBを触らせないための1本。
@@ -207,8 +207,14 @@ def maybe_briefing(conn) -> None:
         return
     db.mark_today(conn, db.LAST_BRIEFING_ON, today)
     # 空模様が取れなくても挨拶はする。外が落ちて朝が消えるのは違う。
-    # keep=False: その日の天気を長期記憶に溜めない。画面には残る。
-    announce(conn, chat.BRIEFING_CLOSING, extra=weather.block(weather.today()), keep=False)
+    # ゴミは曜日で決まるので必ず出る。**2つを1通にまとめる。** 別々に鳴らすと、
+    # 減らしたい通知が朝から2通になる。
+    # keep=False: その日の天気やゴミを長期記憶に溜めない。画面には残る。
+    extra = "\n".join(part for part in (
+        weather.block(weather.today()),
+        garbage.block(garbage.today()),
+    ) if part)
+    announce(conn, chat.BRIEFING_CLOSING, extra=extra, keep=False)
 
 
 def run_vector_jobs() -> None:
