@@ -98,20 +98,19 @@ body {
   color: var(--ink);
 }
 
-/* **見えている範囲そのものに合わせる。** 幅も高さも端末が言う値を使う。
-   iPhoneはキーボードを出すときに画面を少し引いて見せることがあり、そのとき
-   画面の幅で置くと、引いたぶんだけ左右と下に地の黒が覗く。 */
+/* 既定は画面いっぱい。キーボードが出ているあいだだけ、見えている高さに
+   合わせる（--vv-height は app.js がそのときだけ立てる）。 */
 #appShell {
   position: relative;
 
-  width: var(--vv-width, 100%);
+  width: 100%;
   height: var(--vv-height, 100dvh);
 
   display: flex;
   flex-direction: column;
   overflow: hidden;
 
-  transform: translate(var(--vv-left, 0px), var(--vv-top, 0px));
+  transform: translateY(var(--vv-top, 0px));
 }
 
 button,
@@ -367,10 +366,18 @@ body.typing .mini-avatar { height: 0; }
 
 /* ===== Composer =====
    入力まわりはひとつのカード。文字が上、通話と送信がその下の右端に並ぶ。
-   帯で仕切らず地の色に置くことで、会話の続きに見せる。 */
-#form {
+   帯で仕切らず地の色に置くことで、会話の続きに見せる。
+
+   つまみ・入力欄・「最新へ」をひとまとまりにするのは、**「最新へ」を常に
+   このまとまりの真上に出すため。** 入力欄だけを目印にすると、通話中は
+   つまみの上に重なる。 */
+.composer {
   flex: none;
   position: relative;
+  width: 100%;
+}
+
+#form {
   width: 100%;
   padding:
     0
@@ -1211,6 +1218,7 @@ body.hide-time .msg[data-time]::after { display: none; }
   bottom: 100%;
   margin-bottom: 8px;
   z-index: 12;
+  flex: none;
 
   width: var(--tap-min);
   height: var(--tap-min);

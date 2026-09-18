@@ -61,6 +61,16 @@
 
     <main id="log" aria-live="polite" aria-relevant="additions"></main>
 
+    <!-- 画面のいちばん下。つまみ・入力欄・「最新へ」を、ひとまとまりで置く。 -->
+    <div class="composer">
+
+    <!-- 入力欄の高さは打つほど変わる。真上に貼り付けておけば、どの高さでもずれない。 -->
+    <button id="jumpBottom" type="button" aria-label="最新メッセージへ移動">
+      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path d="M6 9l6 6 6-6"></path>
+      </svg>
+    </button>
+
     <!-- 通話中だけ出る。話しながら片手で声の大きさを変えられるように。 -->
     <div id="volume" class="volume">
       <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
@@ -71,13 +81,6 @@
     </div>
 
     <form id="form">
-      <!-- 入力欄の高さは打つほど変わる。真上に貼り付けておけば、どの高さでもずれない。 -->
-      <button id="jumpBottom" type="button" aria-label="最新メッセージへ移動">
-        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-          <path d="M6 9l6 6 6-6"></path>
-        </svg>
-      </button>
-
       <div class="form-inner">
         <textarea
           id="input"
@@ -102,6 +105,8 @@
         </div>
       </div>
     </form>
+
+    </div>
 
   </div>
 

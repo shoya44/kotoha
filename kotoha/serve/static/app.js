@@ -1731,6 +1731,10 @@ document.addEventListener("keydown", event => {
 window.addEventListener("resize", closeContextMenu);
 
 // ===== iOS Visual Viewport =====
+// これ以上縮んでいたら、キーボードが出ていると見なす。並びかえの候補が出る
+// バーだけでもこのくらいにはなるので、低めに取る。
+const KEYBOARD_MIN = 120;
+
 let viewportRaf = null;
 
 function syncVisualViewport() {
@@ -1738,19 +1742,19 @@ function syncVisualViewport() {
 
   viewportRaf = requestAnimationFrame(() => {
     const viewport = window.visualViewport;
-
-    // 高さだけでなく幅も見る。キーボードを出すとき、iPhoneは画面を少し引いて
-    // 見せることがある。そのとき画面の幅で置くと、左右に地の黒が覗く。
-    const height = viewport?.height ?? window.innerHeight;
-    const width = viewport?.width ?? window.innerWidth;
-    const top = viewport?.offsetTop ?? 0;
-    const left = viewport?.offsetLeft ?? 0;
-
     const shell = document.documentElement.style;
-    shell.setProperty("--vv-height", `${Math.round(height)}px`);
-    shell.setProperty("--vv-width", `${Math.round(width)}px`);
-    shell.setProperty("--vv-top", `${Math.round(top)}px`);
-    shell.setProperty("--vv-left", `${Math.round(left)}px`);
+    const height = viewport?.height ?? window.innerHeight;
+
+    // **キーボードが出ていないときは何も指定しない。** 100dvh、つまり画面
+    // いっぱいに任せる。端末の言う値をそのまま貼ると、読み取った頃合いに
+    // よっては一回り小さい値が返り、端に地の黒が覗いたまま固まる。
+    if (window.innerHeight - height < KEYBOARD_MIN) {
+      shell.removeProperty("--vv-height");
+      shell.removeProperty("--vv-top");
+    } else {
+      shell.setProperty("--vv-height", `${Math.round(height)}px`);
+      shell.setProperty("--vv-top", `${Math.round(viewport.offsetTop)}px`);
+    }
 
     viewportRaf = null;
     // キーボードが出ると会話欄がその場で縮む。誰も戻さないと、縮んだぶん
