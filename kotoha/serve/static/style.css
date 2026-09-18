@@ -464,11 +464,12 @@ textarea {
 }
 
 /* 押すものはカードの下辺、右端に寄せる。左側は今のところ空けておく。 */
+/* 隣り合う押しどころは離す。4pxだと、通話を狙って送信に触れる。 */
 .composer-actions {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 4px;
+  gap: 10px;
 }
 
 textarea::-webkit-scrollbar {
@@ -493,12 +494,14 @@ button {
   font-weight: 600;
 }
 
+/* 押しどころは48px（HIGの最小は44px）。**見えている丸も40pxにする。**
+   指は見えているものを狙うので、丸が小さいと、領域が足りていても外れる。 */
 #send {
   position: relative;
-  width: 44px;
-  height: 44px;
-  min-width: 44px;
-  min-height: 44px;
+  width: 48px;
+  height: 48px;
+  min-width: 48px;
+  min-height: 48px;
   padding: 0;
   display: grid;
   place-items: center;
@@ -509,8 +512,8 @@ button {
 #send::before {
   content: "";
   position: absolute;
-  width: 32px;
-  height: 32px;
+  width: 40px;
+  height: 40px;
   border-radius: 50%;
   background: var(--accent);
   transition: opacity var(--duration-fast) ease, transform .1s ease;
@@ -519,8 +522,8 @@ button {
 #send svg {
   position: relative;
   z-index: 1;
-  width: 17px;
-  height: 17px;
+  width: 20px;
+  height: 20px;
   fill: none;
   stroke: currentColor;
   stroke-width: 2.2;
@@ -535,10 +538,10 @@ button {
 /* 通話ボタン。送信が主操作なので、待機中は塗らずに一段控えめにする。 */
 #call {
   position: relative;
-  width: 44px;
-  height: 44px;
-  min-width: 44px;
-  min-height: 44px;
+  width: 48px;
+  height: 48px;
+  min-width: 48px;
+  min-height: 48px;
   padding: 0;
   display: grid;
   place-items: center;
@@ -549,8 +552,8 @@ button {
 #call::before {
   content: "";
   position: absolute;
-  width: 32px;
-  height: 32px;
+  width: 40px;
+  height: 40px;
   border-radius: 50%;
   background: transparent;
   transition: background-color var(--duration-fast) ease, transform .1s ease;
@@ -560,8 +563,8 @@ button {
 #call svg {
   position: relative;
   z-index: 1;
-  width: 18px;
-  height: 18px;
+  width: 21px;
+  height: 21px;
   fill: currentColor;
   stroke: none;
 }

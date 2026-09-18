@@ -1779,6 +1779,14 @@ elements.jumpBottom.addEventListener("click", () => {
   scrollToBottom("smooth");
 });
 
+// **枠の中ならどこを触っても打ち始められる。** 空のときの入力欄は1行ぶん
+// （24px）しかなく、囲みの余白を触っても何も起きないのは、見た目に反する。
+// ボタンの上は渡さない。
+document.querySelector(".form-inner").addEventListener("click", event => {
+  if (event.target.closest("button")) return;
+  elements.input.focus();
+});
+
 elements.input.addEventListener("input", resizeInput);
 // 指で触る画面では、確定キーは改行にする。送信はボタンだけ。**物理キーボードの
 // あるPCでは今までどおり Enter で送る。** マウスに手を伸ばさないと送れないのは
