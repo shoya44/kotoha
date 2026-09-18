@@ -112,6 +112,7 @@ class BriefingTests(DbCase):
         """今日が何の日でも同じように試せるよう、ほかの材料を黙らせる。"""
         for owner, name, still in ((jobs.schedule, "today", lambda day=None: None),
                                    (jobs.quake, "night", lambda now=None: []),
+                                   (jobs.upkeep, "stale", lambda day=None: []),
                                    (jobs.garbage, "today", lambda day=None: [])):
             self.addCleanup(setattr, owner, name, getattr(owner, name))
             setattr(owner, name, still)
@@ -333,7 +334,8 @@ class MorningMaterialTests(DbCase):
         self.addCleanup(setattr, jobs.garbage, "today", jobs.garbage.today)
         jobs.garbage.today = lambda day=None: ["燃やすごみ"]
         for owner, name, still in ((jobs.schedule, "today", lambda day=None: None),
-                                   (jobs.quake, "night", lambda now=None: [])):
+                                   (jobs.quake, "night", lambda now=None: []),
+                                   (jobs.upkeep, "stale", lambda day=None: [])):
             self.addCleanup(setattr, owner, name, getattr(owner, name))
             setattr(owner, name, still)
 

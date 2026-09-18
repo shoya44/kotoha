@@ -56,8 +56,9 @@ HOLIDAYS = {
     "2027-11-23": "勤労感謝の日",
 }
 
-# 祝日表が届いている最後の日。
-UNTIL = date(2027, 11, 23)
+# 祝日表が届いている最後の日。**表から導く。** 手で書くと、表を足したのに
+# こちらを直し忘れる。
+UNTIL = date.fromisoformat(max(HOLIDAYS))
 
 
 def today(day: date = None) -> dict:
