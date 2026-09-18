@@ -12,7 +12,8 @@ from datetime import datetime, timedelta
 from .. import config, notify
 from ..memory import consolidate, db, embed, remind
 from ..talk import chat, garbage, presence, quake, schedule, upkeep, weather
-from .announce import announce, collecting, flush_held
+from . import hub
+from .announce import announce, can_speak, collecting, flush_held
 
 # 会話と巡回が共有する順番待ち。同時にDBを触らせないための1本。
 turn_lock = threading.Lock()
@@ -65,6 +66,8 @@ def run_periodic_jobs(conn) -> None:
         flush_held(conn)
     except Exception as error:
         notify.log(f"まとめて言えなかった: {error!r}")
+    # 時間帯や機嫌で姿が変わる。変わっていなくても送るが、宛先は実体1つだけ。
+    hub.refresh(conn)
 
 
 def _wake_embedder() -> None:
@@ -96,7 +99,7 @@ def run_watch_jobs() -> None:
     実際に何か言うときだけ。言うと会話が1件増えるので、そこは他の書き手と
     順番を分け合う必要がある。
     """
-    if not notify.ready():
+    if not can_speak():
         return
     with db.session() as conn:
         try:
@@ -132,7 +135,7 @@ def maybe_reach_out(conn) -> None:
     間が空いていること、時間帯、前回からの間隔。3つとも満たしたときだけ。
     APIを1回使うので、頻繁には出さない。
     """
-    if not (config.REACH_OUT_ENABLED and notify.ready()):
+    if not (config.REACH_OUT_ENABLED and can_speak()):
         return
     if not db.overdue(conn, db.LAST_CONVERSATION_AT, config.REACH_OUT_AFTER_HOURS * 3600):
         return
@@ -151,7 +154,7 @@ def maybe_lookout(conn) -> None:
 
     計測はもともと巡回でしている。使っていなかっただけ。
     """
-    if not (config.LOOKOUT_ENABLED and notify.ready()):
+    if not (config.LOOKOUT_ENABLED and can_speak()):
         return
     hour = datetime.now().hour
     # 夜更かし。日付をまたぐので、その晩ごとに一度だけ。
@@ -177,7 +180,7 @@ def maybe_lookout(conn) -> None:
 
 def maybe_reminders(conn) -> None:
     """預かっていた頼まれごとを、時刻が来たら口に出す。"""
-    if not notify.ready():
+    if not can_speak():
         return
     for row in remind.due(conn):
         spoken = announce(conn, f"前に「{row['text']}」を思い出させてほしいと頼まれていた。"
@@ -194,7 +197,7 @@ def maybe_briefing(conn) -> None:
     8時にPCが寝ていたら、起きたときに出す。ただし遅れすぎたら黙る。
     夕方に「おはよう」と言われても困る。
     """
-    if not (config.BRIEFING_ENABLED and notify.ready()):
+    if not (config.BRIEFING_ENABLED and can_speak()):
         return
     now = datetime.now()
     today = now.strftime("%Y-%m-%d")

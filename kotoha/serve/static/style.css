@@ -146,6 +146,7 @@ header {
 }
 
 .mini-avatar {
+  position: relative;
   flex: none;
   height: 140px;
   overflow: hidden;
@@ -167,6 +168,38 @@ body.typing .mini-avatar { height: 0; }
   transform-origin: center bottom;
   transition: opacity var(--duration) ease;
 }
+
+/* 姿がこちらに無いあいだ。絵を隠して、立て札だけを出す。 */
+body.away .mini-avatar img { display: none; }
+
+#awaySign {
+  display: none;
+  position: absolute;
+  inset: 0;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+body.away #awaySign { display: flex; }
+
+#awaySign .away-call {
+  border: 1px solid var(--separator-weak);
+  border-radius: 999px;
+  padding: 5px 14px;
+  color: var(--accent);
+  font-size: 12px;
+}
+
+#awaySign:active .away-call { background: var(--fill-weak); }
 
 .mini-avatar img.avatar-react {
   animation: avatar-react .28s ease-out;
@@ -202,13 +235,13 @@ body.typing .mini-avatar { height: 0; }
   cursor: pointer;
 }
 
+/* ことはの顔。ドットの立ち姿から切り出した32pxの絵を、そのまま並べる。
+   丸く切り抜くと髪が切れるので、角を落とすだけにしてある。 */
 .av {
   flex: none;
-  border: 1px solid var(--ai-line);
-  border-radius: 50%;
-  object-fit: cover;
-  object-position: 50% 15%;
-  background: #000;  /* 画像が読めないときの下地 */
+  border-radius: 6px;
+  object-fit: contain;
+  background: var(--fill-weak);
 }
 
 .h-av {

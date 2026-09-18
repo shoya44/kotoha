@@ -19,7 +19,7 @@
 
 <body>
   <div id="gate" aria-modal="true" role="dialog" aria-labelledby="gate-title">
-    <img class="av gate-av" src="/static/kotoha.png" alt="">
+    <img class="av gate-av" src="/static/sprite/face.png" alt="">
     <div class="t" id="gate-title">ことは の鍵</div>
     <input
       id="token"
@@ -41,7 +41,7 @@
         type="button"
         aria-label="ことはの設定を開く"
       >
-        <img class="av h-av" src="/static/kotoha.png" alt="">
+        <img class="av h-av" src="/static/sprite/face.png" alt="">
         <span class="identity">
           <span class="name">ことは</span>
           <span class="status" id="status">
@@ -54,9 +54,12 @@
     </header>
 
     <section class="mini-avatar">
-      <img id="miniAvatarImage"
-         src="/static/avatar/kotoha_morning_sleepy.png"
-         alt="ことは">
+      <img id="miniAvatarImage" src="/static/sprite/full/talk.png" alt="ことは">
+      <!-- 姿がこちらに無いあいだの立て札。押せば呼べる。 -->
+      <button id="awaySign" type="button">
+        <span id="awayWhere">外出中</span>
+        <span class="away-call">こっちに呼ぶ</span>
+      </button>
     </section>
 
     <main id="log" aria-live="polite" aria-relevant="additions"></main>
@@ -116,7 +119,7 @@
 
       <div class="sheet-page active" data-page="main">
       <div class="profile">
-        <img class="av" src="/static/kotoha.png" alt="">
+        <img class="av" src="/static/sprite/face.png" alt="">
         <div>
           <div class="profile-title" id="settingsTitle">ことは</div>
           <div class="profile-sub" id="sheetStatus">いるよ</div>
