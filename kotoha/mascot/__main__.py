@@ -41,7 +41,7 @@ MUTEX_NAME = "kotoha-mascot-single-instance"
 _mutex = None
 
 ID_OPEN, ID_TALK, ID_CALL, ID_HERE, ID_QUIT = 1, 2, 3, 4, 5
-WM_KEYDOWN, VK_RETURN, VK_ESCAPE = 0x0100, 0x0D, 0x1B
+WM_KEYDOWN, VK_RETURN, VK_ESCAPE, VK_SHIFT = 0x0100, 0x0D, 0x1B, 0x10
 
 
 def log(message: str) -> None:
@@ -260,7 +260,8 @@ class Mascot:
             # Enterは入力欄からは上がってこない。ここで拾う。
             # 日本語の変換中は VK_PROCESSKEY が来るので、確定と取り違えない。
             if message.message == WM_KEYDOWN and message.hWnd == self.bubble.edit:
-                if message.wParam == VK_RETURN:
+                if message.wParam == VK_RETURN and user32.GetKeyState(VK_SHIFT) >= 0:
+                    # Shiftを押しながらなら改行。押していなければ送る。
                     self.send(self.bubble.typed())
                     continue
                 if message.wParam == VK_ESCAPE:

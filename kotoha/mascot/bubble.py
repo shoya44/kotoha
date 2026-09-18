@@ -20,7 +20,9 @@ from .window import (WNDCLASS, WNDPROC, WS_EX_LAYERED, WS_EX_TOOLWINDOW, WS_EX_T
                      LRESULT, work_area)
 
 WS_CHILD, WS_VISIBLE, WS_BORDER = 0x40000000, 0x10000000, 0x00800000
-ES_AUTOHSCROLL = 0x0080
+# 折り返して伸びる入力にする。横へ流す（AUTOHSCROLL）と、打った先が見えない。
+ES_MULTILINE, ES_AUTOVSCROLL = 0x0004, 0x0040
+WM_COMMAND, EN_CHANGE, EM_GETLINECOUNT = 0x0111, 0x0300, 0x00BA
 WM_PAINT, WM_SETFONT, WM_GETTEXT, WM_SETTEXT = 0x000F, 0x0030, 0x000D, 0x000C
 WM_GETTEXTLENGTH = 0x000E
 WM_CTLCOLOREDIT = 0x0133
@@ -45,7 +47,10 @@ EDGE = 0x00423B3A           # #3a3b42
 OPACITY = 232
 MAX_WIDTH = 280
 PADDING = 13
-INPUT_HEIGHT = 30
+# 入力の1行ぶんと、伸ばせる上限。上限を超えたら、そこから先は中で送る。
+LINE_HEIGHT = 19
+INPUT_PADDING = 12
+MAX_LINES = 6
 GAP = 9
 ROUND = 16
 
@@ -92,6 +97,9 @@ class Bubble:
         self.width = self.height = 0
         self.asking = False
         self.center = False
+        self.lines = 1                 # 打っている言葉が、いま何行になっているか
+        self._said_height = 0
+        self._anchor = (0, 0)
         self._proc = WNDPROC(self._handle)
         self._brush = gdi32.CreateSolidBrush(PANEL)
         self._input_brush = gdi32.CreateSolidBrush(INPUT_BG)
@@ -106,7 +114,7 @@ class Bubble:
         # 窓ごと薄くする。**字も背景も同じだけ透ける**ので、文字は消えない。
         user32.SetLayeredWindowAttributes(self.hwnd, 0, OPACITY, LWA_ALPHA)
         self.edit = user32.CreateWindowExW(
-            0, "EDIT", "", WS_CHILD | ES_AUTOHSCROLL, 0, 0, 10, INPUT_HEIGHT,
+            0, "EDIT", "", WS_CHILD | ES_MULTILINE | ES_AUTOVSCROLL, 0, 0, 10, 10,
             self.hwnd, None, kernel32.GetModuleHandleW(None), None)
         user32.SendMessageW(self.edit, WM_SETFONT, self._font, 1)
         # 打つ前の薄い案内。会話画面の入力欄と同じ文句にしてある。
@@ -138,32 +146,57 @@ class Bubble:
         self.text = text
         self.asking = asking
         self.center = center
+        self.lines = 1
+        self._anchor = anchor
         limit = (width - PADDING * 2) if width else (MAX_WIDTH - PADDING * 2)
         inner = self._measure(text, limit) if text else (limit, 0)
         self.width = width or (inner[0] + PADDING * 2)
         # 言葉が無いなら、その場所は空けない（入力欄だけのふきだしになる）。
-        self.height = (inner[1] + (GAP if text else 0) + PADDING * 2
-                       + (INPUT_HEIGHT if asking else 0))
+        self._said_height = inner[1] + (GAP if text else 0)
+        self._place()
+        user32.ShowWindow(self.edit, SW_SHOWNOACTIVATE if asking else SW_HIDE)
+        user32.ShowWindow(self.hwnd, SW_SHOWNOACTIVATE)
+
+    def _input_height(self) -> int:
+        """いまの行数で、入力がとる高さ。"""
+        return LINE_HEIGHT * self.lines + INPUT_PADDING
+
+    def _place(self) -> None:
+        """大きさを決めて、置き直す。
+
+        **下の端は動かさない。** 行が増えたぶんは上へ伸びる（iPhoneの入力と同じ）。
+        下が動くと、姿との間が開いたり詰まったりして落ち着かない。
+        """
+        self.height = (self._said_height + PADDING * 2
+                       + (self._input_height() if self.asking else 0))
         left, top, right, bottom = work_area()
-        x = min(max(left + MARGIN, anchor[0] - self.width // 2), right - self.width - MARGIN)
-        y = min(max(top + MARGIN, anchor[1] - self.height - 8), bottom - self.height - MARGIN)
+        x = min(max(left + MARGIN, self._anchor[0] - self.width // 2),
+                right - self.width - MARGIN)
+        y = min(max(top + MARGIN, self._anchor[1] - self.height - 8),
+                bottom - self.height - MARGIN)
         user32.SetWindowPos(self.hwnd, HWND_TOPMOST, x, y, self.width, self.height,
                             SWP_NOACTIVATE)
         self._region = gdi32.CreateRoundRectRgn(0, 0, self.width + 1, self.height + 1,
                                                 ROUND, ROUND)
         user32.SetWindowRgn(self.hwnd, self._region, True)
-        if asking:
-            # 入力欄は、下地の角丸から少し内側に置く。
+        if self.asking:
+            # 入力は、下地の角丸から少し内側に置く。
             inset = PADDING + 6
             user32.SetWindowPos(self.edit, None, inset,
-                                self.height - PADDING - INPUT_HEIGHT + 7,
-                                self.width - inset * 2, INPUT_HEIGHT - 14,
+                                self.height - PADDING - self._input_height() + 6,
+                                self.width - inset * 2, self._input_height() - 12,
                                 SWP_NOACTIVATE)
-            user32.ShowWindow(self.edit, SW_SHOWNOACTIVATE)
-        else:
-            user32.ShowWindow(self.edit, SW_HIDE)
-        user32.ShowWindow(self.hwnd, SW_SHOWNOACTIVATE)
         user32.InvalidateRect(self.hwnd, None, True)
+
+    def grow(self) -> None:
+        """打つたびに呼ぶ。折り返した行数を数えて、変わっていれば伸ばす。"""
+        if not self.asking:
+            return
+        counted = user32.SendMessageW(self.edit, EM_GETLINECOUNT, 0, 0)
+        lines = min(max(1, counted), MAX_LINES)
+        if lines != self.lines:
+            self.lines = lines
+            self._place()
 
     def focus_input(self) -> None:
         """打てるようにする。**ここだけは前面を取る**（そうしないと字が入らない）。"""
@@ -181,6 +214,7 @@ class Bubble:
         user32.SendMessageW(self.edit, WM_SETTEXT, 0,
                             ctypes.cast(ctypes.create_unicode_buffer(""),
                                         ctypes.c_void_p).value)
+        self.lines = 1
 
     def hide(self) -> None:
         self.asking = False
@@ -212,7 +246,7 @@ class Bubble:
             if self.asking:
                 # 入力欄の下地。会話画面の入力と同じ、少し明るい角丸。
                 field = gdi32.CreateRoundRectRgn(
-                    PADDING, self.height - PADDING - INPUT_HEIGHT,
+                    PADDING, self.height - PADDING - self._input_height(),
                     self.width - PADDING + 1, self.height - PADDING + 1, 12, 12)
                 gdi32.FillRgn(dc, field, self._input_brush)
                 gdi32.DeleteObject(field)
@@ -225,11 +259,14 @@ class Bubble:
                 # **測ったときと同じ幅で描く。** 狭めると行が増えて見切れる。
                 area = w.RECT(PADDING, PADDING, self.width - PADDING,
                               self.height - PADDING
-                              - (INPUT_HEIGHT + GAP if self.asking else 0))
+                              - (self._input_height() + GAP if self.asking else 0))
                 style = DT_WORDBREAK | DT_NOPREFIX | (DT_CENTER if self.center else 0)
                 user32.DrawTextW(dc, self.text, -1, ctypes.byref(area), style)
             gdi32.SelectObject(dc, old)
             user32.EndPaint(hwnd, ctypes.byref(paint))
+            return 0
+        if message == WM_COMMAND and (wparam >> 16) == EN_CHANGE:
+            self.grow()
             return 0
         if message == WM_CTLCOLOREDIT:
             # 入力欄も同じ色にする。何もしないと白いままで、ここだけ浮く。
