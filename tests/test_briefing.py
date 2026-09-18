@@ -13,7 +13,8 @@ _TMP = use_temp_db("briefing")
 from kotoha import notify  # noqa: E402
 from kotoha.memory import db  # noqa: E402
 from kotoha.serve import announce as announce_mod, jobs, web  # noqa: E402
-from kotoha.talk import chat, weather  # noqa: E402
+from kotoha.memory import remind  # noqa: E402
+from kotoha.talk import chat, quake, weather  # noqa: E402
 
 
 def tearDownModule():
@@ -293,3 +294,181 @@ class Mouth:
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MorningMaterialTests(DbCase):
+    """朝のひとことは、天気とゴミを**1通にまとめて**渡すこと。
+
+    別々に鳴らすと、減らしたい通知が朝から2通になる。
+    """
+
+    def setUp(self):
+        super().setUp()
+        for name in ("ready", "push", "log"):
+            self.addCleanup(setattr, notify, name, getattr(notify, name))
+        notify.log = lambda text: None
+        notify.ready = lambda: True
+        notify.push = lambda *a, **k: True
+
+        self.addCleanup(setattr, config, "BRIEFING_ENABLED", config.BRIEFING_ENABLED)
+        self.addCleanup(setattr, config, "BRIEFING_HOUR", config.BRIEFING_HOUR)
+        self.addCleanup(setattr, config, "BRIEFING_GRACE_HOURS", config.BRIEFING_GRACE_HOURS)
+        config.BRIEFING_ENABLED = True
+        config.BRIEFING_HOUR = 0            # いま何時でも出す
+        config.BRIEFING_GRACE_HOURS = 24
+
+        # 外へは出さない。天気は取れたことにする。
+        self.addCleanup(setattr, jobs.weather, "today", jobs.weather.today)
+        jobs.weather.today = lambda: {"word": "くもり", "high": 22.0, "low": 15.0,
+                                      "chance": 10, "umbrella": False,
+                                      "clothes": "長袖"}
+        self.addCleanup(setattr, jobs.garbage, "today", jobs.garbage.today)
+        jobs.garbage.today = lambda day=None: ["燃やすごみ"]
+
+        self.addCleanup(setattr, chat, "speak", chat.speak)
+        self.asked = []
+        chat.speak = lambda conn, closing, extra="", keep=True: (
+            self.asked.append((closing, extra, keep)) or "おはよー")
+
+    def test_the_three_go_out_together(self):
+        """天気・ゴミ・頼まれごとの3つを、1通にまとめて渡す。"""
+        remind.add(self.conn, datetime.now().replace(hour=23, minute=0), "歯医者")
+        self.conn.commit()
+
+        jobs.maybe_briefing(self.conn)
+
+        self.assertEqual(len(self.asked), 1, "朝のひとことは1通だけ")
+        extra = self.asked[0][1]
+        self.assertIn("くもり", extra)
+        self.assertIn("燃やすごみ", extra)
+        self.assertIn("歯医者", extra)
+
+    def test_a_day_without_collection_says_nothing_about_it(self):
+        jobs.garbage.today = lambda day=None: []
+        jobs.maybe_briefing(self.conn)
+        self.assertNotIn("ゴミ", self.asked[0][1])
+
+    def test_the_greeting_survives_a_day_with_neither(self):
+        """外が落ちても朝が消えるのは違う。"""
+        jobs.weather.today = lambda: None
+        jobs.garbage.today = lambda day=None: []
+        jobs.maybe_briefing(self.conn)
+        self.assertEqual(self.asked[0][1], "")
+
+    def test_the_morning_words_are_not_kept_forever(self):
+        """その日の天気とゴミを長期記憶に溜めない。"""
+        jobs.maybe_briefing(self.conn)
+        self.assertFalse(self.asked[0][2])
+
+
+class ExtraWeatherTests(unittest.TestCase):
+    """今日だけ違うことだけを足す。差が小さい日は、その行ごと出さない。"""
+
+    def sky(self, **over):
+        base = {"word": "くもり", "high": 20.0, "low": 14.0, "chance": 10,
+                "umbrella": False, "clothes": "長袖",
+                "swing": 0.0, "rain_from": None, "fall": 0.0}
+        base.update(over)
+        return base
+
+    def test_a_small_change_is_not_worth_saying(self):
+        said = weather.block(self.sky(swing=-1.5))
+        self.assertNotIn("昨日より", said)
+
+    def test_a_cold_snap_is_worth_saying(self):
+        said = weather.block(self.sky(swing=-5.0))
+        self.assertIn("昨日より5℃低い", said)
+
+    def test_a_warm_day_is_worth_saying(self):
+        self.assertIn("昨日より6℃高い", weather.block(self.sky(swing=6.0)))
+
+    def test_it_says_when_the_rain_starts(self):
+        self.assertIn("13時ごろから", weather.block(self.sky(rain_from=13)))
+
+    def test_a_dry_day_says_nothing_about_starting(self):
+        self.assertNotIn("降り出す", weather.block(self.sky()))
+
+    def test_a_falling_pressure_is_worth_saying(self):
+        said = weather.block(self.sky(fall=6.0))
+        self.assertIn("気圧", said)
+        self.assertIn("6hPa", said)
+
+    def test_a_steady_day_says_nothing_about_pressure(self):
+        self.assertNotIn("気圧", weather.block(self.sky(fall=2.0)))
+
+    def test_the_rain_hour_is_the_first_one_awake(self):
+        hours = [(3, 90), (7, 10), (13, 60), (16, 80)]
+        self.assertEqual(weather.rain_from(hours), 13)
+
+    def test_rain_while_asleep_is_not_the_answer(self):
+        """寝ているあいだに降っても、起きたら関係ない。"""
+        self.assertIsNone(weather.rain_from([(2, 90), (4, 90)]))
+
+    def test_the_fall_is_measured_from_the_top(self):
+        """最高と最低の差ではない。高いところからの落差を見る。"""
+        self.assertEqual(weather.biggest_fall([1000, 1010, 1002, 1008]), 8)
+        self.assertEqual(weather.biggest_fall([1000, 1005, 1010]), 0)
+
+
+class QuakeTests(unittest.TestCase):
+    """寝ているあいだの地震。揺れた朝だけ言う。"""
+
+    def use(self, rows):
+        def get(url, **kwargs):
+            # raise_for_status は request を見る。付けずに作ると落ちる。
+            return httpx.Response(200, json=rows, request=httpx.Request("GET", url))
+
+        client = quake._http()
+        self.addCleanup(setattr, client, "get", client.get)
+        client.get = get
+
+    def shake(self, when, scale, pref="東京都", place="茨城県南部"):
+        return {"earthquake": {"time": when, "maxScale": scale,
+                               "hypocenter": {"name": place}},
+                "points": [{"pref": pref, "addr": "どこか", "scale": scale}]}
+
+    def test_a_shake_in_the_night_comes_back(self):
+        self.use([self.shake("2026/09/18 02:14:00", 30)])
+        found = quake.night(datetime(2026, 9, 18, 7, 0))
+        self.assertEqual(len(found), 1)
+        self.assertEqual(found[0]["scale"], "3")
+        self.assertEqual(found[0]["place"], "茨城県南部")
+
+    def test_a_small_shake_is_not_worth_waking_up_for(self):
+        self.use([self.shake("2026/09/18 02:14:00", 20)])
+        self.assertEqual(quake.night(datetime(2026, 9, 18, 7, 0)), [])
+
+    def test_a_shake_somewhere_else_is_not_ours(self):
+        self.use([self.shake("2026/09/18 02:14:00", 50, pref="宮崎県")])
+        self.assertEqual(quake.night(datetime(2026, 9, 18, 7, 0)), [])
+
+    def test_the_day_before_yesterday_is_too_old(self):
+        self.use([self.shake("2026/09/16 02:14:00", 40)])
+        self.assertEqual(quake.night(datetime(2026, 9, 18, 7, 0)), [])
+
+    def test_last_evening_counts_as_the_night(self):
+        self.use([self.shake("2026/09/17 23:30:00", 30)])
+        self.assertEqual(len(quake.night(datetime(2026, 9, 18, 7, 0))), 1)
+
+    def test_a_silent_service_is_not_an_error(self):
+        def broken(url, **kwargs):
+            raise httpx.ConnectError("圏外")
+
+        client = quake._http()
+        self.addCleanup(setattr, client, "get", client.get)
+        client.get = broken
+        self.assertEqual(quake.night(datetime(2026, 9, 18, 7, 0)), [])
+
+    def test_a_broken_answer_is_not_an_error(self):
+        self.use([{"earthquake": {"time": "こわれた"}}, {"のっぺらぼう": True}])
+        self.assertEqual(quake.night(datetime(2026, 9, 18, 7, 0)), [])
+
+    def test_a_quiet_night_says_nothing(self):
+        self.assertEqual(quake.block([]), "")
+
+    def test_the_shake_is_handed_over_with_the_time(self):
+        said = quake.block([{"when": datetime(2026, 9, 18, 2, 14),
+                             "place": "茨城県南部", "scale": "3"}])
+        self.assertIn("02:14", said)
+        self.assertIn("茨城県南部", said)
+        self.assertIn("震度3", said)

@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 
 from .. import config, notify
 from ..memory import consolidate, db, embed, remind
-from ..talk import chat, garbage, presence, weather
+from ..talk import chat, garbage, presence, quake, weather
 from .announce import announce, collecting, flush_held
 
 # 会話と巡回が共有する順番待ち。同時にDBを触らせないための1本。
@@ -214,6 +214,7 @@ def maybe_briefing(conn) -> None:
         weather.block(weather.today()),
         garbage.block(garbage.today()),
         remind.morning_block(remind.today(conn)),
+        quake.block(quake.night()),
     ) if part)
     announce(conn, chat.BRIEFING_CLOSING, extra=extra, keep=False)
 
