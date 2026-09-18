@@ -64,8 +64,15 @@ class SheetTests(unittest.TestCase):
                 self.assertIsNot(self.sheet.frame(name, True), self.sheet.frame(name, False))
 
     def test_asking_for_a_blink_that_does_not_exist(self):
-        """まばたきの差分が無い絵は、開いたままでいるだけ。"""
-        plain = next(n for n in self.sheet.frames if n not in self.sheet.blinks)
+        """まばたきの差分が無い絵は、開いたままでいるだけ。
+
+        いまは全部の絵に差分がある。**無い絵を足したときに落ちないこと**を
+        見たいので、無い状態をここで作る。
+        """
+        plain = next((n for n in self.sheet.frames if n not in self.sheet.blinks), None)
+        if plain is None:
+            plain = next(iter(self.sheet.frames))
+            self.sheet.blinks.pop(plain)
         self.assertIs(self.sheet.frame(plain, True), self.sheet.frame(plain, False))
 
     def test_an_unknown_name_gives_nothing(self):

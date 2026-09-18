@@ -3,12 +3,12 @@
   "source": "img/dot",
   "sizes": {
     "full": [
-      201,
+      197,
       200
     ],
     "web": [
       413,
-      410
+      420
     ],
     "face": [
       192,
@@ -21,43 +21,43 @@
       "blink": true
     },
     "bored": {
-      "blink": false
+      "blink": true
     },
     "cards": {
-      "blink": false
+      "blink": true
     },
     "daydream": {
-      "blink": false
+      "blink": true
     },
     "laptop": {
-      "blink": false
+      "blink": true
     },
     "laugh": {
-      "blink": false
+      "blink": true
     },
     "sleep": {
-      "blink": false
+      "blink": true
     },
     "snack": {
-      "blink": false
+      "blink": true
     },
     "sulk": {
-      "blink": false
+      "blink": true
     },
     "talk": {
       "blink": true
     },
     "think": {
-      "blink": false
+      "blink": true
     },
     "wave": {
       "blink": true
     },
     "worry": {
-      "blink": false
+      "blink": true
     },
     "write": {
-      "blink": false
+      "blink": true
     }
   }
 }

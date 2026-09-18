@@ -8,6 +8,10 @@
 格子になっていないので、整数倍に拡大しても崩れるだけになる。**一度だけ面積平均で
 縮めて、その実寸を素材として持つ。**
 
+⚠️ **元絵の縦横が揃っていなくてもよい。** 描き直した絵が3倍で書き出されることが
+あり、混ざったまま並べると、そこだけ3倍の大きさで出てしまう（実際にそうなった）。
+いちばん大きい絵を基準にして、それぞれの絵の縮尺を換算してから並べる。
+
 `*-blink.png` は目を閉じた差分。**base と同じ置き方をする**（別々に測ると、
 まばたきのたびに顔がずれる）。差分は後から置き足せる。置いてもう一度これを走らせれば、
 `sprites.json` に載る。
@@ -41,7 +45,8 @@ OUT_DIR = BASE_DIR / "kotoha" / "serve" / "static" / "sprite"
 # 元絵と同じ大きさ（縮めない）で出し、枠側で縮めてもらう。
 # タスクトレイのドットは200。タスクバー（48）の4倍ほどで、机の隅に居る大きさ。
 # 元絵が410なので、ここも縮める側のまま。
-HEIGHTS = {"full": 200, "web": 0}     # web は 0 で「縮めない」の意
+# web の420は、iPhoneが140ポイントの枠に使う画素数（1ポイント＝3画素）。
+HEIGHTS = {"full": 200, "web": 420}
 # 会話の行やヘッダーに並ぶ顔。いちばん大きい使い方で56ポイント＝168画素なので、
 # これだけあれば常に縮める側になる（拡大した絵は眠くなる）。
 FACE_SIZE = 192
@@ -58,43 +63,35 @@ ICON_BG = (0x17, 0x18, 0x1B)
 ICON_PADDING = 0.12
 
 BLINK_SUFFIX = "-blink"
-# キャンバスの余白。動きで1ドット上下させるぶんと、影のぶん。
-MARGIN_X, MARGIN_TOP, MARGIN_BOTTOM = 6, 6, 4
+# 並べるときの余白。呼吸で詰めるぶんと、影のぶん（基準の絵の中での値）。
+MARGIN_X, MARGIN_TOP, MARGIN_BOTTOM = 18, 18, 12
 
 
 def _sources():
-    """(名前, 本体の絵, まばたきの絵) を、名前の順に返す。"""
+    """(名前, 本体, まばたき) の並びと、相手のいない差分の名前。
+
+    名前を間違えて置かれた差分は、黙って無視すると気づけない。返して知らせる。
+    """
     files = {p.stem: p for p in SOURCE_DIR.glob("*.png")}
     names = sorted(n for n in files if not n.endswith(BLINK_SUFFIX))
-    for name in names:
-        blink = files.get(name + BLINK_SUFFIX)
-        yield name, files[name], blink
+    orphans = sorted(n for n in files
+                     if n.endswith(BLINK_SUFFIX) and n[:-len(BLINK_SUFFIX)] not in files)
+    return [(n, files[n], files.get(n + BLINK_SUFFIX)) for n in names], orphans
 
 
-def _place(image, box, canvas_w, canvas_h, offset=None):
-    """外接矩形を、横は中央・下は床に合わせて、同じ大きさのキャンバスへ移す。
-
-    offset を渡すと、測り直さずにその置き方をそのまま使う（まばたき用）。
-    """
-    left, top, right, bottom = box
-    if offset is None:
-        dx = (canvas_w - (right - left + 1)) // 2 - left
-        dy = (canvas_h - MARGIN_BOTTOM) - (bottom + 1)
-        offset = (dx, dy)
-    dx, dy = offset
-    out = png.Image(canvas_w, canvas_h)
+def _paste(canvas, image, dx: int, dy: int):
+    """左上を (dx, dy) に合わせて置く。はみ出したぶんは捨てる。"""
     for y in range(image.height):
         ty = y + dy
-        if not (0 <= ty < canvas_h):
+        if not (0 <= ty < canvas.height):
             continue
-        row = image.px[y * image.width * 4:(y + 1) * image.width * 4]
         start = max(0, -dx)
-        end = min(image.width, canvas_w - dx)
+        end = min(image.width, canvas.width - dx)
         if start >= end:
             continue
-        out.px[(ty * canvas_w + start + dx) * 4:(ty * canvas_w + end + dx) * 4] = \
-            row[start * 4:end * 4]
-    return out, offset
+        row = image.px[(y * image.width + start) * 4:(y * image.width + end) * 4]
+        at = (ty * canvas.width + start + dx) * 4
+        canvas.px[at:at + len(row)] = row
 
 
 def _shrink(image, out_w: int, out_h: int):
@@ -132,10 +129,12 @@ def _shrink(image, out_w: int, out_h: int):
     return out
 
 
-def _fit(image, out_w: int, out_h: int):
-    """その大きさにする。同じなら何もしない（縮めないぶんは元のまま渡す）。"""
+def _resize(image, out_w: int, out_h: int):
+    """その大きさにする。同じなら何もしない。"""
     if (image.width, image.height) == (out_w, out_h):
         return image
+    if out_w * out_h >= image.width * image.height:
+        return _grow(image, out_w, out_h)
     return _shrink(image, out_w, out_h)
 
 
@@ -151,41 +150,28 @@ def _grow(image, out_w: int, out_h: int):
     return out
 
 
-def _face(canvas):
-    """顔のあたりを正方形で切り出す。会話の行に並べる小さな顔になる。"""
-    left, top, right, bottom = png.bounds(canvas)
-    # 頭から肩までが入る大きさ。顔だけに寄せすぎると、32pxでは何の絵か分からない。
-    side = min(int((bottom - top + 1) * 0.58), canvas.width, canvas.height)
+def _head(image, bounds, part: float):
+    """頭を中心にした正方形の切り抜き。part は中身の高さに対する割合。"""
+    left, top, right, bottom = bounds
+    side = min(int((bottom - top + 1) * part), image.width, image.height)
     center = (left + right) // 2
-    x0 = max(0, min(center - side // 2, canvas.width - side))
-    y0 = max(0, min(top - 4, canvas.height - side))
+    x0 = max(0, min(center - side // 2, image.width - side))
+    y0 = max(0, min(top - side // 20, image.height - side))
     crop = png.Image(side, side)
     for y in range(side):
         sy = y0 + y
-        if sy >= canvas.height:
-            break
-        start = (sy * canvas.width + x0) * 4
-        crop.px[y * side * 4:(y + 1) * side * 4] = canvas.px[start:start + side * 4]
-    if side >= FACE_SIZE:
-        return _shrink(crop, FACE_SIZE, FACE_SIZE)
-    # 元より大きくするときは、ぼかさずに点を並べる。
-    return _grow(crop, FACE_SIZE, FACE_SIZE)
+        if not (0 <= sy < image.height):
+            continue
+        start = (sy * image.width + x0) * 4
+        crop.px[y * side * 4:(y + 1) * side * 4] = image.px[start:start + side * 4]
+    return crop
 
 
-def _icon(canvas, size: int):
+def _icon(image, bounds, size: int):
     """ホーム画面のアイコン1枚。頭と肩が入る正方形に切って、下地を敷く。"""
-    left, top, right, bottom = png.bounds(canvas)
-    side = min(int((bottom - top + 1) * 0.72), canvas.width, canvas.height)
-    center = (left + right) // 2
-    x0 = max(0, min(center - side // 2, canvas.width - side))
-    y0 = max(0, min(top - side // 20, canvas.height - side))
-    crop = png.Image(side, side)
-    for y in range(side):
-        start = ((y0 + y) * canvas.width + x0) * 4
-        crop.px[y * side * 4:(y + 1) * side * 4] = canvas.px[start:start + side * 4]
-
+    crop = _head(image, bounds, 0.72)
     inner = max(1, int(size * (1 - ICON_PADDING * 2)))
-    small = _shrink(crop, inner, inner) if side >= inner else _grow(crop, inner, inner)
+    small = _resize(crop, inner, inner)
     out = png.Image(size, size)
     red, green, blue = ICON_BG
     for i in range(size * size):
@@ -210,67 +196,105 @@ def main() -> int:
         print(f"素材が見つからない: {SOURCE_DIR}")
         return 1
 
+    pairs, orphans = _sources()
+    for name in orphans:
+        # 絵文字はコンソールの文字集合（cp932）で出せない。
+        print(f"注意: {name}.png は相手がいないので使われない"
+              f"（{name[:-len(BLINK_SUFFIX)]}.png が無い）")
+
     print(f"読む: {SOURCE_DIR}")
     loaded = []
-    for name, path, blink_path in _sources():
+    for name, path, blink_path in pairs:
         image = png.load(path)
-        box = png.bounds(image)
-        if box is None:
+        bounds = png.bounds(image)
+        if bounds is None:
             print(f"  {name}: 中身が無い。飛ばす")
             continue
-        blink = png.load(blink_path) if blink_path else None
-        loaded.append((name, image, box, blink))
-        size = f"{box[2] - box[0] + 1}x{box[3] - box[1] + 1}"
-        print(f"  {name:12} {image.width}x{image.height} 中身={size}"
-              f"{' +まばたき' if blink else ''}")
+        loaded.append((name, image, bounds, png.load(blink_path) if blink_path else None))
 
     if not loaded:
         print("読めるものが無い")
         return 1
 
-    canvas_w = max(box[2] - box[0] + 1 for _, _, box, _ in loaded) + MARGIN_X * 2
-    canvas_h = max(box[3] - box[1] + 1 for _, _, box, _ in loaded) + MARGIN_TOP + MARGIN_BOTTOM
-    print(f"揃えるキャンバス: {canvas_w}x{canvas_h}（横は中央、下は床に合わせる）")
+    # **いちばん大きい絵を基準にする。** 混ざったまま並べると、そこだけ大きく出る。
+    reference = max(max(i.width, b.width if b else 0) for _, i, _, b in loaded)
+    sprites, plan = {}, {}
+    for name, image, bounds, blink in loaded:
+        scale = reference / image.width
+        box = tuple(round(v * scale) for v in bounds)
+        plan[name] = (image, scale, box, blink)
+        marks = "+まばたき" if blink is not None else ""
+        if scale != 1 or (blink is not None and blink.width != reference):
+            marks += " 縮尺を換算"
+        size = f"{bounds[2] - bounds[0] + 1}x{bounds[3] - bounds[1] + 1}"
+        print(f"  {name:12} {image.width}x{image.height} 中身={size} {marks}")
+
+    canvas_w = max(b[2] - b[0] + 1 for _, _, b, _ in plan.values()) + MARGIN_X * 2
+    canvas_h = max(b[3] - b[1] + 1 for _, _, b, _ in plan.values()) + MARGIN_TOP + MARGIN_BOTTOM
+    print(f"並べる広さ: {canvas_w}x{canvas_h}（基準 {reference}px。横は中央、下は床）")
 
     for folder in HEIGHTS:
         (OUT_DIR / folder).mkdir(parents=True, exist_ok=True)
 
     sizes = {}
     for folder, height in HEIGHTS.items():
-        if height:
-            sizes[folder] = [max(1, round(canvas_w * height / canvas_h)), height]
-        else:
-            sizes[folder] = [canvas_w, canvas_h]      # 縮めない
+        sizes[folder] = [max(1, round(canvas_w * height / canvas_h)), height]
     sizes["face"] = [FACE_SIZE, FACE_SIZE]
 
-    sprites = {}
-    for name, image, box, blink in loaded:
-        placed, offset = _place(image, box, canvas_w, canvas_h)
+    def render(image, scale, place, out_w, out_h, ratio):
+        """1枚を、出す大きさの中へ置く。**縮めるのはここで1回だけ。**"""
+        canvas = png.Image(out_w, out_h)
+        small = _resize(image,
+                        max(1, round(image.width * scale * ratio)),
+                        max(1, round(image.height * scale * ratio)))
+        _paste(canvas, small, round(place[0] * ratio), round(place[1] * ratio))
+        return canvas
+
+    def placement(box):
+        """基準の広さでの置き場所。**横は中身の中心、下は床。**
+
+        まばたきも同じ決め方で置く。目を閉じたぶん上の端は変わるが、下端と
+        中心は動かないので、切り替えても顔がずれない。描き直した差分（元絵の
+        中での位置が違う）でも、これなら揃う。
+        """
+        left, top, right, bottom = box
+        return ((canvas_w - (right - left + 1)) // 2 - left,
+                (canvas_h - MARGIN_BOTTOM) - (bottom + 1))
+
+    for name, (image, scale, box, blink) in plan.items():
+        place = placement(box)
+        blink_place = place
+        if blink is not None:
+            blink_scale = reference / blink.width
+            blink_box = tuple(round(v * blink_scale) for v in png.bounds(blink))
+            blink_place = placement(blink_box)
         for folder in HEIGHTS:
             out_w, out_h = sizes[folder]
-            png.save(OUT_DIR / folder / f"{name}.png", _fit(placed, out_w, out_h))
-        if blink is not None:
-            # **本体と同じ置き方**。測り直すと、まばたきのたびに顔がずれる。
-            shifted, _ = _place(blink, box, canvas_w, canvas_h, offset)
-            for folder in HEIGHTS:
-                out_w, out_h = sizes[folder]
+            ratio = out_h / canvas_h
+            png.save(OUT_DIR / folder / f"{name}.png",
+                     render(image, scale, place, out_w, out_h, ratio))
+            if blink is not None:
                 png.save(OUT_DIR / folder / f"{name}{BLINK_SUFFIX}.png",
-                         _fit(shifted, out_w, out_h))
+                         render(blink, blink_scale, blink_place, out_w, out_h, ratio))
         sprites[name] = {"blink": blink is not None}
-        if name == FACE_FROM:
-            png.save(OUT_DIR / "face.png", _face(placed))
-            icons = OUT_DIR.parent / ICON_DIR
-            icons.mkdir(parents=True, exist_ok=True)
-            for size in ICON_SIZES:
-                png.save(icons / f"icon-{size}.png", _icon(placed, size))
-            print(f"  書いた: アイコン {len(ICON_SIZES)}枚")
-        print(f"  書いた: {name}{'（まばたきあり）' if blink else ''}")
+        print(f"  書いた: {name}{'（まばたきあり）' if blink is not None else ''}")
+
+    face_name = FACE_FROM if FACE_FROM in plan else next(iter(plan))
+    face_image = plan[face_name][0]
+    bounds = png.bounds(face_image)
+    png.save(OUT_DIR / "face.png",
+             _resize(_head(face_image, bounds, 0.58), FACE_SIZE, FACE_SIZE))
+    icons = OUT_DIR.parent / ICON_DIR
+    icons.mkdir(parents=True, exist_ok=True)
+    for size in ICON_SIZES:
+        png.save(icons / f"icon-{size}.png", _icon(face_image, bounds, size))
+    print(f"  書いた: 顔とアイコン（{face_name} から）")
 
     manifest = {
         "generated": date.today().isoformat(),
         "source": "img/dot",
         "sizes": sizes,
-        "face": FACE_FROM,
+        "face": face_name,
         "sprites": sprites,
     }
     (OUT_DIR / "sprites.json").write_text(
