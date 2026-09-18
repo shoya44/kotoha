@@ -126,7 +126,9 @@ class Mascot:
         self.dot.draw(frame, lift=lift, opacity=opacity)
 
     def say(self, text: str, asking: bool = False) -> None:
-        self.bubble.say(text, self.anchor(), asking=asking)
+        # 打つときのふきだしは、姿と同じ幅に揃える。言葉のほうは読める幅に任せる。
+        self.bubble.say(text, self.anchor(), asking=asking,
+                        width=self.dot.width if asking and not text else 0)
         self.bubble_until = 0 if asking else time.time() + BUBBLE_SECONDS
 
     # --- 時計 ---
@@ -191,7 +193,9 @@ class Mascot:
             time.sleep(0.45)
         self.dot.visible(False)
         x, _ = self.dot.center()
-        self.bubble.say("外出中　―　押すと呼び戻す", (x, self.dot.y + self.dot.height))
+        # 姿と同じ幅に収まるよう、2行に分けて置く。1行だと切れる。
+        self.bubble.say("外出中\n押すと呼び戻す", (x, self.dot.y + self.dot.height),
+                        width=self.dot.width, center=True)
         self.bubble_until = 0
 
     # --- 押されたとき ---

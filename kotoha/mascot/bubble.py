@@ -26,6 +26,7 @@ WM_GETTEXTLENGTH = 0x000E
 WM_CTLCOLOREDIT = 0x0133
 EM_SETCUEBANNER = 0x1501
 DT_WORDBREAK, DT_CALCRECT, DT_NOPREFIX = 0x0010, 0x0400, 0x0800
+DT_CENTER = 0x0001
 TRANSPARENT = 1
 DEFAULT_CHARSET = 1
 LWA_ALPHA = 0x00000002
@@ -90,6 +91,7 @@ class Bubble:
         self.text = ""
         self.width = self.height = 0
         self.asking = False
+        self.center = False
         self._proc = WNDPROC(self._handle)
         self._brush = gdi32.CreateSolidBrush(PANEL)
         self._input_brush = gdi32.CreateSolidBrush(INPUT_BG)
@@ -123,12 +125,22 @@ class Bubble:
 
     # --- 出す・消す ---
 
-    def say(self, text: str, anchor, asking: bool = False) -> None:
-        """言葉を出す。anchor は (中心X, 上端Y)。その上に置く。"""
+    def say(self, text: str, anchor, asking: bool = False, width: int = 0,
+            center: bool = False) -> None:
+        """言葉を出す。anchor は (中心X, 上端Y)。その上に置く。
+
+        width を渡すと、その幅にする（姿と同じ幅に揃えるため）。渡さなければ
+        言葉の長さで決める。
+
+        ⚠️ **測るときと描くときで、同じ幅を使うこと。** 測ったより1ドットでも
+        狭く描くと、そのぶん行が増えて、下が見切れる。
+        """
         self.text = text
         self.asking = asking
-        inner = self._measure(text) if text else (MAX_WIDTH - PADDING * 2, 0)
-        self.width = inner[0] + PADDING * 2
+        self.center = center
+        limit = (width - PADDING * 2) if width else (MAX_WIDTH - PADDING * 2)
+        inner = self._measure(text, limit) if text else (limit, 0)
+        self.width = width or (inner[0] + PADDING * 2)
         # 言葉が無いなら、その場所は空けない（入力欄だけのふきだしになる）。
         self.height = (inner[1] + (GAP if text else 0) + PADDING * 2
                        + (INPUT_HEIGHT if asking else 0))
@@ -142,9 +154,10 @@ class Bubble:
         user32.SetWindowRgn(self.hwnd, self._region, True)
         if asking:
             # 入力欄は、下地の角丸から少し内側に置く。
-            user32.SetWindowPos(self.edit, None, PADDING + 8,
-                                self.height - PADDING - INPUT_HEIGHT + 6,
-                                self.width - (PADDING + 8) * 2, INPUT_HEIGHT - 12,
+            inset = PADDING + 6
+            user32.SetWindowPos(self.edit, None, inset,
+                                self.height - PADDING - INPUT_HEIGHT + 7,
+                                self.width - inset * 2, INPUT_HEIGHT - 14,
                                 SWP_NOACTIVATE)
             user32.ShowWindow(self.edit, SW_SHOWNOACTIVATE)
         else:
@@ -179,15 +192,16 @@ class Bubble:
 
     # --- 描く ---
 
-    def _measure(self, text: str):
+    def _measure(self, text: str, limit: int):
+        """その幅に収めたときの、言葉の大きさ。描くときと同じ幅で測る。"""
         dc = user32.GetDC(self.hwnd)
         old = gdi32.SelectObject(dc, self._font)
-        rect = w.RECT(0, 0, MAX_WIDTH, 0)
+        rect = w.RECT(0, 0, limit, 0)
         user32.DrawTextW(dc, text, -1, ctypes.byref(rect),
                          DT_WORDBREAK | DT_CALCRECT | DT_NOPREFIX)
         gdi32.SelectObject(dc, old)
         user32.ReleaseDC(self.hwnd, dc)
-        return max(rect.right, 90), max(rect.bottom, 18)
+        return min(max(rect.right, 60), limit), max(rect.bottom, 18)
 
     def _handle(self, hwnd, message, wparam, lparam):
         if message == WM_PAINT:
@@ -208,11 +222,12 @@ class Bubble:
             gdi32.SetBkMode(dc, TRANSPARENT)
             gdi32.SetTextColor(dc, INK if self.text else MUTED)
             if self.text:
-                area = w.RECT(PADDING + 1, PADDING, self.width - PADDING - 1,
+                # **測ったときと同じ幅で描く。** 狭めると行が増えて見切れる。
+                area = w.RECT(PADDING, PADDING, self.width - PADDING,
                               self.height - PADDING
                               - (INPUT_HEIGHT + GAP if self.asking else 0))
-                user32.DrawTextW(dc, self.text, -1, ctypes.byref(area),
-                                 DT_WORDBREAK | DT_NOPREFIX)
+                style = DT_WORDBREAK | DT_NOPREFIX | (DT_CENTER if self.center else 0)
+                user32.DrawTextW(dc, self.text, -1, ctypes.byref(area), style)
             gdi32.SelectObject(dc, old)
             user32.EndPaint(hwnd, ctypes.byref(paint))
             return 0
