@@ -21,14 +21,17 @@ MANIFEST = SPRITE_DIR / "sprites.json"
 # 器はこの実寸を使う。会話画面と同じもの。
 SIZE = "full"
 BLINK_SUFFIX = "-blink"
+# 呼吸で1行抜くときの、抜く高さ（上からの割合）。脚のあたり。
+SEAM = 0.72
 
 
 class Frame:
     """1枚ぶん。転送用の並びと、当たり判定用の不透明さ。"""
 
-    __slots__ = ("width", "height", "bgra", "alpha")
+    __slots__ = ("width", "height", "bgra", "alpha", "_squashed")
 
     def __init__(self, image: png.Image):
+        self._squashed = None
         self.width = image.width
         self.height = image.height
         self.bgra = bytearray(len(image.px))
@@ -46,6 +49,47 @@ class Frame:
                 self.bgra[i + 2] = source[i] * a // 255
             self.bgra[i + 3] = a
             self.alpha[i >> 2] = a
+
+    def squashed(self) -> "Frame":
+        """1ドットぶん縮めた同じ絵。**足元は動かさない。**
+
+        窓ごと持ち上げると、影も足も一緒に浮いて「跳ねている」ように見える。
+        息を吸うのは胸から上なので、下を留めたまま縦だけ詰める。1ドットあれば、
+        動いていることは分かる。
+
+        行を1本抜くだけなので作るのは速い。一度作ったら持っておく。
+        """
+        if self._squashed is not None:
+            return self._squashed
+        width, height = self.width, self.height
+        bgra = bytearray(width * height * 4)
+        alpha = bytearray(width * height)
+        # 抜く1行は、脚のあたりから。顔の中で抜くと、目や口が歪んで見える。
+        seam = int(height * SEAM)
+        for y in range(1, height):
+            source = y - 1 if y < seam else y
+            bgra[y * width * 4:(y + 1) * width * 4] =                 self.bgra[source * width * 4:(source + 1) * width * 4]
+            alpha[y * width:(y + 1) * width] =                 self.alpha[source * width:(source + 1) * width]
+        self._squashed = Frame.__new__(Frame)
+        self._squashed.width, self._squashed.height = width, height
+        self._squashed.bgra, self._squashed.alpha = bgra, alpha
+        self._squashed._squashed = self._squashed
+        return self._squashed
+        width, height = self.width, self.height
+        bgra = bytearray(width * height * 4)
+        alpha = bytearray(width * height)
+        # 上の1行は空けて、残りへ元の絵を詰める（下端が揃う）。
+        for y in range(1, height):
+            source = min(height - 1, round((y - 1) * height / (height - 1)))
+            bgra[y * width * 4:(y + 1) * width * 4] = \
+                self.bgra[source * width * 4:(source + 1) * width * 4]
+            alpha[y * width:(y + 1) * width] = \
+                self.alpha[source * width:(source + 1) * width]
+        self._squashed = Frame.__new__(Frame)
+        self._squashed.width, self._squashed.height = width, height
+        self._squashed.bgra, self._squashed.alpha = bgra, alpha
+        self._squashed._squashed = self._squashed
+        return self._squashed
 
     def opaque_at(self, x: int, y: int) -> bool:
         if not (0 <= x < self.width and 0 <= y < self.height):

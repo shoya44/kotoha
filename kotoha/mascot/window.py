@@ -171,13 +171,13 @@ class Dot:
 
     # --- 見た目 ---
 
-    def draw(self, frame, lift: int = 0, opacity: int = 255) -> None:
-        """1枚を転送する。lift は上に浮かせるドット数（呼吸）。"""
+    def draw(self, frame, opacity: int = 255) -> None:
+        """1枚を転送する。**窓は動かさない**（呼吸は絵の側で作る）。"""
         if frame is None:
             return
         self.frame = frame
         ctypes.memmove(self.bits, bytes(frame.bgra), len(frame.bgra))
-        position = w.POINT(self.x, self.y - lift)
+        position = w.POINT(self.x, self.y)
         size = (ctypes.c_long * 2)(self.width, self.height)
         source = w.POINT(0, 0)
         blend = BLENDFUNCTION(AC_SRC_OVER, 0, opacity, AC_SRC_ALPHA)

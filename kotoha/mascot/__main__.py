@@ -25,8 +25,8 @@ PLACE_PATH = config.BASE_DIR / "data" / "mascot.json"
 LOG_PATH = config.BASE_DIR / "data" / "mascot.log"
 
 TICK_MS = 40
-# 呼吸。この周期で1ドットだけ浮く。
-BREATH_SECONDS = 1.7
+# 呼吸。この周期で、1ドットぶん縮んでは戻る（足元は動かない）。
+BREATH_SECONDS = 3.4
 # まばたきの間。ばらつかせないと、機械に見える。
 BLINK_MIN, BLINK_MAX, BLINK_MS = 4.0, 10.0, 0.13
 # ふきだしが残る時間。頼まれごとは読み終わるまで置いておきたい。
@@ -113,17 +113,20 @@ class Mascot:
 
     def draw(self, force: bool = False) -> None:
         now = time.time()
-        lift = 1 if (now % BREATH_SECONDS) < BREATH_SECONDS / 2 else 0
+        # 息を吐いているあいだだけ、1ドットぶん縮む。浮かせると跳ねて見える。
+        breathing_out = (now % BREATH_SECONDS) < BREATH_SECONDS / 2
         opacity = 255 if self.online else DIM
         name = self.picture
-        state = (name, self.blinking, lift, opacity)
+        state = (name, self.blinking, breathing_out, opacity)
         if state == self.last_drawn and not force:
             return
         self.last_drawn = state
         frame = self.sheet.frame(name, self.blinking)
         if frame is None:
             frame = self.sheet.frame(self.sheet.any_name())
-        self.dot.draw(frame, lift=lift, opacity=opacity)
+        if frame is not None and breathing_out:
+            frame = frame.squashed()
+        self.dot.draw(frame, opacity=opacity)
 
     def say(self, text: str, asking: bool = False) -> None:
         # 打つときのふきだしは、姿と同じ幅に揃える。言葉のほうは読める幅に任せる。

@@ -42,7 +42,6 @@ PANEL = 0x00241F1E          # #1e1f24
 INPUT_BG = 0x002C2726       # #26272c
 INK = 0x00E2E7E9            # #e9e7e2
 MUTED = 0x009D9898          # #98989d
-EDGE = 0x00423B3A           # #3a3b42
 # 窓ごと薄くする。壁紙が透けるが、字は読める濃さ。
 OPACITY = 232
 MAX_WIDTH = 280
@@ -103,7 +102,6 @@ class Bubble:
         self._proc = WNDPROC(self._handle)
         self._brush = gdi32.CreateSolidBrush(PANEL)
         self._input_brush = gdi32.CreateSolidBrush(INPUT_BG)
-        self._edge_brush = gdi32.CreateSolidBrush(EDGE)
         self._region = None
         self._font = gdi32.CreateFontW(-14, 0, 0, 0, 400, 0, 0, 0, DEFAULT_CHARSET,
                                        0, 0, 0, 0, "Yu Gothic UI")
@@ -250,8 +248,6 @@ class Bubble:
                     self.width - PADDING + 1, self.height - PADDING + 1, 12, 12)
                 gdi32.FillRgn(dc, field, self._input_brush)
                 gdi32.DeleteObject(field)
-            if self._region:
-                gdi32.FrameRgn(dc, self._region, self._edge_brush, 1, 1)
             old = gdi32.SelectObject(dc, self._font)
             gdi32.SetBkMode(dc, TRANSPARENT)
             gdi32.SetTextColor(dc, INK if self.text else MUTED)
