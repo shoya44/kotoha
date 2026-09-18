@@ -216,6 +216,12 @@ class RoundTests(unittest.TestCase):
         conn = db.connect()
         db.init(conn)
         conn.close()
+        # 一周には声かけと想起が含まれる。**本物の通知とOllamaを叩かせない。**
+        # ここを開けたまま走らせて、持ち主の電話を実際に鳴らしたことがある。
+        for name in ("PUSH_ENABLED", "EMBED_ENABLED"):
+            self.addCleanup(setattr, config, name, getattr(config, name))
+            setattr(config, name, False)
+
         from kotoha import notify
         from kotoha.serve import jobs
 
