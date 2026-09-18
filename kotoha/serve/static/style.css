@@ -57,8 +57,7 @@
   /* 寸法。--tap-min はHIGの最小タップ領域 */
   --tap-min: 44px;
   --chat-max-width: 860px;
-  --input-min-height: 76px;   /* 3行ぶん。打ち始める前から余裕を見せる */
-  --input-max-height: 140px;
+  --input-max-height: 140px;  /* 打つほど伸びて、ここで止まる */
 
   /* 動き */
   --duration-fast: .15s;
@@ -99,17 +98,20 @@ body {
   color: var(--ink);
 }
 
+/* **見えている範囲そのものに合わせる。** 幅も高さも端末が言う値を使う。
+   iPhoneはキーボードを出すときに画面を少し引いて見せることがあり、そのとき
+   画面の幅で置くと、引いたぶんだけ左右と下に地の黒が覗く。 */
 #appShell {
   position: relative;
 
-  width: 100%;
+  width: var(--vv-width, 100%);
   height: var(--vv-height, 100dvh);
 
   display: flex;
   flex-direction: column;
   overflow: hidden;
 
-  transform: translateY(var(--vv-top, 0px));
+  transform: translate(var(--vv-left, 0px), var(--vv-top, 0px));
 }
 
 button,
@@ -403,7 +405,6 @@ textarea {
   display: block;
   width: 100%;
   min-width: 0;
-  min-height: var(--input-min-height);
   max-height: var(--input-max-height);
   resize: none;
   /* 伸び切ったあとも中身は送れる。つまみは出さず、iOSの見え方に揃える。 */
@@ -420,7 +421,6 @@ textarea {
 
   font-size: 16px;
   line-height: 1.5;
-  field-sizing: content;
 }
 
 /* 押すものはカードの下辺、右端に寄せる。左側は今のところ空けておく。 */

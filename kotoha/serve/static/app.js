@@ -1739,18 +1739,18 @@ function syncVisualViewport() {
   viewportRaf = requestAnimationFrame(() => {
     const viewport = window.visualViewport;
 
+    // 高さだけでなく幅も見る。キーボードを出すとき、iPhoneは画面を少し引いて
+    // 見せることがある。そのとき画面の幅で置くと、左右に地の黒が覗く。
     const height = viewport?.height ?? window.innerHeight;
+    const width = viewport?.width ?? window.innerWidth;
     const top = viewport?.offsetTop ?? 0;
+    const left = viewport?.offsetLeft ?? 0;
 
-    document.documentElement.style.setProperty(
-      "--vv-height",
-      `${Math.round(height)}px`
-    );
-
-    document.documentElement.style.setProperty(
-      "--vv-top",
-      `${Math.round(top)}px`
-    );
+    const shell = document.documentElement.style;
+    shell.setProperty("--vv-height", `${Math.round(height)}px`);
+    shell.setProperty("--vv-width", `${Math.round(width)}px`);
+    shell.setProperty("--vv-top", `${Math.round(top)}px`);
+    shell.setProperty("--vv-left", `${Math.round(left)}px`);
 
     viewportRaf = null;
     // キーボードが出ると会話欄がその場で縮む。誰も戻さないと、縮んだぶん
