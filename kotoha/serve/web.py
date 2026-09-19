@@ -1,31 +1,40 @@
+import asyncio
+import json
 import os
 import threading
 
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request, Response
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from .. import config
 from ..memory import db, remind
 from ..talk import chat, llm, presence
-from . import admin, jobs, voice
+from . import admin, hub, jobs, voice
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 # start.bat はこの終了コードを見て起動し直す。42以外は普通の終了として扱われる。
 RESTART_EXIT_CODE = 42
-# 通話中の端末はこの間隔より短く生存を知らせる。途絶えたら通話は終わったとみなす。
-CALL_STALE_SECONDS = 120
 # 記憶本文の上限。整理が作るときのエピソード側に合わせてある。
 MEMORY_TEXT_LIMIT = 400
 
 app = FastAPI(title="kotoha")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+# 上がったばかりの脳には、まだどの器も繋がっていない。
+hub.wake()
 
 
-def _check_token(request: Request) -> None:
+def _check_token(request: Request, allow_query: bool = False) -> None:
+    """合言葉の照合。既定は見出し（ヘッダー）だけを見る。
+
+    allow_query を立てるのは、**見出しを付けられない道**のときだけ。
+    EventSource も sendBeacon も、こちらから見出しを足せない。
+    """
     token = request.headers.get("X-Kotoha-Token", "")
+    if not token and allow_query:
+        token = request.query_params.get("token", "")
     if not config.WEB_TOKEN or token != config.WEB_TOKEN:
         raise HTTPException(status_code=401, detail="トークンが無効")
 
@@ -126,6 +135,9 @@ def api_chat(request: Request, payload: dict):
     text = (payload.get("text") or "").strip()
     if not text:
         raise HTTPException(status_code=400, detail="入力が空")
+    # **話しかけた器へ、先に実体を移す。** 生成には数秒かかるので、返事より
+    # あとに移すと、そのあいだ別の器が喋っているように見える。
+    hub.claim(str(payload.get("vessel") or ""), "話しかけられた")
     with jobs.turn_lock, db.session() as conn:
         try:
             turn = chat.run_turn(conn, text)
@@ -134,6 +146,8 @@ def api_chat(request: Request, payload: dict):
         # いま増えたぶんまで画面の目印を進める。これが無いと、次の見に行きで
         # 自分が送ったばかりの往復をもう一度拾って、二重に並ぶ。
         last_id = conn.execute("SELECT MAX(id) AS id FROM messages").fetchone()["id"]
+    # 話したあとは機嫌が動く。姿もそこで1回だけ合わせる。
+    hub.refresh(said_ago=0)
     answer = {"reply": turn.reply, "mode": turn.mode, "last_id": last_id}
     if turn.kept:
         # 預かったことを画面にも出す。ことはの言葉は変えず、印だけ足す。
@@ -142,53 +156,106 @@ def api_chat(request: Request, payload: dict):
     return answer
 
 
-def _call_owner(conn):
-    """いま通話している端末。見張りが途絶えた記録は無効として扱う。"""
-    owner = db.get_state(conn, db.CALL_OWNER)
-    if not owner:
-        return None
-    if db.overdue(conn, db.CALL_SEEN_AT, CALL_STALE_SECONDS):
-        return None
-    return owner
-
-
 @app.get("/api/call")
-def call_state(request: Request, device: str = ""):
-    """通話を続けてよいか確かめる。持ち主が入れ替わっていれば false。"""
+def call_state(request: Request, vessel: str = ""):
+    """通話を続けてよいか。**実体が移っていれば、もう自分のものではない。**"""
     _check_token(request)
-    with db.session() as conn:
-        owner = _call_owner(conn)
-        if owner and owner == device:
-            db.set_state(conn, db.CALL_SEEN_AT, db.now_utc())
-            conn.commit()
-        return {"calling": bool(owner), "mine": owner == device if owner else False}
+    who = hub.calling()
+    return {"calling": bool(who), "mine": bool(who) and who == vessel}
 
 
 @app.post("/api/call")
 def call_claim(request: Request, payload: dict):
-    """通話を始める。先に話していた端末があれば、その端末は次の確認でやめる。"""
+    """通話を始める。姿ごとこちらへ来るので、前の器の通話はそこで終わる。"""
     _check_token(request)
-    device = (payload.get("device") or "").strip()
-    if not device:
-        raise HTTPException(status_code=400, detail="端末の指定がない")
-    with db.session() as conn:
-        previous = _call_owner(conn)
-        db.set_state(conn, db.CALL_OWNER, device)
-        db.set_state(conn, db.CALL_SEEN_AT, db.now_utc())
-        conn.commit()
-        return {"calling": True, "mine": True, "took_over": bool(previous and previous != device)}
+    vessel = (payload.get("vessel") or "").strip()
+    if not vessel:
+        raise HTTPException(status_code=400, detail="器の指定がない")
+    started, took_over = hub.start_call(vessel)
+    if not started:
+        raise HTTPException(status_code=409, detail="その器は繋がっていない")
+    return {"calling": True, "mine": True, "took_over": took_over}
 
 
 @app.delete("/api/call")
 def call_release(request: Request):
-    """通話を終わらせる。自分の端末でも、置いてきた端末でも同じ。"""
+    """通話を終わらせる。自分の器でも、置いてきた器でも同じ。"""
     _check_token(request)
-    with db.session() as conn:
-        released = bool(_call_owner(conn))
-        db.set_state(conn, db.CALL_OWNER, "")
-        db.set_state(conn, db.CALL_SEEN_AT, "")
-        conn.commit()
-        return {"calling": False, "mine": False, "released": released}
+    return {"calling": False, "mine": False, "released": hub.end_call()}
+
+
+@app.get("/api/presence/stream")
+async def presence_stream(request: Request, vessel: str = ""):
+    """脳からの言づてを流し続ける道（SSE）。器はこれを開いたまま待つ。
+
+    **繋がっていること自体が「そこに居る」の証拠**になる。切れれば脳が
+    その場で気づくので、鮮度を測る必要がない。
+    """
+    _check_token(request, allow_query=True)
+    if not vessel:
+        raise HTTPException(status_code=400, detail="器の名前が無い")
+    queue = asyncio.Queue()
+    joined = hub.join(vessel, queue, asyncio.get_running_loop())
+    # 繋がった器は、まだ何も知らない。いまの姿を1回渡しておく。
+    await asyncio.to_thread(hub.refresh)
+
+    async def events():
+        try:
+            while True:
+                try:
+                    payload = await asyncio.wait_for(queue.get(), timeout=hub.PING_SECONDS)
+                except asyncio.TimeoutError:
+                    # 無言のままだと途中の何かに切られる。生きている合図を流す。
+                    yield ": ping\n\n"
+                    continue
+                yield f"data: {payload}\n\n"
+        finally:
+            hub.leave(joined)
+
+    return StreamingResponse(events(), media_type="text/event-stream", headers={
+        "Cache-Control": "no-store",
+        # 溜め込まれると、すぐ届くはずのものが数十秒遅れる。
+        "X-Accel-Buffering": "no",
+    })
+
+
+@app.post("/api/presence/here")
+async def presence_here(request: Request):
+    """実体をこちらへ。呼び出し（通知から開いた・看板を押した・通話へ渡す）。"""
+    _check_token(request, allow_query=True)
+    payload = await _lenient_json(request)
+    vessel = str(payload.get("vessel") or "")
+    reason = str(payload.get("reason") or "呼ばれた")
+    if not hub.claim(vessel, reason):
+        raise HTTPException(status_code=409, detail="その器は繋がっていない")
+    return {"body": hub.body()}
+
+
+@app.post("/api/presence/bye")
+async def presence_bye(request: Request):
+    """見えなくなった。**切断を待たずに実体を手放すための道。**
+
+    iPhoneのPWAは背景に回っても繋がりが残ることがある。待っていると
+    「まだ居る」と思い込んで、Pushが鳴らなくなる。
+    """
+    _check_token(request, allow_query=True)
+    payload = await _lenient_json(request)
+    vessel = str(payload.get("vessel") or "")
+    if vessel:
+        hub.forget(vessel)
+    return Response(status_code=204)
+
+
+async def _lenient_json(request: Request) -> dict:
+    """本文を緩く読む。sendBeacon は種類を選べないことがある。"""
+    try:
+        body = await request.body()
+        if not body:
+            return {}
+        parsed = json.loads(body)
+        return parsed if isinstance(parsed, dict) else {}
+    except ValueError:
+        return {}
 
 
 @app.post("/api/restart")
@@ -328,8 +395,9 @@ def machine_view(request: Request):
     _check_token(request)
     with db.session() as conn:
         rows = [{"label": label, "value": value} for label, value in presence.snapshot(conn)]
-        owner = _call_owner(conn)
-        rows.append({"label": "通話", "value": owner or "していない"})
+    where = hub.body()
+    rows.append({"label": "姿", "value": where or "出していない"})
+    rows.append({"label": "通話", "value": hub.calling() or "していない"})
     for label, probe in jobs.tool_probes().items():
         rows.append({"label": label, "value": "動いている" if probe() else "止まっている"})
     return {"rows": rows}

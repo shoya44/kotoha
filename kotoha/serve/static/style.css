@@ -146,6 +146,7 @@ header {
 }
 
 .mini-avatar {
+  position: relative;
   flex: none;
   height: 140px;
   overflow: hidden;
@@ -167,6 +168,41 @@ body.typing .mini-avatar { height: 0; }
   transform-origin: center bottom;
   transition: opacity var(--duration) ease;
 }
+
+/* 姿がこちらに無いあいだ。絵を隠して、立て札だけを出す。 */
+body.away .mini-avatar img { display: none; }
+
+/* 読めなかった絵。場所は空けたまま隠す（高さが動くと会話欄が跳ねる）。 */
+.mini-avatar img.unloaded { visibility: hidden; }
+
+#awaySign {
+  display: none;
+  position: absolute;
+  inset: 0;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+body.away #awaySign { display: flex; }
+
+#awaySign .away-call {
+  border: 1px solid var(--separator-weak);
+  border-radius: 999px;
+  padding: 5px 14px;
+  color: var(--accent);
+  font-size: 12px;
+}
+
+#awaySign:active .away-call { background: var(--fill-weak); }
 
 .mini-avatar img.avatar-react {
   animation: avatar-react .28s ease-out;
@@ -202,13 +238,13 @@ body.typing .mini-avatar { height: 0; }
   cursor: pointer;
 }
 
+/* ことはの顔。ドットの立ち姿から切り出した32pxの絵を、そのまま並べる。
+   丸く切り抜くと髪が切れるので、角を落とすだけにしてある。 */
 .av {
   flex: none;
-  border: 1px solid var(--ai-line);
-  border-radius: 50%;
-  object-fit: cover;
-  object-position: 50% 15%;
-  background: #000;  /* 画像が読めないときの下地 */
+  border-radius: 6px;
+  object-fit: contain;
+  background: var(--fill-weak);
 }
 
 .h-av {
@@ -431,11 +467,12 @@ textarea {
 }
 
 /* 押すものはカードの下辺、右端に寄せる。左側は今のところ空けておく。 */
+/* 隣り合う押しどころは離す。4pxだと、通話を狙って送信に触れる。 */
 .composer-actions {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 4px;
+  gap: 10px;
 }
 
 textarea::-webkit-scrollbar {
@@ -460,12 +497,14 @@ button {
   font-weight: 600;
 }
 
+/* 押しどころは48px（HIGの最小は44px）。**見えている丸も40pxにする。**
+   指は見えているものを狙うので、丸が小さいと、領域が足りていても外れる。 */
 #send {
   position: relative;
-  width: 44px;
-  height: 44px;
-  min-width: 44px;
-  min-height: 44px;
+  width: 48px;
+  height: 48px;
+  min-width: 48px;
+  min-height: 48px;
   padding: 0;
   display: grid;
   place-items: center;
@@ -476,8 +515,8 @@ button {
 #send::before {
   content: "";
   position: absolute;
-  width: 32px;
-  height: 32px;
+  width: 40px;
+  height: 40px;
   border-radius: 50%;
   background: var(--accent);
   transition: opacity var(--duration-fast) ease, transform .1s ease;
@@ -486,8 +525,8 @@ button {
 #send svg {
   position: relative;
   z-index: 1;
-  width: 17px;
-  height: 17px;
+  width: 20px;
+  height: 20px;
   fill: none;
   stroke: currentColor;
   stroke-width: 2.2;
@@ -502,10 +541,10 @@ button {
 /* 通話ボタン。送信が主操作なので、待機中は塗らずに一段控えめにする。 */
 #call {
   position: relative;
-  width: 44px;
-  height: 44px;
-  min-width: 44px;
-  min-height: 44px;
+  width: 48px;
+  height: 48px;
+  min-width: 48px;
+  min-height: 48px;
   padding: 0;
   display: grid;
   place-items: center;
@@ -516,8 +555,8 @@ button {
 #call::before {
   content: "";
   position: absolute;
-  width: 32px;
-  height: 32px;
+  width: 40px;
+  height: 40px;
   border-radius: 50%;
   background: transparent;
   transition: background-color var(--duration-fast) ease, transform .1s ease;
@@ -527,8 +566,8 @@ button {
 #call svg {
   position: relative;
   z-index: 1;
-  width: 18px;
-  height: 18px;
+  width: 21px;
+  height: 21px;
   fill: currentColor;
   stroke: none;
 }
