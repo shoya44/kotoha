@@ -482,3 +482,4 @@ class SnoozeButtonTests(DbCase):
 
 if __name__ == "__main__":
     unittest.main()
+

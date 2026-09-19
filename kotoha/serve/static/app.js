@@ -51,9 +51,12 @@ const elements = {
   memorySave: $("memorySave"),
   memoryDelete: $("memoryDelete"),
   contextMenu: $("contextMenu"),
+  awaySign: $("awaySign"),
+  awayWhere: $("awayWhere"),
 };
 
-const AVATAR_URL = "/static/kotoha.png";
+// 会話の行に並べる小さな顔。立ち姿と同じ素材から切り出してある。
+const AVATAR_URL = "/static/sprite/face.png";
 // ことはのほうからの発言を見に行く間隔。裏の巡回が60秒なので、これで
 // 取りこぼさない。画面が隠れているあいだは見に行かない。
 const CATCH_UP_MS = 30000;
@@ -333,6 +336,16 @@ function offerSnooze() {
     else button.remove();
   });
   bubble.append(button);
+}
+
+// 通知から開いたとき、ドットから通話へ渡されたときは、**開いた時点で呼ばれている**。
+// 看板を出してから押させるのは、一手多い。
+async function answerTheCall() {
+  const params = new URLSearchParams(location.search);
+  const called = params.has("call");
+  if (!called && !params.has("remind") && !params.has("snooze")) return;
+  await callHer();
+  if (called) startCall();
 }
 
 // Chrome の通知ボタンから来たときは、開いた時点でもう押されている。
@@ -715,6 +728,14 @@ function formatTime(value) {
   return `${date.getFullYear()}/${date.getMonth() + 1}/${date.getDate()} ${time}`;
 }
 
+// **指で触る画面では、開いた拍子に焦点を当てない。** キーボードが立ち上がって
+// 画面が縮み、ことはの顔が畳まれる。縮んだ高さの指定が残ると、端に地の黒が
+// 出たままになることもある。PCでは今までどおり、開いたらすぐ打てる。
+function focusInput() {
+  if (window.matchMedia?.("(pointer: coarse)").matches) return;
+  elements.input.focus();
+}
+
 // ===== API =====
 function api(path, options = {}) {
   const headers = {
@@ -959,91 +980,139 @@ function closeSettings() {
   elements.settingsOverlay.setAttribute("aria-hidden", "true");
 }
 
-// ===== Mini avatar =====
-const avatarByTime = {
-  morning: [
-    "/static/avatar/kotoha_morning_sleepy.png",
-    "/static/avatar/kotoha_morning_coffee.png",
-  ],
-  day: [
-    "/static/avatar/kotoha_day_phone.png",
-    "/static/avatar/kotoha_day_idle.png",
-  ],
-  afternoon: [
-    "/static/avatar/kotoha_afternoon_nap.png",
-    "/static/avatar/kotoha_snack.png",
-  ],
-  evening: [
-    "/static/avatar/kotoha_evening_bath.png",
-  ],
-  night: [
-    "/static/avatar/kotoha_night_game.png",
-    "/static/avatar/kotoha_night_phone.png",
-  ],
-  sleep: [
-    "/static/avatar/kotoha_sleep.png",
-  ],
-};
+// ===== 姿（実体） =====
+// **どの絵を出すかは脳が決める。** ここは受け取った名前を描くだけで、
+// 時間帯も機嫌も見ない。判定は talk/figure.py が1つだけ持っている。
+//
+// 実体（姿を出す場所）も脳が決める。ことはは1人なので、姿が出るのは
+// ドットか会話画面のどちらか片方だけ。こちらに居ないあいだは「外出中」。
 
-function getAvatarGroup() {
-  const hour = new Date().getHours();
+// この画面の名乗り。**端末ごとに覚えておく。** 裏に回ったり開き直したりしても
+// 同じ器として戻れる（ことはは、そこに居たまま待っている）。
+let VESSEL = localStorage.getItem("kotoha_vessel") || "";
+if (!VESSEL) {
+  VESSEL = "web-" + Math.random().toString(36).slice(2, 8);
+  try {
+    localStorage.setItem("kotoha_vessel", VESSEL);
+  } catch {
+    // 保存できなくても、この起動のあいだは使える。
+  }
+}
+// 会話画面は大きく出す。iPhoneは1ポイントを3画素で描くので、小さい絵を
+// 置くと引き伸ばされて眠くなる。
+const SPRITE_URL = "/static/sprite/web/";
 
-  if (hour >= 6 && hour < 11) return "morning";
-  if (hour >= 11 && hour < 14) return "day";
-  if (hour >= 14 && hour < 17) return "afternoon";
-  if (hour >= 17 && hour < 21) return "evening";
-  if (hour >= 21 || hour < 2) return "night";
+let presenceStream = null;
+let blinkTimer = null;
+let embodied = false;
+let currentPicture = "";
+// まばたきのある絵の一覧。無い絵は、まばたきしないだけ。
+let blinkable = new Set();
 
-  return "sleep";
+async function loadSpriteList() {
+  try {
+    const response = await fetch("/static/sprite/sprites.json");
+    const manifest = await response.json();
+    blinkable = new Set(
+      Object.entries(manifest.sprites).filter(([, s]) => s.blink).map(([name]) => name));
+  } catch {
+    // 読めなくても絵は出る。まばたきしないだけ。
+  }
 }
 
-function updateMiniAvatar() {
-  const groupName = getAvatarGroup();
-  const images = avatarByTime[groupName];
-
-  // 日付 + 時間帯で1枚固定
-  const now = new Date();
-  const seed = now.getDate() + groupName.length;
-  const index = seed % images.length;
-
-  $("miniAvatarImage").src = images[index];
+function showPicture(name) {
+  if (!name || name === currentPicture) return;
+  currentPicture = name;
+  $("miniAvatarImage").src = `${SPRITE_URL}${name}.png`;
   scheduleBlink();
 }
 
-let blinkTimer = null;
+function setEmbodied(here, where = "") {
+  // **実体が移れば通話も終わる。** 向こうで話しているのに、こちらのマイクが
+  // 開いたままなのはおかしい。
+  if (!here && calling) {
+    addMessage("system", "[通話] ほかの器に切り替わりました");
+    endCall({ release: false });
+  }
+  embodied = here;
+  document.body.classList.toggle("away", !here);
+  elements.awayWhere.textContent = where === "desktop" ? "デスクトップに居る" : "外出中";
+  if (!here) {
+    clearTimeout(blinkTimer);
+    currentPicture = "";
+  }
+}
 
-function getBlinkSrc(src) {
-  return src.replace(".png", "_blink.png");
+// ことはのほうから流れてくる言づて。繋ぎ直しはブラウザーがやってくれる。
+function connectPresence() {
+  if (!token || presenceStream) return;
+  presenceStream = new EventSource(
+    `/api/presence/stream?vessel=${VESSEL}&token=${encodeURIComponent(token)}`);
+  presenceStream.onmessage = event => {
+    let message;
+    try {
+      message = JSON.parse(event.data);
+    } catch {
+      return;
+    }
+    if (message.type === "here") setEmbodied(true);
+    else if (message.type === "away") setEmbodied(false, message.where);
+    else if (message.type === "act") showPicture(message.picture);
+    else if (message.type === "say") {
+      // 本文は履歴から取る。並べ方を1か所にしておく。
+      catchUp();
+      reactAvatar();
+    }
+  };
+  presenceStream.onerror = () => setStatus("接続できない", "offline");
+}
+
+function disconnectPresence() {
+  presenceStream?.close();
+  presenceStream = null;
+}
+
+// **見えなくなったことは、こちらから言う。** 切断を待つと、iPhoneでは
+// 繋がりが残ったままになり、脳が「まだ居る」と思い込んでPushが鳴らなくなる。
+// 居場所は動かない。**ことははこの画面に居たまま**で、見ていないあいだの
+// 言葉だけがスマホの通知で届く。
+function sayGoodbye() {
+  if (!token) return;
+  const url = `/api/presence/bye?token=${encodeURIComponent(token)}`;
+  navigator.sendBeacon(url, new Blob([JSON.stringify({ vessel: VESSEL })],
+                                     { type: "application/json" }));
+}
+
+// 「こっちに呼ぶ」。話しかければ来るので、押すのは用が無いときだけ。
+async function callHer() {
+  try {
+    await api("/api/presence/here", { method: "POST", body: { vessel: VESSEL } });
+  } catch {
+    setStatus("接続できない", "offline");
+  }
 }
 
 function scheduleBlink() {
   clearTimeout(blinkTimer);
-
-  const delay = 8000 + Math.random() * 7000;
+  if (!blinkable.has(currentPicture)) return;
 
   blinkTimer = setTimeout(async () => {
     const image = $("miniAvatarImage");
-    const normalSrc = image.src;
-    const blinkSrc = getBlinkSrc(normalSrc);
-
-    const preload = new Image();
-    preload.src = blinkSrc;
-
+    const open = `${SPRITE_URL}${currentPicture}.png`;
+    const closed = `${SPRITE_URL}${currentPicture}-blink.png`;
     try {
+      const preload = new Image();
+      preload.src = closed;
       await preload.decode();
-
-      image.src = blinkSrc;
-
+      image.src = closed;
       setTimeout(() => {
-        image.src = normalSrc;
+        image.src = open;
         scheduleBlink();
       }, 130);
-
     } catch {
-      // blink画像が無い場合はそのまま
       scheduleBlink();
     }
-  }, delay);
+  }, 4000 + Math.random() * 6000);
 }
 
 function reactAvatar(className = "avatar-react") {
@@ -1273,9 +1342,10 @@ async function unlock() {
       return;
     }
     localStorage.setItem("kotoha_token", token);
+    connectPresence();
     elements.gate.style.display = "none";
     setStatus("いるよ");
-    elements.input.focus();
+    focusInput();
     setupPush();
     watchHistory();
   } catch {
@@ -1303,7 +1373,8 @@ async function send() {
   const typingRow = addTypingIndicator();
 
   try {
-    const response = await api("/api/chat", { method: "POST", body: { text } });
+    const response = await api("/api/chat",
+      { method: "POST", body: { text, vessel: VESSEL } });
     typingRow?.remove();
 
     if (!response.ok) {
@@ -1354,19 +1425,9 @@ let lastFiller = null;
 // 話し終わりを検知した時刻。認識が確定するのはこの数百ms後になる。
 let speechEndedAt = 0;
 
-// 通話はサーバー側で1台だけにする。あとから始めた端末が持ち主になり、
-// 前の端末は次の見張りで気づいて切る。置いてきた端末を外から切るためでもある。
-const CALL_WATCH_MS = 5000;
-let deviceId = localStorage.getItem("kotoha_device") || "";
-if (!deviceId) {
-  deviceId = Math.random().toString(36).slice(2) + Date.now().toString(36);
-  try {
-    localStorage.setItem("kotoha_device", deviceId);
-  } catch {
-    // 保存できなくてもこの起動のあいだは使える。
-  }
-}
-let callWatch = null;
+// 通話は姿のあるところでしか始まらない。**始めると実体ごとこちらへ来る**ので、
+// 通話の持ち主を別に持たない。ほかの器へ移されたら away が届き、そこで切る。
+// 5秒ごとの見張りは要らなくなった。
 
 
 // 通話のあいだに使い回すので、開始時にまとめて作っておく。
@@ -1467,25 +1528,6 @@ function updateCallButton() {
   );
 }
 
-// 5秒ごとに、まだ自分が持ち主か確かめる。入れ替わっていたら黙って切る。
-function watchCall() {
-  clearInterval(callWatch);
-  callWatch = setInterval(async () => {
-    if (!calling) return;
-    try {
-      const response = await api(`/api/call?device=${encodeURIComponent(deviceId)}`);
-      if (!response.ok) return;   // 通信の不調で勝手に切らない
-      const state = await response.json();
-      if (!state.mine) {
-        addMessage("system", "[通話] ほかの端末に切り替わりました");
-        endCall({ release: false });
-      }
-    } catch {
-      // つながらないあいだは様子を見る。
-    }
-  }, CALL_WATCH_MS);
-}
-
 async function startCall() {
   if (calling) return;
   calling = true;
@@ -1494,9 +1536,8 @@ async function startCall() {
   setStatus("通話中", "calling");
   prepareFillers();  // 待たない。間に合ったぶんから使う。
   listen();
-  watchCall();
   try {
-    await api("/api/call", { method: "POST", body: { device: deviceId } });
+    await api("/api/call", { method: "POST", body: { vessel: VESSEL } });
   } catch {
     // 名乗れなくても手元の通話は続ける。
   }
@@ -1507,8 +1548,6 @@ function endCall({ release = true } = {}) {
   calling = false;
   callBusy = false;
   speechEndedAt = 0;
-  clearInterval(callWatch);
-  callWatch = null;
   stopSpeaking();
   if (recognition) {
     recognition.abort();
@@ -1727,10 +1766,25 @@ function setTyping(on) {
 }
 
 elements.input.addEventListener("focus", () => setTyping(true));
-elements.input.addEventListener("blur", () => setTyping(false));
+elements.input.addEventListener("blur", () => {
+  setTyping(false);
+  // キーボードが引っ込んだことを、端末が知らせてこないことがある。**その場で
+  // 捨てる。** 残ると画面が縮んだままで、端に地の黒が出る。まだ出ているなら、
+  // 次の測り直しでまた立つ。
+  document.documentElement.style.removeProperty("--vv-height");
+  document.documentElement.style.removeProperty("--vv-top");
+});
 
 elements.jumpBottom.addEventListener("click", () => {
   scrollToBottom("smooth");
+});
+
+// **枠の中ならどこを触っても打ち始められる。** 空のときの入力欄は1行ぶん
+// （24px）しかなく、囲みの余白を触っても何も起きないのは、見た目に反する。
+// ボタンの上は渡さない。
+document.querySelector(".form-inner").addEventListener("click", event => {
+  if (event.target.closest("button")) return;
+  elements.input.focus();
 });
 
 elements.input.addEventListener("input", resizeInput);
@@ -1800,6 +1854,8 @@ function syncVisualViewport() {
 }
 
 syncVisualViewport();
+elements.awaySign.addEventListener("click", callHer);
+
 document.addEventListener("visibilitychange", () => {
   if (!document.hidden) catchUp();
 });
@@ -1809,11 +1865,22 @@ window.visualViewport?.addEventListener("scroll", syncVisualViewport);
 
 // ===== Initialize =====
 applyPreferences();
-updateMiniAvatar();
+loadSpriteList();
 // 音声入力に対応しない環境では通話ボタンを出さない。
 document.body.classList.toggle("no-call", !SpeechRecognition);
 
-setInterval(updateMiniAvatar, 30 * 60 * 1000);
+// 姿が変わるのは脳が決めたときだけ。こちらから見に行かない。
+elements.awaySign.addEventListener("click", callHer);
+
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) {
+    sayGoodbye();
+    disconnectPresence();
+  } else {
+    connectPresence();
+  }
+});
+window.addEventListener("pagehide", sayGoodbye);
 
 (async () => {
   if (!token) {
@@ -1824,9 +1891,11 @@ setInterval(updateMiniAvatar, 30 * 60 * 1000);
     if (await loadHistory()) {
       elements.gate.style.display = "none";
       setStatus("いるよ");
-      elements.input.focus();
+      focusInput();
       setupPush();
       watchHistory();
+      connectPresence();
+      answerTheCall();         // 通知やドットから開かれたとき
       handleSnoozeLink();      // Chromeの通知ボタンから開かれたとき
       offerSnooze();           // 頼まれごとの通知から開かれたとき
       return;

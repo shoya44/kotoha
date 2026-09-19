@@ -58,9 +58,24 @@ class MachineApiTests(unittest.TestCase):
     def test_it_says_when_nobody_is_calling(self):
         self.assertEqual(self.rows()["通話"], "していない")
 
-    def test_it_names_the_device_on_a_call(self):
-        self.client.post("/api/call", json={"device": "iPhone"}, headers=self.headers)
-        self.assertEqual(self.rows()["通話"], "iPhone")
+    def test_it_names_the_vessel_on_a_call(self):
+        """通話は器の名前で出る。姿のあるところでしか始まらないので。"""
+        from kotoha.serve import hub
+
+        self.addCleanup(hub.reset)
+
+        class Loop:
+            def call_soon_threadsafe(self, call, argument):
+                call(argument)
+
+        class Queue:
+            def put_nowait(self, payload):
+                pass
+
+        hub.join("web-iphone", Queue(), Loop())
+        self.client.post("/api/call", json={"vessel": "web-iphone"}, headers=self.headers)
+        self.assertEqual(self.rows()["通話"], "web-iphone")
+        self.assertEqual(self.rows()["姿"], "web-iphone")
 
     def test_a_wrong_token_is_refused(self):
         response = self.client.get("/api/machine", headers={"X-Kotoha-Token": "wrong"})

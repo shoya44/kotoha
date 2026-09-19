@@ -76,6 +76,17 @@ class TimeBlockTests(DbCase):
     def test_prompt_carries_all_three_lines(self):
         self.assertEqual(len(self.time_lines()), 3)
 
+    def test_the_prompt_says_what_kind_of_day_it_is(self):
+        """今日が仕事か休みかを、ことはが毎回知っているようにする。
+
+        人格の側に書き置きにすると、祝日にも「仕事いってらっしゃい」と
+        言ってしまう。日ごとに変わるものは毎回渡す。
+        """
+        prompt = chat.build_prompt(self.conn, "やっほー", [], [], [])
+        today = [line for line in prompt.split("\n") if line.startswith("今日:")]
+        self.assertEqual(len(today), 1, prompt[:200])
+        self.assertTrue(today[0].endswith(("仕事", "休み", "）", "出社")))
+
     def test_weekday_is_japanese(self):
         current = self.time_lines()[0]
         self.assertIn(chat.WEEKDAYS[datetime.now().weekday()] + "曜日", current)

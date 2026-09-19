@@ -4,7 +4,7 @@ from typing import NamedTuple
 
 from .. import config
 from ..memory import db, remind, retrieve
-from . import actions, presence
+from . import actions, figure, presence, schedule
 from . import llm, router
 
 FAST_NOTICE = (
@@ -41,20 +41,9 @@ def current_mood(conn) -> str:
 def situation(hour: int) -> str:
     """その時間のことはの様子。画面のアバターと言うことを一致させる。
 
-    区切りは static/app.js の getAvatarGroup() と対応する。
-    変更するときは両方を直すこと。
+    区切りと文言は figure.py が持っている。**絵と言葉で二重に持たない。**
     """
-    if 6 <= hour < 11:
-        return "起きたばかりで、まだ少し眠い"
-    if 11 <= hour < 14:
-        return "家でのんびりしている"
-    if 14 <= hour < 17:
-        return "昼寝やおやつでだらけている"
-    if 17 <= hour < 21:
-        return "風呂や夕食をすませたあと"
-    if hour >= 21 or hour < 2:
-        return "夜更かし中で、ゲームかスマホを触っている"
-    return "本当はもう寝ている時間"
+    return figure.situation(hour)
 
 
 def elapsed_phrase(last: str) -> str:
@@ -84,6 +73,20 @@ def elapsed_phrase(last: str) -> str:
     if days < 365:
         return f"{int(days // 30)}か月前"
     return "1年以上前"
+
+
+def where_she_is(conn) -> str:
+    """いま姿を出している場所。**ことは自身に言わせるための1行。**
+
+    正は脳のメモリ（serve/hub.py）で、ここで読むのはその写し。姿が
+    どこにも出ていなければ空を返し、その行は載せない。
+    """
+    name = db.get_state(conn, db.BODY_WHERE)
+    if not name:
+        return ""
+    if name == "desktop":
+        return "いまはデスクトップの右下に姿を出している"
+    return "いまは会話画面のほうに姿を出している"
 
 
 def _read(name: str) -> str:
@@ -180,10 +183,15 @@ def build_prompt(conn, user_text: str, recent, pinned, related, fast: bool = Fal
     mood = current_mood(conn)
     lines = [
         f"現在: {now:%Y-%m-%d %H:%M}（{WEEKDAYS[now.weekday()]}曜日）",
+        # 今日が仕事か休みかは、毎日変わる。書き置きにできないので毎回渡す。
+        schedule.line(schedule.today(now.date())),
         f"前回の会話: {elapsed_phrase(db.get_state(conn, 'last_conversation_at'))}",
         f"今のことは: {situation(now.hour)}",
         f"今の機嫌: {mood}（{MOODS[mood]}）",
     ]
+    place = where_she_is(conn)
+    if place:
+        lines.append(place)
     # 自分がどれだけ覚えているかを、自分で言えるようにしておく。
     if not fast:
         lines.append(
@@ -300,8 +308,9 @@ REACH_OUT_CLOSING = (
 
 BRIEFING_CLOSING = (
     "朝いちばん。今日のことを短く伝える。\n"
-    "日付にひとこと触れ、空模様があれば傘と服装まで言ってやる。\n"
-    "三行まで。天気予報の読み上げにはしない。いつもの調子で。"
+    "日付にひとこと触れる。渡したものには全部触れる。落とさない。\n"
+    "空模様があれば傘と服装まで、ゴミの日なら何の日か、頼まれごとがあれば時刻まで。\n"
+    "四行まで。読み上げや箇条書きにはしない。いつもの調子で。"
 )
 
 

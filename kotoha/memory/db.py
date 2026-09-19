@@ -207,8 +207,9 @@ LAST_LINKED_NODE_ID = "last_linked_node_id"
 PENDING_RECONSOLIDATION_IDS = "pending_reconsolidation_ids"
 MOOD = "mood"
 MOOD_AT = "mood_at"
-CALL_OWNER = "call_owner"
-CALL_SEEN_AT = "call_seen_at"
+# 実体（姿を出している器）の居場所。正は serve/hub.py が持つメモリで、
+# ここにあるのはその写し。ことは自身に居場所を言わせるために使う。
+BODY_WHERE = "body_where"
 HELD_ANNOUNCEMENTS = "held_announcements"
 HELD_FAILS = "held_fails"
 FRONT_TALLY = "front_tally"

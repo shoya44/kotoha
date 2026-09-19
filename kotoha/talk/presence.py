@@ -100,6 +100,32 @@ def uptime_hours():
         return None
 
 
+class LASTINPUTINFO(ctypes.Structure):
+    _fields_ = [("cbSize", ctypes.c_uint), ("dwTime", ctypes.c_ulong)]
+
+
+def idle_seconds():
+    """最後に何か触ってからの秒数。分からなければ None。
+
+    **押した内容は読まない。** 「最後に何かした時刻」だけを見る。前面アプリの
+    名前しか見ないのと同じ線引きで、相手が席に居るかを推し量るには足りる。
+
+    ことはが口を開くときにだけ呼ぶ（announce）。常時見張る理由がない。
+    """
+    if sys.platform != "win32":
+        return None
+    info = LASTINPUTINFO()
+    info.cbSize = ctypes.sizeof(LASTINPUTINFO)
+    try:
+        if not ctypes.windll.user32.GetLastInputInfo(ctypes.byref(info)):
+            return None
+        ticks = ctypes.windll.kernel32.GetTickCount64()
+    except (AttributeError, OSError):
+        return None
+    # 最後の入力は32bitで返る。49.7日で一周するので、その幅で引く。
+    return ((ticks - info.dwTime) & 0xFFFFFFFF) / 1000.0
+
+
 def foreground_app():
     """前面にあるアプリの名前。題名は読まない。"""
     if sys.platform != "win32":
