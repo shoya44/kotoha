@@ -172,6 +172,9 @@ body.typing .mini-avatar { height: 0; }
 /* 姿がこちらに無いあいだ。絵を隠して、立て札だけを出す。 */
 body.away .mini-avatar img { display: none; }
 
+/* 読めなかった絵。場所は空けたまま隠す（高さが動くと会話欄が跳ねる）。 */
+.mini-avatar img.unloaded { visibility: hidden; }
+
 #awaySign {
   display: none;
   position: absolute;
