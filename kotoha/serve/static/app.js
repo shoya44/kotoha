@@ -1020,12 +1020,40 @@ async function loadSpriteList() {
   }
 }
 
-function showPicture(name) {
+// 絵は、**読めたことを確かめてから**当てる。確かめずに src を替えると、
+// 読めなかったときに壊れた絵の印と alt の文字が出る。外に居て脳に届かない
+// ときが、まさにそれ。読めなければ投げるので、呼ぶ側で受ける。
+async function readyPicture(src) {
+  const preload = new Image();
+  preload.src = src;
+  await preload.decode();
+}
+
+// いちばん新しく頼まれた絵。読み込みを待つあいだに次が届くことがあり、
+// **先に読めたほうが後から当たると、古い姿で止まる。**
+let wantedPicture = "";
+
+async function showPicture(name) {
   if (!name || name === currentPicture) return;
+  wantedPicture = name;
+  const src = `${SPRITE_URL}${name}.png`;
+  try {
+    await readyPicture(src);
+  } catch {
+    return;                             // 読めないなら、いまの絵のまま
+  }
+  if (wantedPicture !== name) return;   // 待つあいだに次が来ていた
+  $("miniAvatarImage").src = src;
   currentPicture = name;
-  $("miniAvatarImage").src = `${SPRITE_URL}${name}.png`;
   scheduleBlink();
 }
+
+// HTMLに書いてある最初の1枚だけは、上の道を通らずに読み込まれる。そこが
+// 読めなかったときのために、**壊れた絵は隠す。** 何も無い地の色のほうが、
+// 壊れた絵の印よりはましなため。繋がれば脳が姿を押し出してくるので戻る。
+const avatarImage = $("miniAvatarImage");
+avatarImage.addEventListener("error", () => avatarImage.classList.add("unloaded"));
+avatarImage.addEventListener("load", () => avatarImage.classList.remove("unloaded"));
 
 function setEmbodied(here, where = "") {
   // **実体が移れば通話も終わる。** 向こうで話しているのに、こちらのマイクが
@@ -1101,9 +1129,7 @@ function scheduleBlink() {
     const open = `${SPRITE_URL}${currentPicture}.png`;
     const closed = `${SPRITE_URL}${currentPicture}-blink.png`;
     try {
-      const preload = new Image();
-      preload.src = closed;
-      await preload.decode();
+      await readyPicture(closed);
       image.src = closed;
       setTimeout(() => {
         image.src = open;
