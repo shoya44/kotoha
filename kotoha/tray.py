@@ -11,6 +11,7 @@
 import ctypes
 import ctypes.wintypes as w
 import os
+import pathlib
 import subprocess
 import sys
 import threading
@@ -181,6 +182,67 @@ class Supervisor:
             self.process.terminate()
             try:
                 self.process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                self.process.kill()
+
+
+class Figure:
+    """ことはの姿（タスクトレイのドット）を動かし続ける。
+
+    本体と同じように子プロセスにして見張る。**落ちてもトレイと本体は無事**で、
+    ここだけ上げ直せばよい。姿を出さない設定なら、何もしない。
+    """
+
+    def __init__(self):
+        self.process = None
+        self.stopping = threading.Event()
+        self._thread = None
+
+    def alive(self) -> bool:
+        return self.process is not None and self.process.poll() is None
+
+    def spawn(self):
+        runner = pathlib.Path(sys.executable).with_name("pythonw.exe")
+        return subprocess.Popen(
+            [str(runner if runner.exists() else sys.executable),
+             str(config.BASE_DIR / "mascot.pyw")],
+            cwd=str(config.BASE_DIR),
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+
+    def _loop(self):
+        while not self.stopping.is_set():
+            try:
+                self.process = self.spawn()
+            except OSError as error:
+                log(f"姿を出せない: {error}")
+                self.stopping.wait(RESPAWN_WAIT)
+                continue
+            code = self.process.wait()
+            self.process = None
+            if self.stopping.is_set():
+                return
+            # しまわれた（自分で終わった）ときは、上げ直さない。
+            if code == 0:
+                log("姿をしまった")
+                return
+            log(f"姿が落ちた（コード {code}）。{RESPAWN_WAIT:.0f}秒後に出し直す")
+            self.stopping.wait(RESPAWN_WAIT)
+
+    def start(self):
+        if not config.MASCOT_ENABLED:
+            return
+        self._thread = threading.Thread(target=self._loop, daemon=True)
+        self._thread.start()
+
+    def stop(self):
+        self.stopping.set()
+        if self.alive():
+            self.process.terminate()
+            try:
+                self.process.wait(timeout=5)
             except subprocess.TimeoutExpired:
                 self.process.kill()
 
@@ -427,18 +489,21 @@ def main():
     log("常駐をはじめる")
 
     supervisor = Supervisor()
+    figure = Figure()
     status = Status(supervisor)
     tray = Tray(supervisor, status)
     tray.create()
     supervisor.on_change = tray.refresh_tip
     status.on_change = tray.refresh_tip
     supervisor.start()
+    figure.start()
     status.start()
     tray.refresh_tip()
     try:
         tray.loop()
     finally:
         status.stop()
+        figure.stop()
         supervisor.stop()
         tray.remove()
         log("常駐を終えた")

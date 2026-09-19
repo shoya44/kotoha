@@ -1,0 +1,63 @@
+{
+  "generated": "2026-09-19",
+  "source": "img/dot",
+  "sizes": {
+    "full": [
+      197,
+      200
+    ],
+    "web": [
+      413,
+      420
+    ],
+    "face": [
+      192,
+      192
+    ]
+  },
+  "face": "talk",
+  "sprites": {
+    "book": {
+      "blink": true
+    },
+    "bored": {
+      "blink": true
+    },
+    "cards": {
+      "blink": true
+    },
+    "daydream": {
+      "blink": true
+    },
+    "laptop": {
+      "blink": true
+    },
+    "laugh": {
+      "blink": true
+    },
+    "sleep": {
+      "blink": false
+    },
+    "snack": {
+      "blink": false
+    },
+    "sulk": {
+      "blink": true
+    },
+    "talk": {
+      "blink": true
+    },
+    "think": {
+      "blink": true
+    },
+    "wave": {
+      "blink": true
+    },
+    "worry": {
+      "blink": true
+    },
+    "write": {
+      "blink": true
+    }
+  }
+}

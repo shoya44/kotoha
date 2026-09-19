@@ -12,7 +12,8 @@ import json
 
 from .. import config, notify
 from ..memory import db
-from ..talk import chat
+from ..talk import chat, presence
+from . import hub
 
 # 巡回のあいだ立てる印。ここが True の間、announce は鳴らさずに預かる。
 # 触るのは裏の巡回だけで、会話（/api/chat）はここを通らない。
@@ -107,11 +108,57 @@ def _say(conn, items) -> str:
     if text:
         db.set_state(conn, db.LAST_NOTIFY_AT, db.now_utc())
         conn.commit()
-        ids = [i for item in items for i in item.get("remind_ids") or ()]
+        _deliver(text, [i for item in items for i in item.get("remind_ids") or ()])
+    return text
+
+
+def reaches_the_person() -> bool:
+    """いま、ことはの姿が相手の目に入るところにあるか。
+
+    実体が会話画面にあるなら、**その画面は見られている**（背景に回れば器の
+    ほうから bye が来て、実体は解ける）。タスクトレイのドットは画面に居っぱなし
+    なので、そこだけは席に居るかどうかを確かめる。
+
+    ⚠️ **測るのはこの瞬間だけ。** 巡回では測らない。ことはが口を開くのは
+    1日に数回で、常時見張る理由がない。
+    """
+    if not hub.watching():
+        # 居場所はあるが、その画面はもう見られていない（閉じた・裏に回った）。
+        return False
+    kind = hub.body_kind()
+    if kind is None:
+        return False
+    if kind != hub.DESKTOP:
+        return True
+    idle = presence.idle_seconds()
+    if idle is None:
+        return False          # 分からないなら、居ないほうに倒す（鳴らす）
+    return idle < config.BODY_AWAY_MINUTES * 60
+
+
+def _deliver(text: str, ids) -> None:
+    """言葉を届ける。**姿が見えているならふきだし、でなければスマホ。**
+
+    どちらか一方しか通らない。目の前に居るのに鳴らすのは重複で、
+    誰も見ていないのにふきだしを出すのは、戻ったとき溜まって残るだけ。
+    """
+    seen = reaches_the_person()
+    if seen:
+        hub.say(text)
+        hub.refresh(said_ago=0)          # 言った直後は、こちらを向かせる
+    if not seen or config.PUSH_WHEN_EMBODIED:
         # 開く先にも番号を載せる。ボタンの出ない iPhone では、開いた画面に出す。
         url = _with_ids("remind", ids) if _snooze_ready(ids) else ""
         notify.push("ことは", text, buttons=_snooze_buttons(ids), url=url)
-    return text
+
+
+def can_speak() -> bool:
+    """ことはが口を開ける状態か。
+
+    **届ける先は、スマホの通知だけではなくなった。** 姿が出ていれば、そこへ
+    言えばよい。通知を切っていても、画面に居るあいだは話しかけてくる。
+    """
+    return notify.ready() or hub.anyone()
 
 
 def announce(conn, closing: str, plain: str = "", extra: str = "",
@@ -129,7 +176,7 @@ def announce(conn, closing: str, plain: str = "", extra: str = "",
     「黙るくらいなら定型でも伝えたい」用がある。声かけのように、言えない
     なら黙っていればよいものは空のままでよい。
     """
-    if not notify.ready():
+    if not can_speak():
         return ""
     if _collecting or _too_soon(conn):
         items = _held(conn)
@@ -156,7 +203,7 @@ def flush_held(conn) -> str:
     あるので、ここで落とすと二度と出てこない。ただし言えるまで毎分
     試すと、そのたびにAPIの枠を食う。数えて、続くようなら諦める。
     """
-    if not notify.ready():
+    if not can_speak():
         return ""
     items = _held(conn)
     if not items or _too_soon(conn):
