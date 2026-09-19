@@ -1071,12 +1071,41 @@ function setEmbodied(here, where = "") {
   }
 }
 
+// 繋がりが切れてから、立て札を出すまでの猶予。ブラウザーは短い切断でも
+// 繋ぎ直しに入るので、そのたびに立て札を出すと点滅して見える。
+const AWAY_GRACE_MS = 6000;
+
+let awayTimer = null;
+
+// **脳に繋がっていないなら、この器に実体は無い。** 実体の居場所を決めるのは
+// 脳で、届かないあいだ「居る」とは言えない。繋がり直せば脳がその場で
+// here / away と姿を渡してくるので、こちらの思い込みはそこで正される。
+function loseTouch() {
+  setStatus("接続できない", "offline");
+  if (awayTimer) return;
+  awayTimer = setTimeout(() => {
+    awayTimer = null;
+    setEmbodied(false, "");
+  }, AWAY_GRACE_MS);
+}
+
+function keepTouch() {
+  clearTimeout(awayTimer);
+  awayTimer = null;
+}
+
 // ことはのほうから流れてくる言づて。繋ぎ直しはブラウザーがやってくれる。
 function connectPresence() {
   if (!token || presenceStream) return;
   presenceStream = new EventSource(
     `/api/presence/stream?vessel=${VESSEL}&token=${encodeURIComponent(token)}`);
+  presenceStream.onopen = () => {
+    // 繋がった。いまの居場所は、このあと脳が教えてくる。
+    keepTouch();
+    setStatus(calling ? "通話中" : "いるよ", calling ? "calling" : "online");
+  };
   presenceStream.onmessage = event => {
+    keepTouch();
     let message;
     try {
       message = JSON.parse(event.data);
@@ -1092,10 +1121,11 @@ function connectPresence() {
       reactAvatar();
     }
   };
-  presenceStream.onerror = () => setStatus("接続できない", "offline");
+  presenceStream.onerror = loseTouch;
 }
 
 function disconnectPresence() {
+  keepTouch();
   presenceStream?.close();
   presenceStream = null;
 }
