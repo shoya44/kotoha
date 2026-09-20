@@ -48,6 +48,10 @@ GEMINI_MODEL = _text("GEMINI_MODEL")
 GEMINI_BASE_URL = _text("GEMINI_BASE_URL").rstrip("/")
 _db_path = Path(_text("KOTOHA_DB_PATH"))
 DB_PATH = _db_path if _db_path.is_absolute() else BASE_DIR / _db_path
+# 暦の置き場。**その人のものは、ここに置いてコードには置かない。**
+# 住んでいる地区のゴミ収集や、勤め先の会議日程は、リポジトリに入れて配れる
+# ものではない。data/ ごと git の外にある。
+CALENDAR_DIR = DB_PATH.parent / "calendars"
 RECENT_TURNS = _number("KOTOHA_RECENT_TURNS")
 RECENT_CHARS = _number("KOTOHA_RECENT_CHARS")
 MAX_OUTPUT_TOKENS = _number("KOTOHA_MAX_OUTPUT_TOKENS")

@@ -4,33 +4,41 @@
 朝いちばんに必ず思い出される保証がない。ゴミの日は外すと困る。決まりきった
 ものは、こちらで数えて言葉だけを向こうに任せる。天気ブロックと同じ形。
 
-足立区「資源とごみの収集カレンダー」令和8年（2026年）4月〜令和9年（2027年）3月
-対象地区: 足立1〜4丁目／綾瀬1〜7丁目／加平1丁目／弘道1、2丁目／
-          千住1〜3丁目／千住仲町／西綾瀬1〜4丁目
-https://www.city.adachi.tokyo.jp/documents/75227/004.pdf
+**暦そのものはここに書かない。** どの地区のカレンダーかは、住んでいる場所を
+そのまま指すので、公開されたリポジトリに置けるものではない。中身は
+`data/calendars/garbage.json`（git の外）にあり、ここは読んで数えるだけ。
 
-**引っ越したときと、翌年度のカレンダーが出たときは、ここを見直す。**
-期限切れは tests/test_garbage.py が教える。
+無ければ、ゴミの話は何も出ない。知らないことを、あるように言わないため。
+書き方は README を見る。直したあとはサーバーを起こし直す。
 """
 
+import json
 from datetime import date
 
-# 毎週のもの。曜日は月曜=0。
-WEEKLY = {
-    0: "燃やすごみ",
-    1: "資源",
-    3: "燃やすごみ",
-    5: "プラスチック",
-}
+from .. import config
 
-# その月の第何週かで決まるもの。曜日 → (品目, 出る週)
-MONTHLY = {4: ("燃やさないごみ", (2, 4))}
+CALENDAR_PATH = config.CALENDAR_DIR / "garbage.json"
 
-# 年末年始だけは曜日どおりではなく、区の広報で別に知らせる期間。
-BREAKS = (((12, 24), (12, 31)), ((1, 1), (1, 10)))
 
-# このカレンダーが使える最後の日。
-UNTIL = date(2027, 3, 31)
+def _load():
+    """暦を読む。無ければ「知らない」として空で返す。
+
+    JSONが壊れているときも空にする。**黙って半分だけ言うより、言わないほうが
+    害が小さい。** 壊れていることは、ゴミの話が消えることで気づく。
+    """
+    try:
+        raw = json.loads(CALENDAR_PATH.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}, {}, (), None
+    weekly = {int(k): v for k, v in (raw.get("weekly") or {}).items()}
+    monthly = {int(k): (v[0], tuple(v[1])) for k, v in (raw.get("monthly") or {}).items()}
+    breaks = tuple((tuple(start), tuple(end)) for start, end in (raw.get("breaks") or ()))
+    until = date.fromisoformat(raw["until"]) if raw.get("until") else None
+    return weekly, monthly, breaks, until
+
+
+# 毎週のもの（曜日は月曜=0）、第何週かで決まるもの、年末年始、使える最後の日。
+WEEKLY, MONTHLY, BREAKS, UNTIL = _load()
 
 
 def _in_break(day: date) -> bool:

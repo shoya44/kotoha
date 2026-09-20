@@ -6,21 +6,34 @@
 祝日は内閣府が公開している一覧から写した。年に一度、翌年ぶんが増える。
 https://www8.cao.go.jp/chosei/shukujitsu/syukujitsu.csv
 
-**引っ越しや転職、翌年度の会議日程が出たときは、ここを見直す。**
+**勤務時間と会議の日程はここに書かない。** 誰がいつ家に居ないかを、そのまま
+書き出したものになる。中身は `data/calendars/work.json`（git の外）にあり、
+ここは読んで数えるだけ。無ければ、勤務時間も会議も言わない。書き方は README を
+見る。直したあとはサーバーを起こし直す。
+
 祝日表の期限切れは tests/test_schedule.py が教える。
 """
 
+import json
 from datetime import date
 
-# 平日の勤務時間。
-WORK_FROM = "09:00"
-WORK_TO = "17:30"
+from .. import config
 
-# 全体会議（帰社日）。今年度ぶん。
-MEETINGS = {
-    "2026-09-18", "2026-10-16", "2026-11-20", "2026-12-11",
-    "2027-01-22", "2027-02-19", "2027-03-19",
-}
+WORK_PATH = config.CALENDAR_DIR / "work.json"
+
+
+def _load():
+    """勤め先のことを読む。無ければ「知らない」として空で返す。"""
+    try:
+        raw = json.loads(WORK_PATH.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return "", "", frozenset()
+    return (raw.get("from") or "", raw.get("to") or "",
+            frozenset(raw.get("meetings") or ()))
+
+
+# 平日の勤務時間と、全体会議（帰社日）。
+WORK_FROM, WORK_TO, MEETINGS = _load()
 
 # 国民の祝日・休日。内閣府の一覧より（2026年4月以降）。
 HOLIDAYS = {
@@ -89,10 +102,13 @@ def line(plan) -> str:
 
     指示は書かない。知っているだけにして、使い方は向こうに任せる。
     """
+    # 勤務時間を知らないなら、時刻は言わない。知らないことを、あるように
+    # 言わないため。暦を入れていない人には「今日: 仕事」だけが出る。
+    hours = f"（{plan['to']}まで）" if plan.get("to") else ""
     if plan["meeting"]:
-        return f"今日: 仕事（{plan['to']}まで）／全体会議で出社"
+        return f"今日: 仕事{hours}／全体会議で出社"
     if plan["working"]:
-        return f"今日: 仕事（{plan['to']}まで）"
+        return f"今日: 仕事{hours}"
     if plan["holiday"]:
         return f"今日: 休み（{plan['holiday']}）"
     return "今日: 休み"
@@ -109,7 +125,8 @@ def block(plan) -> str:
     if plan.get("holiday") and not plan.get("weekend"):
         lines.append(f"  {plan['holiday']}で仕事は休み")
     if plan.get("meeting"):
-        lines.append(f"  全体会議（帰社日）。{plan['from']}から出社する")
+        start = f"{plan['from']}から" if plan.get("from") else ""
+        lines.append(f"  全体会議（帰社日）。{start}出社する")
     if not lines:
         return ""
     return "今日の予定:\n" + "\n".join(lines)

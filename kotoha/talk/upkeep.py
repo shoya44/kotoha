@@ -19,12 +19,20 @@ NOTICE_WEEKDAY = 0
 
 
 def deadlines():
-    """見張っているもの。名前・最後の日・どこからもらうか。"""
-    return (
-        ("ゴミの収集カレンダー", garbage.UNTIL, "区の新しいカレンダー"),
-        ("祝日の一覧", schedule.UNTIL, "内閣府の一覧"),
-        ("全体会議の日程", date.fromisoformat(max(schedule.MEETINGS)), "来年度の日程"),
-    )
+    """見張っているもの。名前・最後の日・どこからもらうか。
+
+    **入れていない暦は見張らない。** ゴミも会議も data/calendars にあり、
+    置いていない人には期限そのものが無い。無いものを「切れている」と
+    言われるほうが困る。
+    """
+    found = []
+    if garbage.UNTIL:
+        found.append(("ゴミの収集カレンダー", garbage.UNTIL, "区の新しいカレンダー"))
+    found.append(("祝日の一覧", schedule.UNTIL, "内閣府の一覧"))
+    if schedule.MEETINGS:
+        found.append(("全体会議の日程",
+                      date.fromisoformat(max(schedule.MEETINGS)), "来年度の日程"))
+    return tuple(found)
 
 
 def stale(day: date = None):
