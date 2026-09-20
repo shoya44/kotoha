@@ -2,7 +2,7 @@ import re
 from datetime import datetime, timezone
 from typing import NamedTuple
 
-from .. import config
+from .. import config, notify
 from ..memory import db, remind, retrieve
 from . import actions, figure, presence, schedule
 from . import llm, router
@@ -267,6 +267,8 @@ def _finish(conn, turn_id: int, clean: str, ids, mode: str, mood: str = None, ke
     # 話しているあいだは続いているものとして時刻を進める。6時間の薄れは、
     # 黙っている時間に効かせたい。
     db.set_state(conn, db.MOOD_AT, db.now_utc())
+    if mood:
+        db.count_mood_change(conn, turn_id)
     db.update_usage(conn, ids, turn_id)
     conn.commit()
     return Turn(clean, mode, list(kept))
@@ -289,6 +291,17 @@ def _keep_reminders(conn, clean: str):
     for when, what in later:
         remind.add(conn, when, what)
     return clean, later
+
+
+def trace_recall(pinned, related, used) -> None:
+    """想起したものと、使ったと申告されたものを並べて残す（デバッグ時だけ）。
+
+    記憶の寿命は `[USED:]` の自己申告だけで決まる。**読んで使ったのに申告が
+    来なければ、その記憶は触れられていない扱いで静かに消える。** 申告が
+    どれくらい来ているのかを、まず数えられるようにしておく。
+    """
+    recalled = [row["id"] for row in list(pinned) + list(related)]
+    notify.trace("retrieve", f"想起 {recalled} / 申告 {list(used)}")
 
 
 def _record_pending(conn, ids: list) -> None:
@@ -352,6 +365,69 @@ def remember(conn, text: str, ids=(), mood: str = "", keep: bool = True):
     conn.commit()
 
 
+# 言い終わりの印。ここまで来た文から先に渡す（serve/static/app.js と同じ区切り）。
+SENTENCE_ENDS = "。．！？!?\n"
+
+
+def ready_to_say(raw: str, said: int):
+    """いま言い終わっている文と、そこまでの長さを返す。
+
+    **タグの途中では切らない。** 揃ったタグは外し、開きっぱなしの `[` から
+    先は手元に置く。[MOOD: …] が声になって出ると目も当てられない。
+    """
+    clean = strip_tags(raw)
+    cut = clean.find("[")
+    safe = clean[:cut] if cut >= 0 else clean
+    end = max((safe.rfind(mark) for mark in SENTENCE_ENDS), default=-1)
+    if end < said:
+        return "", said
+    return safe[said:end + 1], end + 1
+
+
+def stream_turn(conn, user_text: str):
+    """話しながら喋る。言い終わった文から順に渡し、最後にまとめを返す。
+
+    渡すのは {"say": 文} と、最後の {"done": Turn}。**速い道では使わない。**
+    Fast は1行目が NEEDS_SEARCH のことがあり、喋ってしまってからでは
+    取り消せない。既定では Fast は切ってあるので、通話はここを通る。
+
+    生成が落ちても、**言いかけたぶんは捨てない。** 1文字も来ていないとき
+    だけ、まとめて受け取る道（投げ直しつき）へ落ちる。
+    """
+    turn_id = db.start_turn(conn, "user", user_text)
+    conn.commit()
+    recent = _fetch_recent(conn, user_text)
+    recent_text = "\n".join(r["text"] for r in recent)
+    pinned, related = retrieve.retrieve(conn, user_text, recent_text)
+    prompt = build_prompt(conn, user_text, recent, pinned, related)
+
+    raw, said = "", 0
+    try:
+        for piece in llm.stream(prompt):
+            raw += piece
+            ready, said = ready_to_say(raw, said)
+            if ready:
+                yield {"say": ready}
+    except llm.LLMError:
+        if not raw:
+            raw = llm.chat(prompt)
+
+    clean, ids = parse_used_ids(raw)
+    clean, mood = parse_mood(clean)
+    clean, todo = parse_action(clean)
+    clean, kept = _keep_reminders(conn, clean)
+    clean = strip_tags(clean)
+    _record_pending(conn, ids)
+    trace_recall(pinned, related, ids)
+    done = _finish(conn, turn_id, clean, ids, "slow", mood, kept)
+    # まだ声にしていないぶん。食い違ったら黙って足さない（二度言うほうが困る）。
+    rest = clean[said:] if clean[:said] == strip_tags(raw)[:said] else ""
+    yield {"done": done, "rest": rest}
+    # 頼まれごとは、返答を保存し終えてから。入れ直しならここで落ちる。
+    if todo:
+        actions.run(todo)
+
+
 def run_turn(conn, user_text: str):
     turn_id = db.start_turn(conn, "user", user_text)
     conn.commit()
@@ -385,6 +461,7 @@ def run_turn(conn, user_text: str):
     clean, kept = _keep_reminders(conn, clean)
     clean = strip_tags(clean)
     _record_pending(conn, ids)
+    trace_recall(pinned, related, ids)
     done = _finish(conn, turn_id, clean, ids, mode, mood, kept)
     # 頼まれごとは、返答を保存し終えてから。入れ直しならここで落ちる。
     if todo:

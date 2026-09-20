@@ -150,6 +150,28 @@ def init(conn: sqlite3.Connection) -> None:
     migrate(conn)
 
 
+def count_mood_change(conn, turn_id: int) -> None:
+    """機嫌が動いた。**書くのは動いたときだけ**なので、ほとんどの回は何もしない。
+
+    分母（総ターン数）は messages から数えられるので、ここでは持たない。
+    """
+    if get_state(conn, MOOD_COUNTED_FROM) is None:
+        set_state(conn, MOOD_COUNTED_FROM, turn_id)
+    set_state(conn, MOOD_CHANGES, int(get_state(conn, MOOD_CHANGES, "0") or 0) + 1)
+
+
+def mood_rate(conn):
+    """機嫌が動いた回数と、そのあいだのターン数。数え始めていなければ None。"""
+    began = get_state(conn, MOOD_COUNTED_FROM)
+    if began is None:
+        return None
+    turns = conn.execute(
+        "SELECT COUNT(*) AS n FROM messages WHERE role = 'assistant' AND turn_id >= ?",
+        (int(began),),
+    ).fetchone()["n"]
+    return int(get_state(conn, MOOD_CHANGES, "0") or 0), turns
+
+
 def insert_message(conn, turn_id: int, role: str, text: str, extractable: int = 1) -> None:
     conn.execute(
         "INSERT INTO messages(turn_id, role, text, created_at, extractable) VALUES (?,?,?,?,?)",
@@ -236,6 +258,12 @@ LAST_LINKED_NODE_ID = "last_linked_node_id"
 PENDING_RECONSOLIDATION_IDS = "pending_reconsolidation_ids"
 MOOD = "mood"
 MOOD_AT = "mood_at"
+# 機嫌が動いた回数と、数え始めた地点。**測ってから決めるため。**
+# プロンプトは「変わったときだけ」機嫌を出させるが、実際にどれくらいの頻度で
+# 出るのかは残っていなかった（持っているのは今の機嫌だけ）。「今の機嫌: ふつう」が
+# 壁紙になっていないかは、数えないと分からない。
+MOOD_CHANGES = "mood_changes"
+MOOD_COUNTED_FROM = "mood_counted_from"
 # 実体（姿を出している器）の居場所。正は serve/hub.py が持つメモリで、
 # ここにあるのはその写し。ことは自身に居場所を言わせるために使う。
 BODY_WHERE = "body_where"

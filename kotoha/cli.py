@@ -13,6 +13,10 @@ def _status(conn) -> None:
     print(f"前回会話: {db.get_state(conn, 'last_conversation_at') or '-'}")
     print(f"最終整理: {db.get_state(conn, 'last_consolidation_at') or '-'}")
     print(f"最終忘却: {db.get_state(conn, 'last_forget_at') or '-'}")
+    rate = db.mood_rate(conn)
+    if rate:
+        changed, turns = rate
+        print(f"機嫌が動いた回数: {changed}（そのあいだ{turns}ターン）")
 
 
 def _backup() -> None:

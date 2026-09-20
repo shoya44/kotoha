@@ -1322,6 +1322,24 @@ function splitSentences(text) {
   return parts;
 }
 
+// 届いた文から順に鳴らすための行列。**作り始めるのは受け取った瞬間**で、
+// 鳴らすのは前の文が終わってから。流しながら喋る道（/api/chat/stream）では、
+// 文が来るたびにここへ足していく。
+let speakChain = Promise.resolve();
+
+function enqueueSpeech(text) {
+  if (!text || !text.trim()) return speakChain;
+  const mine = speakGeneration;
+  const pending = fetchVoice(text).catch(() => null);
+  speakChain = speakChain.then(async () => {
+    if (mine !== speakGeneration) return;
+    const sound = await pending;
+    if (!sound || mine !== speakGeneration) return;
+    await playAudio(sound);
+  });
+  return speakChain;
+}
+
 // 通話中は設定に関わらず声を出す。再生し終えるまで待てるように解決を返す。
 async function speak(text) {
   if ((!preferences.voice && !calling) || !text) return;
@@ -1462,6 +1480,95 @@ async function send() {
   }
 }
 
+// 言い終わった文から受け取る。**器は取り次ぐだけ**で、判断も記憶も脳の側。
+// まとめて受け取る /api/chat と中身は同じで、違うのは届く順番だけ。
+async function sendStream(text, onFirst) {
+  addMessage("user", text);
+  reactAvatar();
+  elements.sendButton.disabled = true;
+  setStatus("考え中…", "thinking");
+  const typingRow = addTypingIndicator();
+  let opened = false;
+
+  const open = () => {
+    if (opened) return;
+    opened = true;
+    typingRow?.remove();
+    if (onFirst) onFirst();
+  };
+
+  try {
+    const response = await api("/api/chat/stream",
+      { method: "POST", body: { text, vessel: VESSEL } });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      open();
+      addMessage("system", "[エラー] " + (error.detail || response.status));
+      setStatus("いるよ");
+      return;
+    }
+
+    let done = null;
+    let failed = "";
+    const take = line => {
+      const item = JSON.parse(line);
+      if (item.say) {
+        open();
+        enqueueSpeech(item.say);
+      } else if (item.done) {
+        done = item.done;
+      } else if (item.error) {
+        failed = item.error;
+      }
+    };
+
+    // 古い端末では流れてこないことがある。そのときは届いてからまとめて読む。
+    if (response.body) {
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      for (;;) {
+        const chunk = await reader.read();
+        if (chunk.done) break;
+        buffer += decoder.decode(chunk.value, { stream: true });
+        let cut = buffer.indexOf("\n");
+        while (cut >= 0) {
+          const line = buffer.slice(0, cut).trim();
+          buffer = buffer.slice(cut + 1);
+          if (line) take(line);
+          cut = buffer.indexOf("\n");
+        }
+      }
+      if (buffer.trim()) take(buffer.trim());
+    } else {
+      (await response.text()).split("\n").forEach(line => {
+        if (line.trim()) take(line.trim());
+      });
+    }
+
+    open();
+    if (!done) {
+      addMessage("system", "[エラー] " + (failed || "うまく言えなかった"));
+      setStatus(calling ? "通話中" : "いるよ", calling ? "calling" : "online");
+      return;
+    }
+    if (done.last_id) lastMessageId = done.last_id;
+    addMessage("assistant", done.reply);
+    (done.kept || []).forEach(showKept);
+    reactAvatar();
+    elements.mode.textContent = done.mode || "";
+    setStatus(calling ? "通話中" : "いるよ", calling ? "calling" : "online");
+    enqueueSpeech(done.rest);       // まだ声にしていないぶん
+    await speakChain;
+  } catch {
+    open();
+    addMessage("system", "[エラー] 通信失敗");
+    setStatus("接続できない", "offline");
+  } finally {
+    elements.sendButton.disabled = false;
+  }
+}
+
 // ===== Call =====
 // 方針: 読み上げ中はマイクを開かない。スピーカーでも自分の声を拾わない。
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -1499,13 +1606,21 @@ async function prepareFillers() {
   }
 }
 
-async function playFiller() {
+function playFiller() {
   const ready = [...fillerVoices.keys()];
   if (!ready.length) return false;
   // 続けて同じ言葉にならないようにする。ただし1つしかないなら選ぶ余地はない。
   const choices = ready.length > 1 ? ready.filter(text => text !== lastFiller) : ready;
   lastFiller = choices[Math.floor(Math.random() * choices.length)];
-  await playAudio(fillerVoices.get(lastFiller));
+  const sound = fillerVoices.get(lastFiller);
+  const mine = speakGeneration;
+  // **本文と同じ行列に並べる。** 流しながら喋ると本文のほうが先に届くことが
+  // あり、別々に鳴らすと声が重なる。言い淀んだぶんの間もここで置く。
+  speakChain = speakChain.then(async () => {
+    if (mine !== speakGeneration) return;
+    await playAudio(sound);
+    await wait(FILLER_GAP_MS);
+  });
   return true;
 }
 
@@ -1532,14 +1647,16 @@ function listen() {
 async function onHeard(text) {
   if (!calling || !text) return;
   callBusy = true;
-  elements.input.value = text;
+  elements.input.value = "";
+  resizeInput();
   try {
-    const pending = send();
-    // 間つなぎを鳴らし切ってから本文に移る。声が重ならないようにする。
-    const filling = fillPause(pending);
-    const reply = await pending;
-    if (await filling) await wait(FILLER_GAP_MS);  // 言いよどんだ分の間を置く
-    if (calling && reply) await speak(reply);
+    // **最初の1文が決まった時点で「答えた」ことにする。** 生成の終わりを
+    // 待つ必要はない。間つなぎを出すかどうかも、そこで決まる。
+    let answered;
+    const first = new Promise(resolve => { answered = resolve; });
+    const finished = sendStream(text, answered);
+    fillPause(first);
+    await finished;
   } finally {
     callBusy = false;
   }
