@@ -1,8 +1,11 @@
 """世代付きバックアップの検証。一時DBだけを使い、本番DBには触れない。"""
 
+import shutil
 import sqlite3
+import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 from kotoha import config
 from tests.support import DbCase, use_temp_db
@@ -400,3 +403,59 @@ class WatchLockTests(unittest.TestCase):
         self.jobs.run_watch_jobs()
 
         self.assertEqual(held, [True], "順番待ちに並ばずに書き込んでいる")
+
+
+class SpareBackupTests(DbCase):
+    """控えのもう1本。**ディスク1枚と記憶の運命を切り離す。**"""
+
+    def setUp(self):
+        super().setUp()
+        self.spare = Path(tempfile.mkdtemp(prefix="kotoha spare "))
+        self.addCleanup(shutil.rmtree, self.spare, True)
+        original = config.BACKUP_DIR
+        config.BACKUP_DIR = str(self.spare)
+        self.addCleanup(setattr, config, "BACKUP_DIR", original)
+
+    def test_the_spare_gets_its_own_copy(self):
+        dest = db.run_backup()
+        self.assertIsNotNone(dest)
+        self.assertTrue((self.spare / dest.name).exists())
+
+    def test_a_missing_spare_does_not_lose_the_one_next_door(self):
+        blocker = self.spare / "blocker"
+        blocker.write_text("外付けが外れている、のかわり", encoding="utf-8")
+        config.BACKUP_DIR = str(blocker / "backups")
+        dest = db.run_backup()
+        self.assertIsNotNone(dest)
+        self.assertTrue(dest.exists())
+
+    def test_no_setting_means_nothing_extra(self):
+        config.BACKUP_DIR = ""
+        self.assertIsNone(db.spare_dir())
+
+
+class MigrationTests(DbCase):
+    """版を数える足場。次にスキーマを触る日まで、中身は空のまま。"""
+
+    def test_a_fresh_db_lands_on_the_latest_version(self):
+        db.migrate(self.conn)
+        latest = max((v for v, _ in db.MIGRATIONS), default=0)
+        self.assertEqual(self.conn.execute("PRAGMA user_version").fetchone()[0], latest)
+
+    def test_only_the_missing_ones_are_applied(self):
+        original = db.MIGRATIONS
+        self.addCleanup(setattr, db, "MIGRATIONS", original)
+        ran = []
+        db.MIGRATIONS = [
+            (1, ["CREATE TABLE IF NOT EXISTS step_one(x)"]),
+            (2, ["CREATE TABLE IF NOT EXISTS step_two(x)"]),
+        ]
+        self.conn.execute("PRAGMA user_version = 1")
+        db.migrate(self.conn)
+        tables = {r["name"] for r in self.conn.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table'")}
+        self.assertNotIn("step_one", tables)      # 当たっている版は飛ばす
+        self.assertIn("step_two", tables)
+        self.assertEqual(self.conn.execute("PRAGMA user_version").fetchone()[0], 2)
+        self.assertEqual(ran, [])
+

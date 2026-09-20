@@ -27,8 +27,15 @@ class FakeLoop:
 
 
 class FakeQueue:
-    def __init__(self):
+    def __init__(self, limit=hub.QUEUE_LIMIT):
         self.items = []
+        self.limit = limit
+
+    def full(self):
+        return len(self.items) >= self.limit
+
+    def get_nowait(self):
+        return self.items.pop(0)
 
     def put_nowait(self, payload):
         self.items.append(json.loads(payload))

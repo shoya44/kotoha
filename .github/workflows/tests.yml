@@ -1,0 +1,18 @@
+# 誰も自動では走らせない、という状態をやめるための1枚。
+# 押すたびに windows-latest でテストが回る。Windows前提の作りなので、
+# ここが本番と同じ土俵になる（.env が無くても .env.example が既定になる）。
+name: tests
+
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - run: python -m unittest discover -s tests -t .

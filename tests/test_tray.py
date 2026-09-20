@@ -14,7 +14,7 @@ config.DB_PATH = Path(_TMP.name) / "test.sqlite3"
 
 if sys.platform == "win32":
     from kotoha import tray
-    from kotoha.serve.web import RESTART_EXIT_CODE
+    from kotoha.config import RESTART_EXIT_CODE
 
 
 def tearDownModule():

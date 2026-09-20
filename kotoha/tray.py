@@ -19,7 +19,7 @@ import time
 import webbrowser
 
 from . import config
-from .serve.web import RESTART_EXIT_CODE
+from .config import RESTART_EXIT_CODE
 
 _STATIC = config.BASE_DIR / "kotoha" / "serve" / "static"
 ICON_PATH = _STATIC / "kotoha.ico"

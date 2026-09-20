@@ -128,6 +128,20 @@ class BriefingTests(DbCase):
         jobs.maybe_briefing(self.conn)
         self.assertEqual(self.pushed, ["おはよ。傘いるよ。"])
 
+    def test_the_outside_is_fetched_before_queueing(self):
+        """外への往復は順番待ちの外で済ませる。ロック内で16秒待たせない。"""
+        self.at(8)
+        material = jobs.briefing_outside(self.conn)
+        self.assertIsNotNone(material)
+        jobs.weather.asked = 0
+        jobs.maybe_briefing(self.conn, material)
+        self.assertEqual(jobs.weather.asked, 0)   # もう外へは行かない
+        self.assertEqual(self.pushed, ["おはよ。傘いるよ。"])
+
+    def test_nothing_is_fetched_when_there_is_no_morning_to_speak_of(self):
+        self.at(19)
+        self.assertIsNone(jobs.briefing_outside(self.conn))
+
     def test_it_keeps_quiet_before_the_hour(self):
         self.at(7)
         jobs.maybe_briefing(self.conn)
@@ -283,8 +297,10 @@ class Clock:
 class FakeSky:
     def __init__(self, broken=False):
         self.broken = broken
+        self.asked = 0          # 何回、外へ取りに行ったか
 
     def today(self):
+        self.asked += 1
         return None if self.broken else {"umbrella": True}
 
     def block(self, sky):

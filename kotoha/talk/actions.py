@@ -127,10 +127,8 @@ def _start_ollama():
 
 
 def _restart_self():
-    from ..serve.web import RESTART_EXIT_CODE
-
     # 返答を届けきってから落ちる。start.bat かトレイ常駐が上げ直す。
-    threading.Timer(RESTART_DELAY, lambda: os._exit(RESTART_EXIT_CODE)).start()
+    threading.Timer(RESTART_DELAY, lambda: os._exit(config.RESTART_EXIT_CODE)).start()
     return "ことは: 入れ直す"
 
 

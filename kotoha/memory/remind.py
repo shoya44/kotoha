@@ -7,6 +7,7 @@
 import re
 from datetime import datetime, timedelta
 
+from .. import notify
 from . import db
 
 TAG = re.compile(r"\[REMIND:\s*([^\]|]+?)\s*\|\s*([^\]]+?)\s*\]")
@@ -67,6 +68,9 @@ def due(conn, now=None):
         done(conn, one)
     if stale:
         conn.commit()
+        # 「黙って畳む」は仕様どおりだが、**言えなかったことを持ち主が知る道**
+        # までは塞がない。していないことを、あるように振る舞わないための1行。
+        notify.log(f"時刻を過ぎすぎた頼まれごとを畳んだ: {len(stale)}件")
     return speak
 
 

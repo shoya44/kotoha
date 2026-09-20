@@ -1,8 +1,10 @@
 import asyncio
 import json
 import os
+import secrets
 import threading
 
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request, Response
@@ -15,15 +17,29 @@ from ..talk import chat, llm, presence
 from . import admin, hub, jobs, voice
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
-# start.bat はこの終了コードを見て起動し直す。42以外は普通の終了として扱われる。
-RESTART_EXIT_CODE = 42
-# 記憶本文の上限。整理が作るときのエピソード側に合わせてある。
-MEMORY_TEXT_LIMIT = 400
+# 記憶本文の上限。層ごとに、整理が作るときと同じにしてある（consolidate）。
+# 分けないと、手で直したときだけ整理が絶対に作らない長さの意味記憶ができる。
+MEMORY_TEXT_LIMITS = {"episode": 400, "semantic": 200}
+MEMORY_TEXT_LIMIT = MEMORY_TEXT_LIMITS["episode"]
 
-app = FastAPI(title="kotoha")
+
+@asynccontextmanager
+async def lifespan(app):
+    """脳として動き出すときに、はじめて仕事を始める。
+
+    **取り込んだだけでは何も始めない。** ここを import の副作用にしていた
+    あいだ、定数ひとつのために脳を取り込んだトレイの中でも巡回が回り、
+    ことはの脳が2つあった。同じ預かりを2つのプロセスが読み、同じ
+    頼まれごとが2通届いた。脳はひとつで、それは uvicorn が serve する
+    このプロセスだけ。
+    """
+    hub.wake()               # 上がったばかりの脳には、まだどの器も繋がっていない
+    jobs.start_background()  # 60秒ごとの時計は、ここから回り始める
+    yield
+
+
+app = FastAPI(title="kotoha", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
-# 上がったばかりの脳には、まだどの器も繋がっていない。
-hub.wake()
 
 
 def _check_token(request: Request, allow_query: bool = False) -> None:
@@ -35,7 +51,8 @@ def _check_token(request: Request, allow_query: bool = False) -> None:
     token = request.headers.get("X-Kotoha-Token", "")
     if not token and allow_query:
         token = request.query_params.get("token", "")
-    if not config.WEB_TOKEN or token != config.WEB_TOKEN:
+    # 合わせ方で時間が変わらない比べ方。Tailscale の中とはいえ、ただなので。
+    if not config.WEB_TOKEN or not secrets.compare_digest(token, config.WEB_TOKEN):
         raise HTTPException(status_code=401, detail="トークンが無効")
 
 
@@ -194,7 +211,7 @@ async def presence_stream(request: Request, vessel: str = ""):
     _check_token(request, allow_query=True)
     if not vessel:
         raise HTTPException(status_code=400, detail="器の名前が無い")
-    queue = asyncio.Queue()
+    queue = asyncio.Queue(maxsize=hub.QUEUE_LIMIT)
     joined = hub.join(vessel, queue, asyncio.get_running_loop())
     # 繋がった器は、まだ何も知らない。いまの姿を1回渡しておく。
     await asyncio.to_thread(hub.refresh)
@@ -263,7 +280,7 @@ def api_restart(request: Request):
     """外出先から立て直すための最後の手段。start.bat が起動し直す。"""
     _check_token(request)
     # 先に応答を返しきってから落とす。DBへの書き込みはその都度コミットしてある。
-    threading.Timer(0.4, lambda: os._exit(RESTART_EXIT_CODE)).start()
+    threading.Timer(0.4, lambda: os._exit(config.RESTART_EXIT_CODE)).start()
     return {"restarting": True}
 
 
@@ -317,9 +334,13 @@ def memory_update(request: Request, node_id: int, payload: dict):
     text = (payload.get("text") or "").strip()
     if not text:
         raise HTTPException(status_code=400, detail="本文が空")
-    if len(text) > MEMORY_TEXT_LIMIT:
-        raise HTTPException(status_code=400, detail=f"{MEMORY_TEXT_LIMIT}字までにしてください")
     with db.session() as conn:
+        row = conn.execute("SELECT layer FROM memory_nodes WHERE id = ?", (node_id,)).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="その記憶はありません")
+        limit = MEMORY_TEXT_LIMITS.get(row["layer"], MEMORY_TEXT_LIMIT)
+        if len(text) > limit:
+            raise HTTPException(status_code=400, detail=f"{limit}字までにしてください")
         changed = conn.execute(
             f"UPDATE memory_nodes SET text = ?, confirmed_at = ?, {db.EXTEND_EXPIRES} WHERE id = ?",
             (text, db.now_utc(), *db.extend_args(), node_id),

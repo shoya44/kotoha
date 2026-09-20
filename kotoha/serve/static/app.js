@@ -1692,6 +1692,17 @@ function whenOneSignal(run) {
   window.OneSignalDeferred.push(run);
 }
 
+// 台本は、通知を使うと決まってから取りに行く。**会話はいちばん私的な画面**で、
+// 使わない機能のために第三者のサーバーへ毎回つなぐ理由はない。
+function loadOneSignal() {
+  if (document.getElementById("onesignal-sdk")) return;
+  const tag = document.createElement("script");
+  tag.id = "onesignal-sdk";
+  tag.src = "https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.page.js";
+  tag.defer = true;
+  document.head.appendChild(tag);
+}
+
 function homeScreen() {
   return window.matchMedia("(display-mode: standalone)").matches
     || navigator.standalone === true;
@@ -1729,6 +1740,8 @@ async function setupPush() {
   elements.togglePush.hidden = false;
   showPushState();
   if (pushBlocked()) return;
+
+  loadOneSignal();
 
   // 入らないことがある。黙って準備中のままにしない。
   const late = setTimeout(() => {

@@ -35,6 +35,10 @@ _look = None         # 最後に押し出した姿。移った先にも、同じ
 _calling = None      # 通話している器。**実体のある器でしか始まらない。**
 
 
+# 器ひとつが溜められるイベントの数。これを超えたら古いものから捨てる。
+QUEUE_LIMIT = 100
+
+
 class Vessel:
     """繋がっている器ひとつ。送り先の行列と、その行列が住んでいる輪。
 
@@ -56,9 +60,22 @@ class Vessel:
     def send(self, event: dict) -> None:
         payload = json.dumps(event, ensure_ascii=False)
         try:
-            self.loop.call_soon_threadsafe(self.queue.put_nowait, payload)
+            self.loop.call_soon_threadsafe(self._offer, payload)
         except RuntimeError:
             pass          # 輪が閉じたあと。次の繋ぎ直しで戻ってくる。
+
+    def _offer(self, payload: str) -> None:
+        """溜まりきっていたら、いちばん古いものを捨てて入れる。
+
+        **半分死んだ器が繋がったままだと、行列は伸びつづける。** 姿も機嫌も
+        最新のものが正しいので、古いものを抱えている意味はない。
+        """
+        while self.queue.full():
+            try:
+                self.queue.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+        self.queue.put_nowait(payload)
 
 
 def reset() -> None:
