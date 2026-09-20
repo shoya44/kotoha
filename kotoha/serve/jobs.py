@@ -32,7 +32,7 @@ def _unprocessed_turns(conn) -> int:
     return row["n"]
 
 
-def run_periodic_jobs(conn) -> None:
+def run_periodic_jobs(conn, outside=None) -> None:
     """整理・バックアップ・忘却を、頃合いになったものだけ回す。
 
     順番に意味がある。バックアップは忘却より先に取らないと、
@@ -63,7 +63,7 @@ def run_periodic_jobs(conn) -> None:
     # 重なることがあり、2通に分けると同じ人から立て続けに届く。
     with collecting():
         maybe_reminders(conn)
-        maybe_briefing(conn)
+        maybe_briefing(conn, outside)
         maybe_lookout(conn)
         maybe_reach_out(conn)
     try:
@@ -195,7 +195,35 @@ def maybe_reminders(conn) -> None:
             conn.commit()
 
 
-def maybe_briefing(conn) -> None:
+def briefing_due(conn) -> bool:
+    """朝のひとことを、これから言いそうか。**DBを読むだけ。**
+
+    見当が外れても、外に取りに行ったものを捨てるだけで害はない。
+    出すかどうかを本当に決めるのは maybe_briefing のほう。
+    """
+    if not (config.BRIEFING_ENABLED and can_speak()):
+        return False
+    now = datetime.now()
+    if db.done_today(conn, db.LAST_BRIEFING_ON, now.strftime("%Y-%m-%d")):
+        return False
+    return config.BRIEFING_HOUR <= now.hour < config.BRIEFING_HOUR + config.BRIEFING_GRACE_HOURS
+
+
+def briefing_outside(conn):
+    """朝の材料のうち、外へ取りに行くぶんだけ先に集める。
+
+    **ここは順番待ちに並ばない。** 空模様と地震はそれぞれ最大8秒待つ。
+    ロックを持ったまま外を待つと、そのあいだ会話が丸ごと止まる。外が遅い
+    朝に話しかけて数十秒黙られるのは、待たせ方として人間らしくない。
+    記憶整理がロックの中でGeminiを呼ぶのは「順番待ち」として意図した形だが、
+    DBを触らない外向きの取り寄せまで並ばせる理由はない。
+    """
+    if not briefing_due(conn):
+        return None
+    return weather.today(), quake.night()
+
+
+def maybe_briefing(conn, outside=None) -> None:
     """朝いちばんの一言。その日まだ出していなければ、一度だけ。
 
     8時にPCが寝ていたら、起きたときに出す。ただし遅れすぎたら黙る。
@@ -217,12 +245,14 @@ def maybe_briefing(conn) -> None:
     # **3つを1通にまとめる。** 別々に鳴らすと、減らしたい通知が朝から3通になる。
     # 渡したものには必ず触れさせる（BRIEFING_CLOSING）。無いものは渡さない。
     # keep=False: その日の天気やゴミを長期記憶に溜めない。画面には残る。
+    # 外の2つは、ロックの外で取ってあれば使う（briefing_outside）。無ければここで取る。
+    sky, shake = outside if outside else (weather.today(), quake.night())
     extra = "\n".join(part for part in (
-        weather.block(weather.today()),
+        weather.block(sky),
         garbage.block(garbage.today()),
         remind.morning_block(remind.today(conn)),
         schedule.block(schedule.today()),
-        quake.block(quake.night()),
+        quake.block(shake),
         upkeep.block(upkeep.stale()),
     ) if part)
     announce(conn, chat.BRIEFING_CLOSING, extra=extra, keep=False)
@@ -253,9 +283,15 @@ def run_vector_jobs() -> None:
 
 
 def _with_lock() -> None:
-    """整理・バックアップ・忘却・声かけ。会話と同じ順番待ちに並ぶ。"""
+    """整理・バックアップ・忘却・声かけ。会話と同じ順番待ちに並ぶ。
+
+    **外へ取りに行くものは、並ぶ前に済ませておく。** 朝の空模様と地震は
+    それぞれ最大8秒待つ。持ったまま待つと、そのあいだ会話が丸ごと止まる。
+    """
+    with db.session() as conn:
+        outside = briefing_outside(conn)
     with turn_lock, db.session() as conn:
-        run_periodic_jobs(conn)
+        run_periodic_jobs(conn, outside)
 
 
 ROUNDS = (("巡回", _with_lock), ("ベクトル", run_vector_jobs), ("見張り", run_watch_jobs))
