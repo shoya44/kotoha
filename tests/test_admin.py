@@ -115,6 +115,15 @@ class SettingsTests(AdminTestCase):
         self.assertIn("KOTOHA_TEMPERATURE=0.4", body)
         self.assertEqual(body.count("KOTOHA_TEMPERATURE"), 1)  # 二重に書かない
 
+    def test_a_key_written_twice_is_changed_in_both_places(self):
+        """読むほうは後ろの行を採る。前だけ直すと、画面で直したのに効かない。"""
+        self.env.write_text("KOTOHA_TEMPERATURE=0.3\nKOTOHA_TEMPERATURE=0.7\n",
+                            encoding="utf-8")
+        admin.write_settings({"KOTOHA_TEMPERATURE": "0.4"})
+        body = self.env.read_text(encoding="utf-8")
+        self.assertEqual(body.count("KOTOHA_TEMPERATURE=0.4"), 2)
+        self.assertEqual(self.values()["KOTOHA_TEMPERATURE"], "0.4")
+
     def test_appends_a_key_that_was_not_written_yet(self):
         admin.write_settings({"KOTOHA_RECENT_TURNS": "8"})
         self.assertIn("KOTOHA_RECENT_TURNS=8", self.env.read_text(encoding="utf-8"))

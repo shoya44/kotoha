@@ -133,13 +133,18 @@ def write_settings(values: dict) -> None:
     path = config.BASE_DIR / ".env"
     lines = path.read_text(encoding="utf-8-sig").splitlines() if path.exists() else []
 
-    remaining = dict(cleaned)
+    # **同じキーが2行あったら、両方とも書き換える。** 読むほう（settings.read_env）は
+    # 後ろの行を採るので、前の1行だけ直すと「画面で直したのに効かない」になる。
+    # 手で足した行が下にあるときに起きる。消さずに、揃えるほうを選ぶ。
+    written = set()
     for index, line in enumerate(lines):
         if line.lstrip().startswith("#") or "=" not in line:
             continue
         key = line.split("=", 1)[0].strip()
-        if key in remaining:
-            lines[index] = f"{key}={remaining.pop(key)}"
+        if key in cleaned:
+            lines[index] = f"{key}={cleaned[key]}"
+            written.add(key)
+    remaining = {key: value for key, value in cleaned.items() if key not in written}
     if remaining:
         lines.append("")
         lines.append("# 画面から変更した設定")
