@@ -394,7 +394,7 @@ def stream_turn(conn, user_text: str):
     生成が落ちても、**言いかけたぶんは捨てない。** 1文字も来ていないとき
     だけ、まとめて受け取る道（投げ直しつき）へ落ちる。
     """
-    turn_id = db.start_turn(conn, "user", user_text)
+    turn_id = db.start_or_resume_turn(conn, user_text)
     conn.commit()
     recent = _fetch_recent(conn, user_text)
     recent_text = "\n".join(r["text"] for r in recent)
@@ -429,7 +429,7 @@ def stream_turn(conn, user_text: str):
 
 
 def run_turn(conn, user_text: str):
-    turn_id = db.start_turn(conn, "user", user_text)
+    turn_id = db.start_or_resume_turn(conn, user_text)
     conn.commit()
 
     recent = _fetch_recent(conn, user_text)

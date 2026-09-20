@@ -312,3 +312,54 @@ class TurnWiringTests(DbCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ResendTests(DbCase):
+    """送り直しは、同じ往復の空いている枠へ。同じ発言を2行並べない。"""
+
+    def reply_with(self, raw):
+        original = chat.llm.chat
+        chat.llm.chat = lambda prompt, max_tokens=None: raw
+        self.addCleanup(setattr, chat.llm, "chat", original)
+
+    def fails(self):
+        original = chat.llm.chat
+
+        def broken(prompt, max_tokens=None):
+            raise chat.llm.LLMError("通信失敗", retryable=True)
+        chat.llm.chat = broken
+        self.addCleanup(setattr, chat.llm, "chat", original)
+
+    def rows(self):
+        return self.conn.execute(
+            "SELECT turn_id, role, text FROM messages ORDER BY id").fetchall()
+
+    def test_the_same_words_sent_again_fill_the_empty_seat(self):
+        self.fails()
+        with self.assertRaises(chat.llm.LLMError):
+            chat.run_turn(self.conn, "ただいま")
+        self.reply_with("おかえり")
+        chat.run_turn(self.conn, "ただいま")
+        rows = self.rows()
+        self.assertEqual([r["role"] for r in rows], ["user", "assistant"])
+        self.assertEqual(rows[0]["turn_id"], rows[1]["turn_id"])
+
+    def test_different_words_start_their_own_turn(self):
+        """言い直したのが別の言葉なら、言いかけたぶんはそのまま残る。"""
+        self.fails()
+        with self.assertRaises(chat.llm.LLMError):
+            chat.run_turn(self.conn, "ただいま")
+        self.reply_with("おかえり")
+        chat.run_turn(self.conn, "やっぱりおやすみ")
+        rows = self.rows()
+        self.assertEqual(len(rows), 3)
+        self.assertNotEqual(rows[0]["turn_id"], rows[1]["turn_id"])
+
+    def test_saying_the_same_thing_twice_on_purpose_is_two_turns(self):
+        """1回目に返事があるなら、それは送り直しではない。"""
+        self.reply_with("うん")
+        chat.run_turn(self.conn, "ねえ")
+        chat.run_turn(self.conn, "ねえ")
+        turns = {r["turn_id"] for r in self.rows()}
+        self.assertEqual(len(turns), 2)
+
