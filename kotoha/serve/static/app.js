@@ -1275,10 +1275,12 @@ function playAudio(sound) {
   });
 }
 
-async function fetchVoice(text) {
+// plain を付けたぶんだけ、機嫌の乗らない素の声で返る。**どんな声にするかは
+// 脳が決める**ので、器から話速や音高を送ることはない。
+async function fetchVoice(text, plain = false) {
   const context = audioReady();
   if (!context) throw new Error("この端末では声を出せない");
-  const response = await api("/api/speak", { method: "POST", body: { text } });
+  const response = await api("/api/speak", { method: "POST", body: { text, plain } });
   if (!response.ok) {
     const error = await response.json().catch(() => ({}));
     throw new Error(error.detail || "声を出せない");
@@ -1606,7 +1608,9 @@ async function prepareFillers() {
     if (!calling) return;
     if (fillerVoices.has(text)) continue;
     try {
-      fillerVoices.set(text, await fetchVoice(text));
+      // **通話の初めに一度だけ作って、最後まで使い回す。** そのときの機嫌が
+      // 終わりまで残ってしまうので、間つなぎは素の声にしておく。
+      fillerVoices.set(text, await fetchVoice(text, true));
     } catch {
       return;  // 音声エンジンがなければ間つなぎなしで続ける。
     }
