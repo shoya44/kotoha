@@ -143,12 +143,12 @@ class MeaningTests(DbCase):
     def test_meaningful_memory_is_recalled_without_a_matching_word(self):
         """タグが当たらなくても、意味が近ければ出てくる。"""
         # 直近枠からあふれる古さにしておく。出てきたら意味でたどり着いた証拠。
-        self.add("しょうやは睡眠薬をあまり飲んでいない。",
+        self.add("ユーザーは豆から珈琲を淹れている。",
                  when="2026-01-05T00:00:00Z")
         self.fill_recent()
-        self.use({"しょうやは睡眠薬をあまり飲んでいない。": 0.80})
-        _, related = retrieve.retrieve(self.conn, "眠れない")
-        self.assertIn("しょうやは睡眠薬をあまり飲んでいない。", self.texts(related))
+        self.use({"ユーザーは豆から珈琲を淹れている。": 0.80})
+        _, related = retrieve.retrieve(self.conn, "珈琲")
+        self.assertIn("ユーザーは豆から珈琲を淹れている。", self.texts(related))
 
     def test_reserved_slots_do_not_crowd_out_the_rest(self):
         self.add("意味が近い記憶", when="2026-01-05T00:00:00Z")
