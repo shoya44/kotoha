@@ -43,6 +43,23 @@ def log(message: str) -> None:
         pass
 
 
+def trace(name: str, message: str) -> None:
+    """調べるためだけの書き置き。**KOTOHA_DEBUG のときだけ**、別の1本に残す。
+
+    notify.log は持ち主が事故を追うための道なので、計測の細かい行で
+    埋めない。読み終えたら DEBUG を戻せば、それきり増えない。
+    """
+    if not config.DEBUG:
+        return
+    path = LOG_PATH.parent / f"{name}.log"
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as out:
+            out.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')}  {message}\n")
+    except OSError:
+        pass
+
+
 def ready() -> bool:
     return bool(config.PUSH_ENABLED and config.ONESIGNAL_APP_ID and config.ONESIGNAL_API_KEY)
 

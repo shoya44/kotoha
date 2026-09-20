@@ -9,12 +9,21 @@
 テストは失敗して、書いた人に分かる。
 """
 
+import pathlib
+import tempfile
+
 import httpx
 
-from kotoha import config
+from kotoha import config, notify
 
 # 通知は既定で止めておく。鳴らす道そのものを試すテストだけが、自分で開ける。
 config.PUSH_ENABLED = False
+
+# **書き置きも外へ出さない。** notify.log は持ち主が事故を追うための1本で、
+# そこにテストの「失敗したふり」が混ざると、本物の記録が読めなくなる
+# （実際に、テストの出した「控えを置けなかった」が本番のログに並んだ）。
+_LOGS = tempfile.TemporaryDirectory(prefix="kotoha logs ")
+notify.LOG_PATH = pathlib.Path(_LOGS.name) / "notify.log"
 
 
 class WentOutside(RuntimeError):

@@ -11,7 +11,7 @@ from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from .. import config
+from .. import config, notify
 from ..memory import db, remind
 from ..talk import chat, llm, presence
 from . import admin, hub, jobs, voice
@@ -144,6 +144,65 @@ def history(request: Request, limit: int = config.WEB_HISTORY_LIMIT, after: int 
             "SELECT id, role, text, created_at FROM messages ORDER BY id DESC LIMIT ?", (limit,)
         ).fetchall()
         return JSONResponse([dict(r) for r in reversed(rows)])
+
+
+@app.post("/api/chat/stream")
+async def api_chat_stream(request: Request, payload: dict):
+    """言い終わった文から先に返す。**器は取り次ぐだけ。**
+
+    まとめて返す /api/chat と、判断も記憶も同じものを通る。違うのは渡す
+    順番だけで、通話では最初の声が出るまでが丸ごと短くなる。
+
+    生成は1本の糸の中だけで回す。**DBのつなぎは、作った糸でしか触れない。**
+    出来たぶんは輪（イベントループ）へ渡して、こちらは配るだけにする。
+    """
+    _check_token(request)
+    text = (payload.get("text") or "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="入力が空")
+    hub.claim(str(payload.get("vessel") or ""), "話しかけられた")
+    loop = asyncio.get_running_loop()
+    queue = asyncio.Queue()
+
+    def hand(item):
+        loop.call_soon_threadsafe(queue.put_nowait, item)
+
+    def work():
+        try:
+            with jobs.turn_lock, db.session() as conn:
+                for part in chat.stream_turn(conn, text):
+                    if "done" in part:
+                        turn = part["done"]
+                        hand({"done": {
+                            "reply": turn.reply, "mode": turn.mode,
+                            "rest": part["rest"],
+                            "last_id": conn.execute(
+                                "SELECT MAX(id) AS id FROM messages").fetchone()["id"],
+                            "kept": [{"due_at": when.strftime(remind.STAMP), "text": what}
+                                     for when, what in turn.kept],
+                        }})
+                    else:
+                        hand(part)
+        except llm.LLMError as error:
+            hand({"error": str(error)})
+        except Exception as error:      # 黙って途切れさせない
+            notify.log(f"流しながらの会話で失敗: {error!r}")
+            hand({"error": "うまく言えなかった"})
+        finally:
+            hand(None)
+
+    threading.Thread(target=work, name="kotoha-chat-stream", daemon=True).start()
+
+    async def lines():
+        while True:
+            item = await queue.get()
+            if item is None:
+                break
+            yield json.dumps(item, ensure_ascii=False) + "\n"
+        # 話したあとは機嫌が動く。姿もそこで1回だけ合わせる。
+        hub.refresh(said_ago=0)
+
+    return StreamingResponse(lines(), media_type="application/x-ndjson")
 
 
 @app.post("/api/chat")
