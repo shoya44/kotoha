@@ -7,10 +7,27 @@
 import unittest
 from datetime import date, timedelta
 
-from kotoha.talk import schedule, upkeep
+from kotoha.talk import garbage, schedule, upkeep
+
+# 作り話の暦。**持ち主のものは data/calendars にあり、git の外。** ここで
+# 確かめるのは予告の出し方なので、実物が入っていてもいなくても同じに動かす。
+# いちばん早く尽きるのが会議、次がゴミ、最後が祝日。実物と同じ前後関係にして
+# おかないと、予告が重なって「静かなはずの日」が静かでなくなる。
+MEETINGS = frozenset({"2030-01-18", "2030-03-15"})
+GARBAGE_UNTIL = date(2030, 9, 30)
+HOLIDAY_UNTIL = date(2030, 11, 23)
 
 
-class DeadlineTests(unittest.TestCase):
+class CalendarCase(unittest.TestCase):
+    def setUp(self):
+        for owner, name, value in ((garbage, "UNTIL", GARBAGE_UNTIL),
+                                   (schedule, "UNTIL", HOLIDAY_UNTIL),
+                                   (schedule, "MEETINGS", MEETINGS)):
+            self.addCleanup(setattr, owner, name, getattr(owner, name))
+            setattr(owner, name, value)
+
+
+class DeadlineTests(CalendarCase):
     def test_it_watches_all_three(self):
         names = [name for name, _until, _source in upkeep.deadlines()]
         self.assertEqual(len(names), 3)
@@ -18,14 +35,16 @@ class DeadlineTests(unittest.TestCase):
             with self.subTest(word=word):
                 self.assertTrue(any(word in name for name in names))
 
+
+class HolidayDeadlineTests(unittest.TestCase):
     def test_the_holiday_deadline_comes_from_the_table(self):
         """手で書くと、表を足したのにこちらを直し忘れる。"""
         self.assertEqual(schedule.UNTIL, date.fromisoformat(max(schedule.HOLIDAYS)))
 
 
-class NoticeTests(unittest.TestCase):
+class NoticeTests(CalendarCase):
     def meeting_end(self):
-        return date.fromisoformat(max(schedule.MEETINGS))
+        return date.fromisoformat(max(MEETINGS))
 
     def monday_before(self, until, days):
         """その期限の days 日前ごろの月曜。"""
@@ -79,3 +98,20 @@ class BlockTests(unittest.TestCase):
                               "left": -3, "over": True}])
         self.assertIn("切れている", said)
         self.assertNotIn("あと", said)
+
+
+class NoCalendarTests(unittest.TestCase):
+    """入れていない暦は見張らない。無いものを「切れている」と言われても困る。"""
+
+    def setUp(self):
+        self.addCleanup(setattr, garbage, "UNTIL", garbage.UNTIL)
+        self.addCleanup(setattr, schedule, "MEETINGS", schedule.MEETINGS)
+        garbage.UNTIL, schedule.MEETINGS = None, frozenset()
+
+    def test_only_the_holidays_are_watched(self):
+        names = [name for name, _until, _source in upkeep.deadlines()]
+        self.assertEqual(names, ["祝日の一覧"])
+
+    def test_nothing_runs_out_that_was_never_there(self):
+        self.assertEqual(upkeep.stale(date(2026, 4, 6)), [])
+
