@@ -22,7 +22,7 @@ def _http() -> httpx.Client:
 
     設定を読む前に作ると、設定の検査を邪魔する（embed・weather・quake と
     同じ形）。「取り込んだだけでは、スレッドも接続も始めない」という
-    決まりに揃えてある（docs/00）。
+    決まりに揃えてある（docs/01 コンセプト）。
     """
     global _client
     if _client is None:
