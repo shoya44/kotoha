@@ -118,9 +118,36 @@ def connect() -> sqlite3.Connection:
     return conn
 
 
+# 既にあるDBに、あとから足りない形を足すための一覧。
+# (版, [SQL...]) を古い順に並べる。**一度入れたものは書き換えない。**
+# 書き換えると、途中の版で止まっているDBだけが別の形になる。
+#   例: (1, ["ALTER TABLE messages ADD COLUMN vessel TEXT"]),
+MIGRATIONS: list = []
+
+
+def migrate(conn: sqlite3.Connection) -> None:
+    """DBの版を見て、足りないぶんだけ順に当てる。
+
+    `CREATE TABLE IF NOT EXISTS` は、既にある表には何もしない。だから
+    列を1つ足したくなった日、新しいDBだけが新しい形になり、**手元の、
+    いちばん大事な1つだけが古いまま静かに置いていかれる**。版を数えて
+    おけば、その日に慌てずに済む。
+    """
+    version = conn.execute("PRAGMA user_version").fetchone()[0]
+    for target, statements in MIGRATIONS:
+        if version >= target:
+            continue
+        for sql in statements:
+            conn.execute(sql)
+        conn.execute(f"PRAGMA user_version = {target}")
+        version = target
+    conn.commit()
+
+
 def init(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA)
     conn.commit()
+    migrate(conn)
 
 
 def insert_message(conn, turn_id: int, role: str, text: str, extractable: int = 1) -> None:

@@ -432,3 +432,30 @@ class SpareBackupTests(DbCase):
     def test_no_setting_means_nothing_extra(self):
         config.BACKUP_DIR = ""
         self.assertIsNone(db.spare_dir())
+
+
+class MigrationTests(DbCase):
+    """版を数える足場。次にスキーマを触る日まで、中身は空のまま。"""
+
+    def test_a_fresh_db_lands_on_the_latest_version(self):
+        db.migrate(self.conn)
+        latest = max((v for v, _ in db.MIGRATIONS), default=0)
+        self.assertEqual(self.conn.execute("PRAGMA user_version").fetchone()[0], latest)
+
+    def test_only_the_missing_ones_are_applied(self):
+        original = db.MIGRATIONS
+        self.addCleanup(setattr, db, "MIGRATIONS", original)
+        ran = []
+        db.MIGRATIONS = [
+            (1, ["CREATE TABLE IF NOT EXISTS step_one(x)"]),
+            (2, ["CREATE TABLE IF NOT EXISTS step_two(x)"]),
+        ]
+        self.conn.execute("PRAGMA user_version = 1")
+        db.migrate(self.conn)
+        tables = {r["name"] for r in self.conn.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table'")}
+        self.assertNotIn("step_one", tables)      # 当たっている版は飛ばす
+        self.assertIn("step_two", tables)
+        self.assertEqual(self.conn.execute("PRAGMA user_version").fetchone()[0], 2)
+        self.assertEqual(ran, [])
+
