@@ -119,6 +119,9 @@ else:
 if not OLLAMA_DIR.is_absolute():
     OLLAMA_DIR = BASE_DIR / OLLAMA_DIR
 PRESENCE_ENABLED = _boolean("KOTOHA_PRESENCE_ENABLED")
+# 常駐しているあいだ、PCを寝かせないよう頼むか。**電源設定は書き換えない。**
+# 寝られると外から繋げなくなり、起こす手立てが家の中にしか無い。
+KEEP_AWAKE = _boolean("KOTOHA_KEEP_AWAKE")
 MASCOT_ENABLED = _boolean("KOTOHA_MASCOT_ENABLED")
 BODY_AWAY_MINUTES = _number("KOTOHA_BODY_AWAY_MINUTES", float, minimum=0.5)
 PUSH_WHEN_EMBODIED = _boolean("KOTOHA_PUSH_WHEN_EMBODIED")

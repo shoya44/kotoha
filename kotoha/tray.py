@@ -52,6 +52,11 @@ user32 = ctypes.WinDLL("user32", use_last_error=True)
 kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
 shell32 = ctypes.WinDLL("shell32", use_last_error=True)
 
+# スリープしないよう頼む合図。ES_DISPLAY_REQUIRED は付けない（画面は消してよい）。
+ES_CONTINUOUS, ES_SYSTEM_REQUIRED = 0x80000000, 0x00000001
+kernel32.SetThreadExecutionState.argtypes = [w.DWORD]
+kernel32.SetThreadExecutionState.restype = w.DWORD
+
 LRESULT = ctypes.c_ssize_t
 WNDPROC = ctypes.WINFUNCTYPE(LRESULT, w.HWND, w.UINT, w.WPARAM, w.LPARAM)
 
@@ -479,6 +484,23 @@ def already_running() -> bool:
 _mutex = None
 
 
+def keep_awake(on: bool) -> None:
+    """ことはが常駐しているあいだ、PCを寝かせない。
+
+    **出先から繋がらなくなる一番の理由がスリープ。** 寝てしまうと Tailscale が
+    応じず、外から起こす手立てが無い（Wake-on-LANの合図は同じLANからしか
+    届かない）。頼むだけで、**電源設定そのものは書き換えない。** ことはを
+    終えれば元に戻る。画面は消えてよいので、そちらは頼まない。
+
+    合図は呼んだ糸に効く。**消えない糸から呼ぶこと**（ここでは主糸）。
+    """
+    if not config.KEEP_AWAKE:
+        return
+    flags = ES_CONTINUOUS | ES_SYSTEM_REQUIRED if on else ES_CONTINUOUS
+    if not kernel32.SetThreadExecutionState(flags):
+        log("スリープ抑止を頼めなかった")
+
+
 def main():
     if sys.platform != "win32":
         raise SystemExit("トレイ常駐はWindows専用です。")
@@ -499,9 +521,11 @@ def main():
     figure.start()
     status.start()
     tray.refresh_tip()
+    keep_awake(True)
     try:
         tray.loop()
     finally:
+        keep_awake(False)
         status.stop()
         figure.stop()
         supervisor.stop()
