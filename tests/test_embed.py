@@ -135,7 +135,7 @@ class MemoryFixture(EngineMixin, DbCase):
     def setUp(self):
         super().setUp()
 
-    def add_memory(self, text="しょうやは眠れないと話した。", key=None):
+    def add_memory(self, text="ユーザーは珈琲の話をした。", key=None):
         cur = self.conn.execute(
             "INSERT INTO memory_nodes(layer, kind, text, occurred_at, confirmed_at, "
             "last_used_at, expires_at, pinned, source_key) "
@@ -216,8 +216,8 @@ class PeriodicJobTests(MemoryFixture):
             conn.close()
 
     def test_missing_vectors_are_filled_in(self):
-        self.add_memory(text="しょうやは眠れないと話した。", key="a")
-        self.add_memory(text="しょうやはポキ丼を食べた。", key="b")
+        self.add_memory(text="ユーザーは珈琲の話をした。", key="a")
+        self.add_memory(text="ユーザーはポキ丼を食べた。", key="b")
         self.use(FakeOllama())
         self.jobs.run_vector_jobs()
         self.assertEqual(len(self.vectors()), 2)

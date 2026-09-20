@@ -172,6 +172,27 @@ def mood_rate(conn):
     return int(get_state(conn, MOOD_CHANGES, "0") or 0), turns
 
 
+def start_or_resume_turn(conn, text: str) -> int:
+    """発言を1件書いて番号を返す。**同じ発言の送り直しは、同じ往復に入れる。**
+
+    生成に失敗した回は、発言だけが残って返事が無い。そこへ送り直すと新しい
+    往復になり、画面に同じ発言が2行並ぶ。聞き返されたのではなく、無視された
+    末に自分で言い直したように見える。UNIQUE(turn_id, role) がちょうど
+    「ひとつの往復に返事はひとつ」を許すので、空いている枠へ入れる。
+
+    入れ直すのは、**いちばん新しい往復が「発言だけ・同じ文」のとき**だけ。
+    返事のある往復にも、ことはから始まった往復にも触れない。
+    """
+    last = conn.execute("SELECT MAX(turn_id) AS turn FROM messages").fetchone()["turn"]
+    if last:
+        rows = conn.execute(
+            "SELECT role, text FROM messages WHERE turn_id = ?", (last,)
+        ).fetchall()
+        if [r["role"] for r in rows] == ["user"] and rows[0]["text"] == text:
+            return last
+    return start_turn(conn, "user", text)
+
+
 def insert_message(conn, turn_id: int, role: str, text: str, extractable: int = 1) -> None:
     conn.execute(
         "INSERT INTO messages(turn_id, role, text, created_at, extractable) VALUES (?,?,?,?,?)",

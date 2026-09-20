@@ -90,8 +90,16 @@ def where_she_is(conn) -> str:
 
 
 def _read(name: str) -> str:
-    path = config.PROMPTS_DIR / name
-    return path.read_text(encoding="utf-8").strip() if path.exists() else ""
+    """プロンプトを1枚読む。**同じ名前が data/prompts にあれば、そちらを使う。**
+
+    人格には呼び名や人となりが書いてある。公開されたリポジトリに置ける
+    ものではないので、git の外に置いた側を先に見る。置かなければ、配って
+    あるひな形がそのまま使われる（呼び名は「あなた」）。
+    """
+    for path in (config.PERSONAL_PROMPTS_DIR / name, config.PROMPTS_DIR / name):
+        if path.exists():
+            return path.read_text(encoding="utf-8").strip()
+    return ""
 
 
 def _mem_line(r) -> str:
@@ -394,7 +402,7 @@ def stream_turn(conn, user_text: str):
     生成が落ちても、**言いかけたぶんは捨てない。** 1文字も来ていないとき
     だけ、まとめて受け取る道（投げ直しつき）へ落ちる。
     """
-    turn_id = db.start_turn(conn, "user", user_text)
+    turn_id = db.start_or_resume_turn(conn, user_text)
     conn.commit()
     recent = _fetch_recent(conn, user_text)
     recent_text = "\n".join(r["text"] for r in recent)
@@ -429,7 +437,7 @@ def stream_turn(conn, user_text: str):
 
 
 def run_turn(conn, user_text: str):
-    turn_id = db.start_turn(conn, "user", user_text)
+    turn_id = db.start_or_resume_turn(conn, user_text)
     conn.commit()
 
     recent = _fetch_recent(conn, user_text)

@@ -1,4 +1,4 @@
-from .. import config
+from .. import config, notify
 from . import db, embed
 
 _ALIVE = f"(expires_at IS NULL OR expires_at > {db.NOW_SQL})"
@@ -71,6 +71,9 @@ def _by_meaning(conn, query_text: str, known):
 def retrieve(conn, user_text: str, recent_text: str = ""):
     haystack = user_text + "\n" + recent_text
     hits = match_tags(haystack, load_tag_dict(conn))
+    # どのタグで当たったか。**1〜2字のタグ（例「雨」）は部分一致で誤って当たる。**
+    # 当たり率は実ログでしか測れないので、調べるときだけ残す。
+    notify.trace("retrieve", f"タグ命中 {hits}")
 
     cand = []
     seen = set()
