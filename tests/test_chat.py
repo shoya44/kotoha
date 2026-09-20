@@ -1,7 +1,10 @@
 """プロンプトに渡す時刻・経過・様子の検証。一時DBだけを使い、LLMは呼ばない。"""
 
+import shutil
+import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 from kotoha import config
 from tests.support import DbCase, use_temp_db
@@ -105,7 +108,7 @@ class MemoryLineTests(unittest.TestCase):
         base = {
             "id": 12, "layer": "semantic", "kind": "fact",
             "occurred_at": "2026-03-01", "confirmed_at": "2026-09-17T00:00:00Z",
-            "text": "しょうやはフルリモートで働いている",
+            "text": "ユーザーはフルリモートで働いている",
         }
         base.update(over)
         return base
@@ -310,8 +313,6 @@ class TurnWiringTests(DbCase):
         self.assertEqual(db.get_state(self.conn, "mood"), "眠い")
 
 
-if __name__ == "__main__":
-    unittest.main()
 
 
 class ResendTests(DbCase):
@@ -362,4 +363,27 @@ class ResendTests(DbCase):
         chat.run_turn(self.conn, "ねえ")
         turns = {r["turn_id"] for r in self.rows()}
         self.assertEqual(len(turns), 2)
+class PersonalPromptTests(unittest.TestCase):
+    """呼び名や人となりは、git の外に置いた側が勝つ。"""
 
+    def setUp(self):
+        self.folder = Path(tempfile.mkdtemp(prefix="kotoha prompts "))
+        self.addCleanup(shutil.rmtree, self.folder, True)
+        self.addCleanup(setattr, config, "PERSONAL_PROMPTS_DIR", config.PERSONAL_PROMPTS_DIR)
+        config.PERSONAL_PROMPTS_DIR = self.folder
+
+    def test_the_shipped_template_is_used_when_nothing_is_placed(self):
+        self.assertIn("ことは", chat._read("persona.txt"))
+
+    def test_what_is_placed_outside_git_wins(self):
+        (self.folder / "persona.txt").write_text("名前：てすと。", encoding="utf-8")
+        self.assertEqual(chat._read("persona.txt"), "名前：てすと。")
+
+    def test_the_shipped_template_carries_no_name(self):
+        """配るほうに呼び名を残さない。**公開されたまま気づけない。**"""
+        shipped = (config.PROMPTS_DIR / "persona.txt").read_text(encoding="utf-8")
+        self.assertIn("あなた", shipped)
+
+
+if __name__ == "__main__":
+    unittest.main()

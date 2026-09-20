@@ -52,6 +52,10 @@ DB_PATH = _db_path if _db_path.is_absolute() else BASE_DIR / _db_path
 # 住んでいる地区のゴミ収集や、勤め先の会議日程は、リポジトリに入れて配れる
 # ものではない。data/ ごと git の外にある。
 CALENDAR_DIR = DB_PATH.parent / "calendars"
+# 人格などのプロンプトの、その人ぶん。**同じ名前があれば、こちらが勝つ。**
+# 呼び名や人となりは公開されたリポジトリに置けるものではないので、git の外に
+# 置けるようにしてある。置かなければ、配ってあるひな形がそのまま使われる。
+PERSONAL_PROMPTS_DIR = DB_PATH.parent / "prompts"
 RECENT_TURNS = _number("KOTOHA_RECENT_TURNS")
 RECENT_CHARS = _number("KOTOHA_RECENT_CHARS")
 MAX_OUTPUT_TOKENS = _number("KOTOHA_MAX_OUTPUT_TOKENS")
