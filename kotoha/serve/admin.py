@@ -58,6 +58,14 @@ class AdminError(Exception):
 def _prompt_path(name):
     if name not in PROMPTS:
         raise AdminError("その名前の文はありません。")
+    # **効いているほうを直す。** 会話を組む側（talk/chat.py の _read）は
+    # data/prompts を先に見る。画面がひながた（prompts/）だけを見ると、
+    # 自分ぶんの人格を git の外に置いた日から——プライバシーの対応が
+    # 勧めたとおりにした日から——画面の保存が黙って効かなくなる。
+    # 表示も保存も控えも、実際に使われる1枚で揃える。
+    personal = config.PERSONAL_PROMPTS_DIR / f"{name}.txt"
+    if personal.exists():
+        return personal
     return config.PROMPTS_DIR / f"{name}.txt"
 
 
