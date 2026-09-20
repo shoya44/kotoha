@@ -12,6 +12,7 @@
 ときに自然と消える。
 """
 
+import asyncio
 import json
 import threading
 

@@ -15,4 +15,9 @@ jobs:
           python-version: "3.13"
           cache: pip
       - run: pip install -r requirements.txt
+      # 走る前に、名前の無さを確かめる。NameError は裏の巡回を殺さず、
+      # 静かに止める（実際に一度起きた）。tests/ を含めないのは、
+      # 差し替えのための副作用importが「未使用」として落ちるため。
+      - run: pip install pyflakes
+      - run: python -m pyflakes kotoha tools
       - run: python -m unittest discover -s tests -t .

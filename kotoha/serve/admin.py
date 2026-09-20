@@ -5,7 +5,6 @@
 """
 
 import importlib
-import re
 
 from .. import config
 from ..settings import read_env

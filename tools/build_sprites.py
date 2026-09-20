@@ -302,9 +302,9 @@ def main() -> int:
 
     blinks = sum(1 for s in sprites.values() if s["blink"])
     print(f"\n{len(sprites)}種類（まばたきあり {blinks}種類）")
-    print(f"実寸: " + "、".join(f"{k} {v[0]}x{v[1]}" for k, v in sizes.items()))
+    print("実寸: " + "、".join(f"{k} {v[0]}x{v[1]}" for k, v in sizes.items()))
     print(f"対応表: {OUT_DIR / 'sprites.json'}")
-    print(f"アイコン: " + "、".join(f"{n}px" for n in ICON_SIZES))
+    print("アイコン: " + "、".join(f"{n}px" for n in ICON_SIZES))
     return 0
 
 
