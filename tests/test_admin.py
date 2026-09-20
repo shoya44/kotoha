@@ -25,6 +25,12 @@ class AdminTestCase(unittest.TestCase):
         self.prompts.mkdir(exist_ok=True)
         for item in self.prompts.glob("*"):
             item.unlink()
+        # 自分ぶんの置き場（data/prompts の代わり）。実物を覗かないように、
+        # ここも必ず一時の空っぽへ向ける。
+        self.personal = _BASE / "personal_prompts"
+        self.personal.mkdir(exist_ok=True)
+        for item in self.personal.glob("*"):
+            item.unlink()
         self.env = _BASE / ".env"
         self.env.write_text("KOTOHA_TEMPERATURE=0.7\n", encoding="utf-8")
         (_BASE / ".env.example").write_text(
@@ -32,7 +38,8 @@ class AdminTestCase(unittest.TestCase):
             encoding="utf-8",
         )
 
-        for name, value in (("BASE_DIR", _BASE), ("PROMPTS_DIR", self.prompts)):
+        for name, value in (("BASE_DIR", _BASE), ("PROMPTS_DIR", self.prompts),
+                            ("PERSONAL_PROMPTS_DIR", self.personal)):
             original = getattr(config, name)
             setattr(config, name, value)
             self.addCleanup(setattr, config, name, original)
@@ -97,6 +104,49 @@ class PromptTests(AdminTestCase):
     def test_too_long_save_is_refused(self):
         with self.assertRaises(admin.AdminError):
             admin.write_prompt("persona", "あ" * (admin.MAX_PROMPT_CHARS + 1))
+
+
+class PersonalPromptTests(AdminTestCase):
+    """data/prompts がひな形より優先される。画面は効いているほうと揃う。
+
+    会話側（talk/chat.py の _read）が見る順と、画面が直す先がずれていると、
+    保存は成功するのに発言は変わらない、という静かな失敗になる。
+    """
+
+    def place(self, folder, name, text):
+        (folder / f"{name}.txt").write_text(text, encoding="utf-8")
+
+    def test_reads_the_one_in_effect(self):
+        self.place(self.prompts, "persona", "ひながた")
+        self.place(self.personal, "persona", "じぶん")
+        self.assertEqual(admin.read_prompt("persona"), "じぶん")
+
+    def test_saving_goes_to_the_one_in_effect(self):
+        self.place(self.prompts, "persona", "ひながた")
+        self.place(self.personal, "persona", "じぶん")
+        admin.write_prompt("persona", "なおした")
+        saved = (self.personal / "persona.txt").read_text(encoding="utf-8")
+        self.assertEqual(saved.strip(), "なおした")
+        # ひながたは触らない。配るときの1枚のまま残る。
+        self.assertEqual((self.prompts / "persona.txt").read_text(encoding="utf-8"), "ひながた")
+
+    def test_backup_lives_beside_the_one_in_effect(self):
+        self.place(self.personal, "persona", "じぶん")
+        admin.write_prompt("persona", "なおした")
+        backup = (self.personal / "persona.bak").read_text(encoding="utf-8")
+        self.assertEqual(backup, "じぶん")
+
+    def test_revert_swaps_the_one_in_effect(self):
+        self.place(self.personal, "persona", "じぶん")
+        admin.write_prompt("persona", "なおした")
+        self.assertEqual(admin.revert_prompt("persona").strip(), "じぶん")
+
+    def test_without_personal_the_template_is_edited(self):
+        """置いていなければ今までどおり。ひながたの側が直る。"""
+        self.place(self.prompts, "persona", "ひながた")
+        admin.write_prompt("persona", "なおした")
+        saved = (self.prompts / "persona.txt").read_text(encoding="utf-8")
+        self.assertEqual(saved.strip(), "なおした")
 
 
 class SettingsTests(AdminTestCase):

@@ -3,6 +3,7 @@
 見ているのは1つだけ。**姿を出す場所が、いつでも1つに決まっていること。**
 """
 
+import asyncio
 import json
 import unittest
 
@@ -34,6 +35,10 @@ class FakeQueue:
         return len(self.items) >= self.limit
 
     def get_nowait(self):
+        # 本物の asyncio.Queue と同じ形で空を言う。行列の外側（満ち・空）だけ
+        # 似せて中身を別形にすると、本物でしか通らない道が試験から逃げる。
+        if not self.items:
+            raise asyncio.QueueEmpty
         return self.items.pop(0)
 
     def put_nowait(self, payload):
@@ -219,3 +224,15 @@ class QueueLimitTests(HubCase):
         self.assertEqual(len(queue.items), 3)
         self.assertEqual([e["text"] for e in queue.items], ["3", "4", "5"])
 
+    def test_the_guard_path_has_the_names_it_needs(self):
+        """通れない道でも、名前が無ければ死なないことを確かめておく。
+
+        本番ではこの護りは発火しない（輪は1本の糸なので、「満ちている」と
+        言われたときには必ず取り出せる）。それでも見に行くのは、NameErrorが
+        裏の巡回を一度静かに止めた形そのものだから。空のとき本物の行列が
+        投げるのと同じ例外を偽の行列にも投げさせ、護りの道を通す。
+        """
+        queue = FakeQueue(limit=0)      # 中身が無くても「満ちている」と言う
+        vessel = hub.join("web", queue, self.loop)
+        vessel.send({"type": "say", "text": "1"})
+        self.assertEqual([e["text"] for e in queue.items], ["1"])

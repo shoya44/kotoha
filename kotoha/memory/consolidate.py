@@ -167,7 +167,7 @@ def _build_prompt(conn, messages, pending_nodes) -> str:
         for m in messages:
             who = "ユーザー" if m["role"] == "user" else "ことは"
             lines.append(f"[id:{m['id']}] {who}: {_clip(m['text'])}")
-        parts.append(f"未処理の会話:\n" + "\n".join(lines))
+        parts.append("未処理の会話:\n" + "\n".join(lines))
         existing = _existing_block(conn, messages)
         if existing:
             parts.append(existing)

@@ -1486,6 +1486,10 @@ async function sendStream(text, onFirst) {
   addMessage("user", text);
   reactAvatar();
   elements.sendButton.disabled = true;
+  // 往復のあいだは、履歴の見行きに自分の言葉を拾わせない。ユーザーの行は
+  // サーバー側ではもう確定しているので、生成が長引いた回に見行き（30秒ごと）
+  // が発火すると、吹き出しが二重に並ぶ。send() と同じ印・同じ頃合い。
+  talking = true;
   setStatus("考え中…", "thinking");
   const typingRow = addTypingIndicator();
   let opened = false;
@@ -1558,6 +1562,8 @@ async function sendStream(text, onFirst) {
     reactAvatar();
     elements.mode.textContent = done.mode || "";
     setStatus(calling ? "通話中" : "いるよ", calling ? "calling" : "online");
+    // 返事までのぶんは取り終えた。目印も進んだので、見行きを再開してよい。
+    talking = false;
     enqueueSpeech(done.rest);       // まだ声にしていないぶん
     await speakChain;
   } catch {
@@ -1565,6 +1571,7 @@ async function sendStream(text, onFirst) {
     addMessage("system", "[エラー] 通信失敗");
     setStatus("接続できない", "offline");
   } finally {
+    talking = false;
     elements.sendButton.disabled = false;
   }
 }

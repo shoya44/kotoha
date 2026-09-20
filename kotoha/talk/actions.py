@@ -11,7 +11,6 @@
 import ctypes
 import ctypes.wintypes as w
 import os
-import subprocess
 import sys
 import threading
 import time

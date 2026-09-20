@@ -203,7 +203,6 @@ def cpu_tick() -> None:
 
 def cpu():
     """前回の巡回からの平均使用率。基準が無ければ短く測る。"""
-    global _cpu_base
     now = _cpu_times()
     if now is None:
         return None

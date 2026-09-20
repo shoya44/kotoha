@@ -1,5 +1,6 @@
 """プロンプトに渡す時刻・経過・様子の検証。一時DBだけを使い、LLMは呼ばない。"""
 
+import re
 import shutil
 import tempfile
 import unittest
@@ -225,6 +226,19 @@ class MoodTests(DbCase):
         for label in chat.MOODS:
             with self.subTest(label=label):
                 self.assertIn(label, rules)
+
+    def test_the_example_mood_is_one_of_the_real_labels(self):
+        """例は、いちばん真似される形。一覧の外を例にすると起きること。
+
+        モデルは例の形を写しやすい。[MOOD: 元気] のように一覧に無いラベルを
+        例に置くと、そのまま 元気 が返りやすくなり、未知のラベルは捨てられる
+        ので**機嫌が一切変わらなくなる**。上の「一覧が本文にあるか」の試験は、
+        このずれを捕まえられない（一覧は無事なので通ってしまう）。
+        """
+        rules = (config.PROMPTS_DIR / "fixed_rules.txt").read_text(encoding="utf-8")
+        example = re.search(r"\[MOOD[:：]\s*([^\]］\n]+)\]", rules)
+        self.assertIsNotNone(example, "fixed_rules.txt に [MOOD: …] の例が無い")
+        self.assertIn(example.group(1).strip(), chat.MOODS)
 
 
 class TagSweepTests(unittest.TestCase):
