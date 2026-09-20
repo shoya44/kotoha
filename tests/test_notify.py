@@ -402,6 +402,76 @@ class HeldSurvivalTests(DbCase):
         self.assertEqual(announce_mod._held(self.conn), [])
         self.assertTrue(any("諦めた" in line for line in self.logged))
 
+    def hold_errand(self, text="薬を飲む"):
+        announce_mod._collecting = True
+        try:
+            announce_mod.announce(self.conn, "頼まれていた。",
+                                  remind_ids=[1], remind_texts=[text])
+        finally:
+            announce_mod._collecting = False
+
+    def test_giving_up_hands_the_errand_back(self):
+        """諦めるのは言い方であって、頼まれたこと自体ではない。"""
+        self.hold_errand()
+        for _ in range(announce_mod.GIVE_UP_AFTER):
+            announce_mod.flush_held(self.conn)
+        self.assertEqual(announce_mod._held(self.conn), [])
+        left = self.conn.execute(
+            "SELECT text FROM reminders WHERE done_at IS NULL").fetchall()
+        self.assertEqual([row["text"] for row in left], ["薬を飲む"])
+
+    def test_an_overflowing_hold_hands_the_oldest_errand_back(self):
+        self.hold_errand("いちばん古い頼まれごと")
+        for _ in range(announce_mod.HELD_LIMIT):
+            self.hold()
+        left = self.conn.execute(
+            "SELECT text FROM reminders WHERE done_at IS NULL").fetchall()
+        self.assertEqual([row["text"] for row in left], ["いちばん古い頼まれごと"])
+
+
+class UndeliveredTests(DbCase):
+    """言えたのに届かなかったぶんは、作り直さずに配り直す。"""
+
+    def setUp(self):
+        super().setUp()
+        self.addCleanup(setattr, config, "NOTIFY_GAP_MINUTES", config.NOTIFY_GAP_MINUTES)
+        config.NOTIFY_GAP_MINUTES = 0
+        for name in ("ready", "push", "log"):
+            self.addCleanup(setattr, notify, name, getattr(notify, name))
+        self.addCleanup(setattr, chat, "speak", chat.speak)
+        self.addCleanup(setattr, chat, "remember", chat.remember)
+        self.addCleanup(setattr, announce_mod, "_collecting", False)
+        notify.ready = lambda: True
+        self.logged = []
+        notify.log = self.logged.append
+        self.pushed = []
+        notify.push = lambda title, body, *a, **k: self.pushed.append(body) or False
+        chat.remember = lambda conn, text, ids=(), mood="", keep=True: None
+        self.spoken = 0
+
+        def speak(conn, closing, extra="", keep=True):
+            self.spoken += 1
+            return "おまたせ"
+        chat.speak = speak
+
+    def hold(self, closing="言うことがある。"):
+        announce_mod._collecting = True
+        try:
+            announce_mod.announce(self.conn, closing)
+        finally:
+            announce_mod._collecting = False
+
+    def test_a_dropped_push_is_carried_over_and_not_regenerated(self):
+        self.hold()
+        self.assertEqual(announce_mod.flush_held(self.conn), "")   # 届かなかった
+        held = announce_mod._held(self.conn)
+        self.assertEqual([i.get("text") for i in held], ["おまたせ"])
+        self.assertTrue(any("届かなかった" in line for line in self.logged))
+        notify.push = lambda title, body, *a, **k: self.pushed.append(body) or True
+        self.assertEqual(announce_mod.flush_held(self.conn), "おまたせ")
+        self.assertEqual(self.spoken, 1)                           # 作り直していない
+        self.assertEqual(announce_mod._held(self.conn), [])
+
 
 class SnoozeButtonTests(DbCase):
     """頼まれごとの通知にだけ「あとで」を付ける。用件はURLに載せない。"""

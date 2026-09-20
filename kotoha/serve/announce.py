@@ -9,9 +9,10 @@
 
 import contextlib
 import json
+from datetime import datetime, timedelta
 
 from .. import config, notify
-from ..memory import db
+from ..memory import db, remind
 from ..talk import chat, presence
 from . import hub
 
@@ -26,6 +27,9 @@ HELD_LIMIT = 8
 # 言えない状態が続いたときに諦める回数。**言えるまで毎分試すと、そのたびに
 # APIの枠を1回ずつ食う。** 記憶整理と同じ考え方（consolidate.GIVE_UP_AFTER）。
 GIVE_UP_AFTER = 3
+# 諦めた頼まれごとを、reminders へ戻すときの先送り分。すぐ戻すと同じ分に
+# もう一度出てきて、同じところで詰まる。
+GIVE_BACK_AFTER = timedelta(minutes=30)
 
 
 @contextlib.contextmanager
@@ -85,7 +89,13 @@ def _say(conn, items) -> str:
 
     2つを2通に分けると、同じ人から立て続けに届く。1通にまとめるのは
     体裁の問題ではなく、向こうに居るのが1人だからで、言い方はことはに任せる。
+
+    **言えたのに届かなかったぶんは、作り直さない。** 前の回に作った言葉は
+    履歴にもう残っているので、`text` として持ち越して配り直すだけにする。
+    もう一度ことはに言わせると、同じことが履歴に二度並び、APIの枠も食う。
     """
+    carried = [i for i in items if i.get("text")]
+    items = [i for i in items if not i.get("text")]
     closings = [i["closing"] for i in items if i.get("closing")]
     if len(closings) > 1:
         reasons = "\n".join(f"- {c}" for c in closings)
@@ -96,20 +106,32 @@ def _say(conn, items) -> str:
     extra = "\n".join(i["extra"] for i in items if i.get("extra"))
     keep = any(i.get("keep", True) for i in items)
     text = ""
-    try:
-        text = chat.speak(conn, closing, extra, keep)
-    except Exception as error:
-        notify.log(f"言えなかった: {error!r}")
-    if not text:
-        plains = [i["plain"] for i in items if i.get("plain")]
-        if plains:
-            text = "。".join(plains)
-            chat.remember(conn, text, keep=keep)   # 定型でも、言った以上は残す
-    if text:
-        db.set_state(conn, db.LAST_NOTIFY_AT, db.now_utc())
-        conn.commit()
-        _deliver(text, [i for item in items for i in item.get("remind_ids") or ()])
-    return text
+    # 配り直すだけの回では、ことはに何も言わせない。言葉はもうできている。
+    if items:
+        try:
+            text = chat.speak(conn, closing, extra, keep)
+        except Exception as error:
+            notify.log(f"言えなかった: {error!r}")
+        if not text:
+            plains = [i["plain"] for i in items if i.get("plain")]
+            if plains:
+                text = "。".join(plains)
+                chat.remember(conn, text, keep=keep)   # 定型でも、言った以上は残す
+    whole = "\n".join([i["text"] for i in carried] + ([text] if text else []))
+    if not whole:
+        return ""
+    db.set_state(conn, db.LAST_NOTIFY_AT, db.now_utc())
+    conn.commit()
+    ids = [i for item in carried + items for i in item.get("remind_ids") or ()]
+    texts = [t for item in carried + items for t in item.get("remind_texts") or ()]
+    if _deliver(whole, ids):
+        return whole
+    # 言葉はできている。落ちたのは配るところだけなので、そこだけやり直す。
+    notify.log(f"言えたのに届かなかった。次の巡回で配り直す: {whole[:40]}")
+    _put_held(conn, [{"text": whole, "plain": whole, "keep": keep,
+                      "remind_ids": ids, "remind_texts": texts}])
+    conn.commit()
+    return ""
 
 
 def reaches_the_person() -> bool:
@@ -136,11 +158,14 @@ def reaches_the_person() -> bool:
     return idle < config.BODY_AWAY_MINUTES * 60
 
 
-def _deliver(text: str, ids) -> None:
+def _deliver(text: str, ids) -> bool:
     """言葉を届ける。**姿が見えているならふきだし、でなければスマホ。**
 
     どちらか一方しか通らない。目の前に居るのに鳴らすのは重複で、
     誰も見ていないのにふきだしを出すのは、戻ったとき溜まって残るだけ。
+
+    **届いたかどうかを返す。** ここを見ていなかったあいだ、「言った・
+    履歴にも残った・でも通知は落ちた」が唯一の、痕跡なく消える道だった。
     """
     seen = reaches_the_person()
     if seen:
@@ -149,7 +174,10 @@ def _deliver(text: str, ids) -> None:
     if not seen or config.PUSH_WHEN_EMBODIED:
         # 開く先にも番号を載せる。ボタンの出ない iPhone では、開いた画面に出す。
         url = _with_ids("remind", ids) if _snooze_ready(ids) else ""
-        notify.push("ことは", text, buttons=_snooze_buttons(ids), url=url)
+        sent = notify.push("ことは", text, buttons=_snooze_buttons(ids), url=url)
+        # 姿が見えているときの通知は控えなので、落ちても目には入っている。
+        return seen or sent
+    return True
 
 
 def can_speak() -> bool:
@@ -162,7 +190,7 @@ def can_speak() -> bool:
 
 
 def announce(conn, closing: str, plain: str = "", extra: str = "",
-             keep: bool = True, remind_ids=()) -> str:
+             keep: bool = True, remind_ids=(), remind_texts=()) -> str:
     """ことはのほうから何か言う。言ったことが、そのまま通知になる。
 
     通知はすべてここを通す。言わずに鳴らすことはしない。開いても何も
@@ -182,14 +210,32 @@ def announce(conn, closing: str, plain: str = "", extra: str = "",
         items = _held(conn)
         if len(items) >= HELD_LIMIT:
             notify.log(f"預かりきれないので古いぶんを捨てた: {items[0].get('plain') or ''}"[:120])
+            _give_back(conn, items[:1])
             items = items[1:]
         items.append({"closing": closing, "plain": plain, "extra": extra, "keep": keep,
-                      "remind_ids": list(remind_ids)})
+                      "remind_ids": list(remind_ids), "remind_texts": list(remind_texts)})
         _put_held(conn, items)
         conn.commit()
         return HELD
     return _say(conn, [{"closing": closing, "plain": plain, "extra": extra, "keep": keep,
-                        "remind_ids": list(remind_ids)}])
+                        "remind_ids": list(remind_ids),
+                        "remind_texts": list(remind_texts)}])
+
+
+def _give_back(conn, items) -> None:
+    """捨てる預かりの中に頼まれごとがあったら、reminders へ戻す。
+
+    **諦めるのは言い方であって、頼まれたこと自体ではない。** 預かりを捨てる
+    のはAPIの枠を守る正しい判断だが、そのついでに頼まれごとまで消すと、
+    「預かっているもの」の画面からも消えて、二度と出てこない。戻すだけなら
+    API は1回も使わない。
+    """
+    when = datetime.now() + GIVE_BACK_AFTER
+    given = [t for item in items for t in item.get("remind_texts") or ()]
+    for text in given:
+        remind.add(conn, when, text)
+    if given:
+        notify.log(f"言えなかった頼まれごとを預かり直した: {len(given)}件")
 
 
 def _put_held(conn, items) -> None:
@@ -217,6 +263,7 @@ def flush_held(conn) -> str:
     fails = int(db.get_state(conn, db.HELD_FAILS, "0") or 0) + 1
     if fails >= GIVE_UP_AFTER:
         notify.log(f"まとめて言えないので諦めた: {len(items)}件")
+        _give_back(conn, items)
         _put_held(conn, [])
         fails = 0
     db.set_state(conn, db.HELD_FAILS, fails)

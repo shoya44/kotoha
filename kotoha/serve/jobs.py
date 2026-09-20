@@ -189,7 +189,8 @@ def maybe_reminders(conn) -> None:
     for row in remind.due(conn):
         spoken = announce(conn, f"前に「{row['text']}」を思い出させてほしいと頼まれていた。"
                                 "その時刻になった。一行で伝える。",
-                          plain=f"{row['text']}の時間だよ", remind_ids=[row["id"]])
+                          plain=f"{row['text']}の時間だよ", remind_ids=[row["id"]],
+                          remind_texts=[row["text"]])
         if spoken:
             remind.done(conn, row["id"])
             conn.commit()
