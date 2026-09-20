@@ -4,6 +4,9 @@ cd /d "%~dp0"
 title Kotoha Rescue
 
 rem Prepare this PC so Kotoha can be brought back from outside the house.
+rem Run this ONCE, at home. What you do from the phone later is printed
+rem at the end (and written in docs/07).
+rem
 rem Three steps, checked and applied one at a time. Nothing is changed
 rem without asking. Steps 2 and 3 alter Windows settings, so this needs
 rem administrator rights.
@@ -32,9 +35,9 @@ echo ===============================================
 echo  Kotoha Rescue - remote recovery preparation
 echo ===============================================
 echo.
-echo  1. Watchdog    bring the tray back by itself
-echo  2. OpenSSH     start it by hand from a phone
-echo  3. Wake        let the PC wake from sleep
+echo  1. Watchdog    bring the tray back by itself      (do this one)
+echo  2. OpenSSH     start it by hand from a phone       (last resort)
+echo  3. Wake        let the PC wake from sleep          (only if it sleeps)
 echo.
 pause
 
@@ -86,7 +89,7 @@ cls
 echo === 2. OpenSSH Server ===
 echo.
 echo With this on, you can reach the PC over Tailscale from an SSH app on
-echo the phone and run:  kotoha.bat tray
+echo the phone and start Kotoha again:  schtasks /run /tn "%TASK%"
 echo.
 echo   [warn] This opens a way in. Keep it inside the tailnet, and prefer
 echo       key authentication over passwords.
@@ -117,6 +120,11 @@ echo.
 echo Tailscale does not answer while the PC sleeps. Waking it needs
 echo Wake-on-LAN, and a magic packet can only come from the same LAN -
 echo a router, a smart plug or another always-on machine at home.
+echo.
+echo The easier way is not to sleep at all: set KOTOHA_KEEP_AWAKE=true in
+echo .env and the tray keeps the PC awake while it runs. The screen still
+echo turns off, and the power plan itself is left alone. If that is on,
+echo and the power plan does not sleep on AC, you can skip this step.
 echo.
 echo Fast startup has to be off, or the network card stays asleep.
 echo.
@@ -153,6 +161,24 @@ echo.
 echo   1. Watchdog        %DID1%
 echo   2. OpenSSH server  %DID2%
 echo   3. Fast startup    %DID3%
+echo.
+echo ===============================================
+echo  From the phone, in this order
+echo ===============================================
+echo.
+echo   1. Tailscale app: is this PC online?
+echo        offline -^> it is asleep or off. Nothing can be done from
+echo        outside; Wake-on-LAN only reaches it from inside the house.
+echo   2. The URL opens, but she is acting strangely
+echo        settings (gear) -^> "Restart". The tray brings her back up.
+echo   3. The URL does not open
+echo        wait 5 minutes. The watchdog task starts the tray again.
+echo   4. Still nothing
+echo        SSH in and run:  schtasks /run /tn "%TASK%"
+echo        That starts the tray in YOUR desktop session, so the icon and
+echo        the figure come back too. Without the watchdog task, run
+echo        cd /d "%~dp0" ^&^& kotoha.bat tray - the chat screen works,
+echo        but nothing appears on the desktop at home.
 echo.
 echo To undo:
 echo   1. schtasks /delete /tn "%TASK%" /f

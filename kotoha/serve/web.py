@@ -540,15 +540,26 @@ def settings_write(request: Request, payload: dict):
 
 @app.post("/api/speak")
 def api_speak(request: Request, payload: dict):
-    """返答を声にする。対話とは独立していて、失敗しても会話は続く。"""
+    """返答を声にする。対話とは独立していて、失敗しても会話は続く。
+
+    **声の表情を決めるのはここ**（脳の側）で、器は出来たwavを鳴らすだけ。
+    `plain: true` を付けた読み上げだけ、機嫌を乗せない素の声で返す。
+
+    通話では `[MOOD:]` が返答の**最後**に来るので、先に鳴る文には前のターンの
+    機嫌が乗る。新しい機嫌は次のターンから声になる。
+    """
     _check_token(request)
     if not config.VOICE_ENABLED:
         raise HTTPException(status_code=503, detail="読み上げは無効")
     text = (payload.get("text") or "").strip()
     if not text:
         raise HTTPException(status_code=400, detail="入力が空")
+    mood = ""
+    if not payload.get("plain"):
+        with db.session() as conn:
+            mood = chat.current_mood(conn)
     try:
-        wav = voice.speak(text)
+        wav = voice.speak(text, mood)
     except voice.VoiceError as e:
         raise HTTPException(status_code=503, detail=str(e))
     return Response(content=wav, media_type="audio/wav")

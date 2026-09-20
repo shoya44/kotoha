@@ -101,11 +101,59 @@ class LookTests(unittest.TestCase):
         self.assertEqual(figure.look(12, now), (figure.sprite(now), "idle"))
 
 
+class PriorTests(unittest.TestCase):
+    """申告が無いときの穴埋めと、時間帯に合わない機嫌の落とし方。"""
+
+    def test_every_hour_has_a_prior(self):
+        for hour in range(24):
+            with self.subTest(hour=hour):
+                self.assertIn(figure.prior(hour), chat.MOODS)
+
+    def test_only_the_small_hours_are_sleepy(self):
+        self.assertEqual(figure.prior(3), figure.SLEEPY_MOOD)
+        for hour in (7, 12, 15, 19, 23):
+            with self.subTest(hour=hour):
+                self.assertEqual(figure.prior(hour), "ふつう")
+
+    def test_sleepiness_is_kept_only_at_night(self):
+        for hour in (2, 5, 22, 1):
+            with self.subTest(hour=hour):
+                self.assertTrue(figure.keeps(hour, figure.SLEEPY_MOOD))
+        for hour in (6, 10, 12, 16, 20):
+            with self.subTest(hour=hour):
+                self.assertFalse(figure.keeps(hour, figure.SLEEPY_MOOD))
+
+    def test_other_moods_are_kept_all_day(self):
+        for hour in range(24):
+            for mood in chat.MOODS:
+                if mood == figure.SLEEPY_MOOD:
+                    continue
+                with self.subTest(hour=hour, mood=mood):
+                    self.assertTrue(figure.keeps(hour, mood))
+
+    def test_the_prior_never_changes_the_picture(self):
+        """**PRIORは絵に反映させない。** 言葉のぶんだけを埋める。"""
+        for hour in range(24):
+            now = datetime(2026, 9, 19, hour)
+            with self.subTest(hour=hour):
+                self.assertEqual(figure.look(hour, now, mood=figure.prior(hour)),
+                                 figure.look(hour, now))
+
+
 class MoodLabelTests(unittest.TestCase):
     def test_labels_exist(self):
         """chat.MOODS のラベルを書き換えると、その機嫌の絵が出なくなる。"""
         self.assertIn(figure.SLEEPY_MOOD, chat.MOODS)
         self.assertIn(figure.SULKY_MOOD, chat.MOODS)
+
+    def test_prior_labels_exist(self):
+        """PRIOR のラベルがずれると、プロンプトの「今の機嫌」が作れない。"""
+        for name, label in figure.MOOD_PRIOR.items():
+            with self.subTest(group=name):
+                self.assertIn(label, chat.MOODS)
+
+    def test_every_group_has_a_prior(self):
+        self.assertEqual(set(figure.MOOD_PRIOR), set(figure.GROUPS))
 
 
 if __name__ == "__main__":

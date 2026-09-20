@@ -24,17 +24,29 @@ MOODS = {
     "疲れ気味": "テンションは低いが、話は聞く",
     "すねている": "そっけないが、本当は構ってほしい",
 }
+# 何も分からないときの機嫌。時間帯ぶんの穴埋めは figure.MOOD_PRIOR が持つ。
 DEFAULT_MOOD = "ふつう"
-MOOD_DECAY_SECONDS = 6 * 3600  # これを過ぎた機嫌は引きずらず「ふつう」に戻す。
+MOOD_DECAY_SECONDS = 6 * 3600  # これを過ぎた機嫌は引きずらず、時間帯ぶんに戻す。
 
 
-def current_mood(conn) -> str:
-    """保存された機嫌。時間が経ったものは引きずらない。"""
+def current_mood(conn, hour: int = None) -> str:
+    """いまの機嫌。**時間が経ったものも、時間帯に合わないものも引きずらない。**
+
+    申告が無ければ、その時間帯ぶんで埋める（`figure.prior`）。申告があっても、
+    起きている時間に「眠い」は残さない（`figure.keeps`）。どちらの表も
+    figure.py が持っていて、**絵と言葉で二重に持たない。**
+
+    時刻は引数で受ける。渡さなければ今の時刻を見るが、渡せば時計に関係なく
+    戻り値を確かめられる。
+    """
+    hour = datetime.now().hour if hour is None else hour
     label = db.get_state(conn, db.MOOD)
     if label not in MOODS:
-        return DEFAULT_MOOD
+        return figure.prior(hour)
     if db.overdue(conn, db.MOOD_AT, MOOD_DECAY_SECONDS):
-        return DEFAULT_MOOD
+        return figure.prior(hour)
+    if not figure.keeps(hour, label):
+        return figure.prior(hour)
     return label
 
 
@@ -188,7 +200,7 @@ def build_prompt(conn, user_text: str, recent, pinned, related, fast: bool = Fal
     fixed = _read("fixed_rules.txt")
     persona = _read("persona.txt")
     now = datetime.now()
-    mood = current_mood(conn)
+    mood = current_mood(conn, now.hour)
     lines = [
         f"現在: {now:%Y-%m-%d %H:%M}（{WEEKDAYS[now.weekday()]}曜日）",
         # 今日が仕事か休みかは、毎日変わる。書き置きにできないので毎回渡す。

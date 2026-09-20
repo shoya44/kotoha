@@ -20,8 +20,8 @@ from .. import config
 # 候補が複数ある時間帯は、その日ぶんを日付で1枚に決める（sprite を参照）。
 # **絵の名前は sprites.json のものと揃えること**（tests/test_sprites.py が見張っている）。
 GROUPS = {
-    "morning": ("起きたばかりで、まだ少し眠い", ("wave", "daydream")),
-    "day": ("家でのんびりしている", ("laptop", "write")),
+    "morning": ("起きたばかりで、頭がぼーっとしている", ("wave", "daydream")),
+    "day": ("家でダラダラしている", ("laptop", "write")),
     "afternoon": ("昼寝やおやつでだらけている", ("snack", "bored")),
     "evening": ("風呂や夕食をすませたあと", ("book", "think")),
     "night": ("夜更かし中で、ゲームかスマホを触っている", ("cards", "laugh")),
@@ -42,6 +42,22 @@ TALK_SECONDS = 30
 SLEEPY_MOOD = "眠い"
 SULKY_MOOD = "すねている"
 
+# 申告が無いときの、時間帯ぶんの機嫌。**chat.MOODS のラベルと同じ文字**で
+# なければ効かない（tests/test_figure.py が見張っている）。
+# 効かせるのは言葉だけ。絵は group() が決めるので、ここに「眠い」を置くのは
+# **すでに布団の時間帯だけ**にしてある。PRIOR で絵が変わることはない。
+MOOD_PRIOR = {
+    "morning": "ふつう",
+    "day": "ふつう",
+    "afternoon": "ふつう",
+    "evening": "ふつう",
+    "night": "ふつう",
+    "sleep": SLEEPY_MOOD,
+}
+
+# 「眠い」を引きずってよい時間帯。ここを出たら、その申告は持ち越さない。
+SLEEPY_GROUPS = ("night", "sleep")
+
 
 def group(hour: int) -> str:
     """その時刻の時間帯。夜更かしは日付をまたぐので、ここだけ書き方が違う。"""
@@ -61,6 +77,29 @@ def group(hour: int) -> str:
 def situation(hour: int) -> str:
     """その時間のことはの様子。プロンプトに入れる言葉。"""
     return GROUPS[group(hour)][0]
+
+
+def prior(hour: int) -> str:
+    """申告が無いときの機嫌。時間帯から埋める。
+
+    生活の型（朝はぼーっと、日中はダラダラ、深夜は眠い）は、もともと
+    `situation()` が言葉で持っている。ここはその機嫌ぶんの写しではなく、
+    **穴埋めの既定値**として使う。
+    """
+    return MOOD_PRIOR[group(hour)]
+
+
+def keeps(hour: int, mood: str) -> bool:
+    """その時刻に、その機嫌を引きずってよいか。
+
+    **「眠い」は起きている時間帯まで持ち越さない。** 深夜に一度そう言うと、
+    薄れるまでの6時間、昼になっても眠いままだった。話しているあいだは薄れが
+    進まない（chat._finish）ので、朝から晩まで眠いと言い、布団の絵が続く。
+    時刻で外すほうが、寝起きが時間帯どおりになる。
+    """
+    if mood == SLEEPY_MOOD:
+        return group(hour) in SLEEPY_GROUPS
+    return True
 
 
 def sprite(now: datetime = None) -> str:

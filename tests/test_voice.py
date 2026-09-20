@@ -10,6 +10,7 @@ from tests.support import DbCase, use_temp_db
 _TMP = use_temp_db("voice")
 
 from kotoha.serve import voice  # noqa: E402
+from kotoha.talk import chat  # noqa: E402
 
 WAV = b"RIFF\x00\x00\x00\x00WAVEfmt "
 
@@ -83,6 +84,25 @@ class SpeakTests(unittest.TestCase):
         engine = self.use(FakeEngine())
         voice.speak("あ" * (voice.MAX_CHARS + 500))
         self.assertEqual(len(engine.calls[0][1]["text"]), voice.MAX_CHARS)
+
+    def test_a_mood_colours_the_query(self):
+        engine = self.use(FakeEngine())
+        voice.speak("ねむい", "眠い")
+        body = engine.calls[1][2]
+        speed, pitch, intonation = voice.MOOD_VOICE["眠い"]
+        self.assertAlmostEqual(body["speedScale"], speed)
+        self.assertAlmostEqual(body["pitchScale"], pitch)
+        self.assertAlmostEqual(body["intonationScale"], intonation)
+
+    def test_no_mood_leaves_the_query_alone(self):
+        engine = self.use(FakeEngine())
+        voice.speak("ふつうの声")
+        self.assertEqual(engine.calls[1][2], {"speedScale": 1.0})
+
+    def test_an_unknown_mood_leaves_the_query_alone(self):
+        engine = self.use(FakeEngine())
+        voice.speak("なにそれ", "ごきげん斜め")
+        self.assertEqual(engine.calls[1][2], {"speedScale": 1.0})
 
     def test_newlines_are_folded(self):
         self.assertEqual(voice.clip("一行目\n二行目"), "一行目 二行目")
@@ -175,6 +195,52 @@ class EndpointTests(unittest.TestCase):
         config.VOICE_ENABLED = True
         self.use(FakeEngine(error=httpx.ConnectError("refused")))
         self.assertEqual(self.post("おかえり").status_code, 503)
+
+    def test_the_stored_mood_reaches_the_engine(self):
+        """声の表情を決めるのは脳。器は text を送るだけでよい。"""
+        from kotoha.memory import db
+
+        config.VOICE_ENABLED = True
+        engine = FakeEngine()
+        self.use(engine)
+        with db.session() as conn:
+            db.set_state(conn, db.MOOD, "すねている")
+            db.set_state(conn, db.MOOD_AT, db.now_utc())
+            conn.commit()
+        self.assertEqual(self.post("べつに").status_code, 200)
+        speed, _, intonation = voice.MOOD_VOICE["すねている"]
+        self.assertAlmostEqual(engine.calls[1][2]["speedScale"], speed)
+        self.assertAlmostEqual(engine.calls[1][2]["intonationScale"], intonation)
+
+    def test_plain_asks_for_the_bare_voice(self):
+        """間つなぎのように使い回すものは、機嫌を乗せない。"""
+        from kotoha.memory import db
+
+        config.VOICE_ENABLED = True
+        engine = FakeEngine()
+        self.use(engine)
+        with db.session() as conn:
+            db.set_state(conn, db.MOOD, "すねている")
+            db.set_state(conn, db.MOOD_AT, db.now_utc())
+            conn.commit()
+        response = self.client.post(
+            "/api/speak", json={"text": "えっと…", "plain": True}, headers=self.headers)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(engine.calls[1][2], {"speedScale": 1.0})
+
+
+class MoodVoiceTests(unittest.TestCase):
+    def test_every_mood_has_a_voice(self):
+        """ラベルがずれると、その機嫌だけ声が変わらない。"""
+        self.assertEqual(set(voice.MOOD_VOICE), set(chat.MOODS))
+
+    def test_the_numbers_stay_in_a_natural_range(self):
+        """音高は半音ではない。振りすぎると声が割れる。"""
+        for label, (speed, pitch, intonation) in voice.MOOD_VOICE.items():
+            with self.subTest(mood=label):
+                self.assertTrue(0.85 <= speed <= 1.15)
+                self.assertTrue(-0.15 <= pitch <= 0.15)
+                self.assertTrue(0.8 <= intonation <= 1.2)
 
 
 if __name__ == "__main__":
