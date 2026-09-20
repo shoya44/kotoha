@@ -1,9 +1,16 @@
 # 誰も自動では走らせない、という状態をやめるための1枚。
-# 押すたびに windows-latest でテストが回る。Windows前提の作りなので、
-# ここが本番と同じ土俵になる（.env が無くても .env.example が既定になる）。
+# windows-latest で回す。Windows前提の作りなので、ここが本番と同じ土俵に
+# なる（.env が無くても .env.example が既定になる）。
 name: tests
 
-on: [push, pull_request]
+# **1コミットにつき1回だけ回す。** [push, pull_request] にしていたころは、
+# PRのあるブランチで同じコミットが2回走り、チェック欄も2行並んで
+# 「どちらを見ればいいのか」が分からなかった。
+# PRのあいだは pull_request で、入ったあとは main の push で1回。
+on:
+  push:
+    branches: [main]
+  pull_request:
 
 jobs:
   test:
