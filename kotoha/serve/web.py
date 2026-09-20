@@ -1,6 +1,7 @@
 import asyncio
 import json
 import os
+import secrets
 import threading
 
 from contextlib import asynccontextmanager
@@ -16,8 +17,10 @@ from ..talk import chat, llm, presence
 from . import admin, hub, jobs, voice
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
-# 記憶本文の上限。整理が作るときのエピソード側に合わせてある。
-MEMORY_TEXT_LIMIT = 400
+# 記憶本文の上限。層ごとに、整理が作るときと同じにしてある（consolidate）。
+# 分けないと、手で直したときだけ整理が絶対に作らない長さの意味記憶ができる。
+MEMORY_TEXT_LIMITS = {"episode": 400, "semantic": 200}
+MEMORY_TEXT_LIMIT = MEMORY_TEXT_LIMITS["episode"]
 
 
 @asynccontextmanager
@@ -48,7 +51,8 @@ def _check_token(request: Request, allow_query: bool = False) -> None:
     token = request.headers.get("X-Kotoha-Token", "")
     if not token and allow_query:
         token = request.query_params.get("token", "")
-    if not config.WEB_TOKEN or token != config.WEB_TOKEN:
+    # 合わせ方で時間が変わらない比べ方。Tailscale の中とはいえ、ただなので。
+    if not config.WEB_TOKEN or not secrets.compare_digest(token, config.WEB_TOKEN):
         raise HTTPException(status_code=401, detail="トークンが無効")
 
 
@@ -207,7 +211,7 @@ async def presence_stream(request: Request, vessel: str = ""):
     _check_token(request, allow_query=True)
     if not vessel:
         raise HTTPException(status_code=400, detail="器の名前が無い")
-    queue = asyncio.Queue()
+    queue = asyncio.Queue(maxsize=hub.QUEUE_LIMIT)
     joined = hub.join(vessel, queue, asyncio.get_running_loop())
     # 繋がった器は、まだ何も知らない。いまの姿を1回渡しておく。
     await asyncio.to_thread(hub.refresh)
@@ -330,9 +334,13 @@ def memory_update(request: Request, node_id: int, payload: dict):
     text = (payload.get("text") or "").strip()
     if not text:
         raise HTTPException(status_code=400, detail="本文が空")
-    if len(text) > MEMORY_TEXT_LIMIT:
-        raise HTTPException(status_code=400, detail=f"{MEMORY_TEXT_LIMIT}字までにしてください")
     with db.session() as conn:
+        row = conn.execute("SELECT layer FROM memory_nodes WHERE id = ?", (node_id,)).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="その記憶はありません")
+        limit = MEMORY_TEXT_LIMITS.get(row["layer"], MEMORY_TEXT_LIMIT)
+        if len(text) > limit:
+            raise HTTPException(status_code=400, detail=f"{limit}字までにしてください")
         changed = conn.execute(
             f"UPDATE memory_nodes SET text = ?, confirmed_at = ?, {db.EXTEND_EXPIRES} WHERE id = ?",
             (text, db.now_utc(), *db.extend_args(), node_id),

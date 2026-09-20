@@ -104,7 +104,10 @@ def _say(conn, items) -> str:
     else:
         closing = closings[0] if closings else ""
     extra = "\n".join(i["extra"] for i in items if i.get("extra"))
-    keep = any(i.get("keep", True) for i in items)
+    # **一つでも「残さない」があるなら残さない。** any だと、朝の天気やゴミ
+    # （keep=False）が頼まれごとと同じ預かりでまとまった日だけ、その日限りの
+    # ものが長期記憶に紛れ込んでいた。
+    keep = all(i.get("keep", True) for i in items)
     text = ""
     # 配り直すだけの回では、ことはに何も言わせない。言葉はもうできている。
     if items:

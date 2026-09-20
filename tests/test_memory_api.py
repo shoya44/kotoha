@@ -135,6 +135,14 @@ class MemoryApiTests(unittest.TestCase):
     def test_edit_of_a_missing_memory(self):
         self.assertEqual(self.edit(999, "なにか").status_code, 404)
 
+    def test_the_limit_follows_the_layer(self):
+        """手で直したときだけ、整理が絶対に作らない長さの意味記憶ができていた。"""
+        semantic = self.add(layer="semantic")
+        episode = self.add(text="べつのできごと", layer="episode", kind="event")
+        long_one = "あ" * (web.MEMORY_TEXT_LIMITS["semantic"] + 1)
+        self.assertEqual(self.edit(semantic, long_one).status_code, 400)
+        self.assertEqual(self.edit(episode, long_one).status_code, 200)
+
     # --- 保護 ---
 
     def pin(self, node, value):

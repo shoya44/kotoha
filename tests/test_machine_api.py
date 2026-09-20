@@ -69,6 +69,9 @@ class MachineApiTests(unittest.TestCase):
                 call(argument)
 
         class Queue:
+            def full(self):
+                return False
+
             def put_nowait(self, payload):
                 pass
 

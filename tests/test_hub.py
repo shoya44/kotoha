@@ -26,8 +26,15 @@ class FakeLoop:
 
 
 class FakeQueue:
-    def __init__(self):
+    def __init__(self, limit=hub.QUEUE_LIMIT):
         self.items = []
+        self.limit = limit
+
+    def full(self):
+        return len(self.items) >= self.limit
+
+    def get_nowait(self):
+        return self.items.pop(0)
 
     def put_nowait(self, payload):
         self.items.append(json.loads(payload))
@@ -199,3 +206,16 @@ class RememberingTests(HubCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class QueueLimitTests(HubCase):
+    """半分死んだ器が繋がったままでも、行列は伸びつづけない。"""
+
+    def test_the_oldest_events_are_dropped(self):
+        queue = FakeQueue(limit=3)
+        vessel = hub.join("web", queue, self.loop)
+        for i in range(6):
+            vessel.send({"type": "say", "text": str(i)})
+        self.assertEqual(len(queue.items), 3)
+        self.assertEqual([e["text"] for e in queue.items], ["3", "4", "5"])
+
