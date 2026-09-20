@@ -1,8 +1,11 @@
 """世代付きバックアップの検証。一時DBだけを使い、本番DBには触れない。"""
 
+import shutil
 import sqlite3
+import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 from kotoha import config
 from tests.support import DbCase, use_temp_db
@@ -400,3 +403,32 @@ class WatchLockTests(unittest.TestCase):
         self.jobs.run_watch_jobs()
 
         self.assertEqual(held, [True], "順番待ちに並ばずに書き込んでいる")
+
+
+class SpareBackupTests(DbCase):
+    """控えのもう1本。**ディスク1枚と記憶の運命を切り離す。**"""
+
+    def setUp(self):
+        super().setUp()
+        self.spare = Path(tempfile.mkdtemp(prefix="kotoha spare "))
+        self.addCleanup(shutil.rmtree, self.spare, True)
+        original = config.BACKUP_DIR
+        config.BACKUP_DIR = str(self.spare)
+        self.addCleanup(setattr, config, "BACKUP_DIR", original)
+
+    def test_the_spare_gets_its_own_copy(self):
+        dest = db.run_backup()
+        self.assertIsNotNone(dest)
+        self.assertTrue((self.spare / dest.name).exists())
+
+    def test_a_missing_spare_does_not_lose_the_one_next_door(self):
+        blocker = self.spare / "blocker"
+        blocker.write_text("外付けが外れている、のかわり", encoding="utf-8")
+        config.BACKUP_DIR = str(blocker / "backups")
+        dest = db.run_backup()
+        self.assertIsNotNone(dest)
+        self.assertTrue(dest.exists())
+
+    def test_no_setting_means_nothing_extra(self):
+        config.BACKUP_DIR = ""
+        self.assertIsNone(db.spare_dir())

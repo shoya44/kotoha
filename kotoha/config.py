@@ -67,6 +67,9 @@ RESTART_EXIT_CODE = 42
 WEB_HISTORY_LIMIT = _number("KOTOHA_WEB_HISTORY_LIMIT")
 BACKUP_KEEP = _number("KOTOHA_BACKUP_KEEP")
 BACKUP_INTERVAL_SECONDS = _number("KOTOHA_BACKUP_INTERVAL_SECONDS", float, minimum=0.1)
+# 控えのもう1本の置き場。空欄ならDBの隣だけ。**同じディスクに寄せない**ための設定で、
+# ここが空のあいだ、記憶はディスク1枚と運命を共にする。
+BACKUP_DIR = _text("KOTOHA_BACKUP_DIR", allow_empty=True)
 VOICE_ENABLED = _boolean("KOTOHA_VOICE_ENABLED")
 VOICE_BASE_URL = _text("KOTOHA_VOICE_BASE_URL").rstrip("/")
 VOICE_STYLE_ID = _number("KOTOHA_VOICE_STYLE_ID", minimum=0)

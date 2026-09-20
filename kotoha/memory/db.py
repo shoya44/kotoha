@@ -1,8 +1,10 @@
 import contextlib
+import shutil
 import sqlite3
 from datetime import datetime, timezone
+from pathlib import Path
 
-from .. import config
+from .. import config, notify
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS messages (
@@ -343,6 +345,34 @@ def backup_dir():
     return config.DB_PATH.parent / "backups"
 
 
+def spare_dir():
+    """控えのもう1本を置く先。設定していなければ None。
+
+    **ことはの本体は記憶です。** DBの隣にしか控えが無いと、ディスクが1枚
+    壊れた日にすべて消える。別ドライブや同期フォルダーを指しておくと、
+    最新の1本だけがそこへも渡る。
+    """
+    return Path(config.BACKUP_DIR) if config.BACKUP_DIR else None
+
+
+def _copy_to_spare(dest) -> None:
+    """取れた控えを、もう1本の置き場へも渡す。**ここの失敗で控えは無効にしない。**
+
+    外付けが外れている、同期フォルダーが落ちている。どれも起こるが、
+    それでDBの隣の1本まで失う理由はない。黙っては済ませず、log に残す。
+    """
+    spare = spare_dir()
+    if spare is None:
+        return
+    try:
+        spare.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(dest, spare / dest.name)
+        for old in sorted(spare.glob("kotoha_*.sqlite3"))[: -config.BACKUP_KEEP]:
+            old.unlink()
+    except OSError as error:
+        notify.log(f"控えのもう1本を置けなかった: {error!r}")
+
+
 def run_backup(conn=None):
     """世代付きのバックアップを1本取り、古い世代を消す。
 
@@ -357,6 +387,7 @@ def run_backup(conn=None):
     backup(dest)
     for old in sorted(folder.glob("kotoha_*.sqlite3"))[: -config.BACKUP_KEEP]:
         old.unlink()
+    _copy_to_spare(dest)
     if conn is not None:
         set_state(conn, LAST_BACKUP_AT, now_utc())
         conn.commit()
