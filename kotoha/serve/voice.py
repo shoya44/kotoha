@@ -14,7 +14,20 @@ MAX_CHARS = 300
 # 同じエンジンへ何度もつなぐので、接続は開いたまま使い回す。1文ごとにつなぎ直すと
 # 1文あたり0.44秒ほど余計にかかる（実測 903ms → 462ms）。通話では1文ごとに効く。
 # 相手は同じPCの中なので、プロキシ設定は見ない。見にいく時間のぶんだけ遅くなる。
-_client = httpx.Client(trust_env=False)
+_client = None
+
+
+def _http() -> httpx.Client:
+    """つなぎを1本、使い回す。**取り込んだときには作らない。**
+
+    設定を読む前に作ると、設定の検査を邪魔する（embed・weather・quake と
+    同じ形）。「取り込んだだけでは、スレッドも接続も始めない」という
+    決まりに揃えてある（docs/00）。
+    """
+    global _client
+    if _client is None:
+        _client = httpx.Client(trust_env=False)
+    return _client
 
 
 class VoiceError(Exception):
@@ -27,7 +40,7 @@ def clip(text: str) -> str:
 
 
 def _send(method: str, url: str, **kwargs):
-    return _client.request(method, url, timeout=config.VOICE_TIMEOUT_SECONDS, **kwargs)
+    return _http().request(method, url, timeout=config.VOICE_TIMEOUT_SECONDS, **kwargs)
 
 
 def _request(method: str, path: str, **kwargs):
