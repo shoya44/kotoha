@@ -212,7 +212,7 @@ def refresh(conn=None, said_ago: float = None) -> bool:
     found = presence.streak(conn)
     picture, act = figure.look(
         now.hour, now,
-        mood=chat.current_mood(conn),
+        mood=chat.current_mood(conn, now.hour),
         said_ago=said_ago,
         streak_hours=found[1] if found else None,
     )

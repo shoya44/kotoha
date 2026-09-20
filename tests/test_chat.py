@@ -13,7 +13,7 @@ from tests.support import DbCase, use_temp_db
 _TMP = use_temp_db("chat")
 
 from kotoha.memory import db, remind  # noqa: E402
-from kotoha.talk import chat  # noqa: E402
+from kotoha.talk import chat, figure  # noqa: E402
 
 
 def tearDownModule():
@@ -190,35 +190,46 @@ class TagStrippingTests(unittest.TestCase):
 
 
 class MoodTests(DbCase):
-    def setUp(self):
-        super().setUp()
+    """機嫌は時刻で変わる。**時計は渡して確かめる**（figure と同じ作法）。"""
+
+    AWAKE = 12      # 起きている時間帯
+    NIGHT = 3       # 布団の時間帯
+
     def remember(self, label, at=None):
         db.set_state(self.conn, "mood", label)
         db.set_state(self.conn, "mood_at", at or db.now_utc())
         self.conn.commit()
 
-    def test_defaults_to_neutral(self):
-        self.assertEqual(chat.current_mood(self.conn), chat.DEFAULT_MOOD)
+    def test_defaults_to_the_time_of_day(self):
+        self.assertEqual(chat.current_mood(self.conn, self.AWAKE), chat.DEFAULT_MOOD)
+        self.assertEqual(chat.current_mood(self.conn, self.NIGHT), figure.SLEEPY_MOOD)
 
     def test_remembers_a_recent_mood(self):
         self.remember("すねている")
-        self.assertEqual(chat.current_mood(self.conn), "すねている")
+        self.assertEqual(chat.current_mood(self.conn, self.AWAKE), "すねている")
 
     def test_old_mood_is_not_carried_over(self):
         self.remember("すねている", ago(hours=7))
-        self.assertEqual(chat.current_mood(self.conn), chat.DEFAULT_MOOD)
+        self.assertEqual(chat.current_mood(self.conn, self.AWAKE), chat.DEFAULT_MOOD)
 
     def test_unknown_stored_label_falls_back(self):
         self.remember("ごきげん斜め")
-        self.assertEqual(chat.current_mood(self.conn), chat.DEFAULT_MOOD)
+        self.assertEqual(chat.current_mood(self.conn, self.AWAKE), chat.DEFAULT_MOOD)
+
+    def test_sleepiness_does_not_survive_into_the_day(self):
+        """深夜に一度そう言うと、昼まで眠いままだった。時刻で外す。"""
+        self.remember(figure.SLEEPY_MOOD)
+        self.assertEqual(chat.current_mood(self.conn, self.NIGHT), figure.SLEEPY_MOOD)
+        self.assertEqual(chat.current_mood(self.conn, 10), chat.DEFAULT_MOOD)
+        self.assertEqual(chat.current_mood(self.conn, self.AWAKE), chat.DEFAULT_MOOD)
 
     def test_prompt_carries_the_mood(self):
-        self.remember("眠い")
+        self.remember("すねている")
         prompt = chat.build_prompt(self.conn, "やっほー", [], [], [])
         line = [l for l in prompt.split("\n") if l.startswith("今の機嫌:")]
         self.assertEqual(len(line), 1)
-        self.assertIn("眠い", line[0])
-        self.assertIn(chat.MOODS["眠い"], line[0])
+        self.assertIn("すねている", line[0])
+        self.assertIn(chat.MOODS["すねている"], line[0])
 
     def test_labels_match_the_prompt_rules(self):
         """MOODS と fixed_rules.txt のラベル一覧がずれると機嫌が反映されない。"""
@@ -298,13 +309,16 @@ class TurnWiringTests(DbCase):
         self.assertEqual(db.get_state(self.conn, db.MOOD), "眠い")
 
     def test_talking_keeps_the_mood_from_fading(self):
-        """6時間の薄れは、黙っている時間に効かせたい。話していれば進まない。"""
-        db.set_state(self.conn, db.MOOD, "眠い")
+        """6時間の薄れは、黙っている時間に効かせたい。話していれば進まない。
+
+        時刻で外れる「眠い」ではなく、**時間帯を選ばない機嫌**で確かめる。
+        """
+        db.set_state(self.conn, db.MOOD, "すねている")
         db.set_state(self.conn, db.MOOD_AT, "2020-01-01T00:00:00Z")
         self.conn.commit()
         self.reply_with("ふーん")
         chat.run_turn(self.conn, "ねえ")
-        self.assertEqual(chat.current_mood(self.conn), "眠い")
+        self.assertEqual(chat.current_mood(self.conn, 12), "すねている")
 
     def test_a_broken_tag_never_reaches_the_screen(self):
         """23:16に「スマホ見てるー。[REMIND: ]」が出た。同じ形を通しで確かめる。"""
