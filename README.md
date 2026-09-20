@@ -35,6 +35,8 @@ Gemini の鍵は [Google AI Studio](https://aistudio.google.com/) で取れま�
 
 `prompts/persona.txt` がひな形です（呼び名は「あなた」）。写して、名前や距離感を自分のものに直してください。置くと、そちらが優先されます。
 
+> ⚠️ **ひな形のほうを直接書き換えないでください。** `prompts/` はリポジトリに入っているので、そこに書いた名前はそのまま公開されます。直すのは写したほう（`data/prompts/persona.txt`）です。
+
 会話画面の「ことばを直す」も、**置いてあるほう**（効いている1枚）を書き換えます。
 
 ### ゴミの日 ── `data/calendars/garbage.json`
