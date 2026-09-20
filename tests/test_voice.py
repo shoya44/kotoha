@@ -50,9 +50,11 @@ class StaleOnce(FakeEngine):
 class SpeakTests(unittest.TestCase):
     def use(self, engine):
         # 接続は使い回す1つに集約したので、差し替え先もそこになる。
-        original = voice._client.request
-        voice._client.request = engine
-        self.addCleanup(setattr, voice._client, "request", original)
+        # **初めて使うときに作られる**ので、先に作らせてから差し替える。
+        client = voice._http()
+        original = client.request
+        client.request = engine
+        self.addCleanup(setattr, client, "request", original)
         return engine
 
     def test_returns_audio(self):
@@ -145,9 +147,10 @@ class EndpointTests(unittest.TestCase):
         )
 
     def use(self, engine):
-        original = voice._client.request
-        voice._client.request = engine
-        self.addCleanup(setattr, voice._client, "request", original)
+        client = voice._http()          # 初めて使うときに作られる
+        original = client.request
+        client.request = engine
+        self.addCleanup(setattr, client, "request", original)
 
     def test_returns_wav(self):
         config.VOICE_ENABLED = True
