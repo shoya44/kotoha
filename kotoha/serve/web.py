@@ -3,6 +3,7 @@ import json
 import os
 import threading
 
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request, Response
@@ -15,15 +16,27 @@ from ..talk import chat, llm, presence
 from . import admin, hub, jobs, voice
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
-# start.bat はこの終了コードを見て起動し直す。42以外は普通の終了として扱われる。
-RESTART_EXIT_CODE = 42
 # 記憶本文の上限。整理が作るときのエピソード側に合わせてある。
 MEMORY_TEXT_LIMIT = 400
 
-app = FastAPI(title="kotoha")
+
+@asynccontextmanager
+async def lifespan(app):
+    """脳として動き出すときに、はじめて仕事を始める。
+
+    **取り込んだだけでは何も始めない。** ここを import の副作用にしていた
+    あいだ、定数ひとつのために脳を取り込んだトレイの中でも巡回が回り、
+    ことはの脳が2つあった。同じ預かりを2つのプロセスが読み、同じ
+    頼まれごとが2通届いた。脳はひとつで、それは uvicorn が serve する
+    このプロセスだけ。
+    """
+    hub.wake()               # 上がったばかりの脳には、まだどの器も繋がっていない
+    jobs.start_background()  # 60秒ごとの時計は、ここから回り始める
+    yield
+
+
+app = FastAPI(title="kotoha", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
-# 上がったばかりの脳には、まだどの器も繋がっていない。
-hub.wake()
 
 
 def _check_token(request: Request, allow_query: bool = False) -> None:
@@ -263,7 +276,7 @@ def api_restart(request: Request):
     """外出先から立て直すための最後の手段。start.bat が起動し直す。"""
     _check_token(request)
     # 先に応答を返しきってから落とす。DBへの書き込みはその都度コミットしてある。
-    threading.Timer(0.4, lambda: os._exit(RESTART_EXIT_CODE)).start()
+    threading.Timer(0.4, lambda: os._exit(config.RESTART_EXIT_CODE)).start()
     return {"restarting": True}
 
 

@@ -60,6 +60,10 @@ DEBUG = _boolean("KOTOHA_DEBUG")
 WEB_TOKEN = _text("KOTOHA_WEB_TOKEN", allow_empty=True)
 WEB_HOST = _text("KOTOHA_WEB_HOST")
 WEB_PORT = _number("KOTOHA_WEB_PORT", maximum=65535)
+# start.bat とトレイ常駐はこの終了コードを見て起動し直す。42以外は普通の終了。
+# **脳（serve.web）ではなくここに置く。** 取り次ぐだけのトレイが、定数ひとつの
+# ために脳を取り込むと、そちらでも巡回が立ち上がってしまう。
+RESTART_EXIT_CODE = 42
 WEB_HISTORY_LIMIT = _number("KOTOHA_WEB_HISTORY_LIMIT")
 BACKUP_KEEP = _number("KOTOHA_BACKUP_KEEP")
 BACKUP_INTERVAL_SECONDS = _number("KOTOHA_BACKUP_INTERVAL_SECONDS", float, minimum=0.1)

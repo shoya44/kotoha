@@ -18,6 +18,10 @@ from .announce import announce, can_speak, collecting, flush_held
 # 会話と巡回が共有する順番待ち。同時にDBを触らせないための1本。
 turn_lock = threading.Lock()
 
+# 時計のスレッド名。「取り込んだだけでは始まらない」ことを試験が見張る印。
+JOBS_THREAD_NAME = "kotoha-jobs"
+_thread = None
+
 
 def _unprocessed_turns(conn) -> int:
     last = int(db.get_state(conn, db.LAST_PROCESSED_MESSAGE_ID, "0") or 0)
@@ -277,4 +281,15 @@ def _bg_loop() -> None:
         one_round()
 
 
-threading.Thread(target=_bg_loop, daemon=True).start()
+def start_background() -> None:
+    """時計を回し始める。**脳が起きたときに、一度だけ。**
+
+    取り込んだ時点で回していたころは、トレイのプロセスでも同じ時計が回り、
+    前面アプリの数えが毎分2つ増え、記憶整理が二度走っていた。呼ぶのは
+    serve.web の lifespan だけ。
+    """
+    global _thread
+    if _thread is not None and _thread.is_alive():
+        return
+    _thread = threading.Thread(target=_bg_loop, name=JOBS_THREAD_NAME, daemon=True)
+    _thread.start()
