@@ -349,14 +349,22 @@ def run_vector_jobs() -> None:
     with db.session() as conn:
         try:
             rows = embed.missing(conn, config.EMBED_BATCH)
-            if not rows:
+            pages = embed.missing_diary(conn, config.EMBED_BATCH, diary.SILENT)
+            if not rows and not pages:
                 _wake_embedder()
                 return
-            made = embed.embed(
-                [r["text"] for r in rows], timeout=config.EMBED_BUILD_TIMEOUT_SECONDS
-            )
-            embed.store(conn, zip((r["id"] for r in rows), made))
-            embed.link_similar(conn)
+            if rows:
+                made = embed.embed(
+                    [r["text"] for r in rows], timeout=config.EMBED_BUILD_TIMEOUT_SECONDS
+                )
+                embed.store(conn, zip((r["id"] for r in rows), made))
+                embed.link_similar(conn)
+            if pages:
+                # 日記も同じ道で座標に。「先月どうだった？」で、その頃の日記が引ける。
+                made = embed.embed(
+                    [r["text"] for r in pages], timeout=config.EMBED_BUILD_TIMEOUT_SECONDS
+                )
+                embed.store_diary(conn, zip((r["id"] for r in pages), made))
         except embed.EmbedError:
             pass  # 声と同じで、無くても会話は続けられる。
 

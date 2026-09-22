@@ -126,16 +126,29 @@ def missing_days(conn, today):
     return list(reversed(days))
 
 
-def block(conn, now=None) -> str:
-    """会話のプロンプトに載せる、ここ数日の日記。無ければ空。"""
+def shown(conn, now=None):
+    """会話に毎回添えるぶん（ここ数日）。想起で同じ日を二度出さないためにも使う。"""
     now = now or datetime.now()
     today = now.strftime(DAY)
-    rows = [r for r in recent(conn, RECENT_DAYS + 1) if r["day"] < today][:RECENT_DAYS]
+    return [r for r in recent(conn, RECENT_DAYS + 1) if r["day"] < today][:RECENT_DAYS]
+
+
+def block(conn, now=None) -> str:
+    """会話のプロンプトに載せる、ここ数日の日記。無ければ空。"""
+    rows = shown(conn, now)
     if not rows:
         return ""
     lines = "\n".join(f"  {r['day'][5:].replace('-', '/')}: {r['text']}" for r in reversed(rows))
     return ("ことはの日記（ここ数日。だらしなさが続いていれば、うっとおしくない程度に"
             "一言言ってよい。同じことを毎日は言わない）:\n" + lines)
+
+
+def recalled_block(rows) -> str:
+    """発言に意味の近い日記。「先月どうだった？」に、その頃の日記が添う。"""
+    if not rows:
+        return ""
+    lines = "\n".join(f"  {r['day'][5:].replace('-', '/')}: {r['text']}" for r in rows)
+    return "思い当たる日記（いまの話に近い日。関係するときだけ触れる）:\n" + lines
 
 
 def morning_block(conn, now=None) -> str:

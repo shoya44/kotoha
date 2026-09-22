@@ -147,6 +147,36 @@ def load_all(conn):
     ).fetchall()
 
 
+# ===== diary_vectors の出し入れ =====
+# 日記も同じ道で座標にする。記憶と違って本文は変わらないので、捨てる口は要らない。
+# 話さなかった日（定型文）は座標にしない。何にでも近くなって、枠を潰す。
+
+
+def missing_diary(conn, limit, silent: str):
+    return conn.execute(
+        "SELECT d.id, d.day, d.text FROM diary d "
+        "LEFT JOIN diary_vectors v ON v.diary_id = d.id AND v.model = ? "
+        "WHERE v.diary_id IS NULL AND d.text != ? ORDER BY d.id LIMIT ?",
+        (config.EMBED_MODEL, silent, limit),
+    ).fetchall()
+
+
+def store_diary(conn, pairs):
+    conn.executemany(
+        "INSERT OR REPLACE INTO diary_vectors(diary_id, model, vector) VALUES (?,?,?)",
+        [(diary_id, config.EMBED_MODEL, vector.tobytes()) for diary_id, vector in pairs],
+    )
+    conn.commit()
+
+
+def load_diary(conn):
+    return conn.execute(
+        "SELECT v.diary_id AS node_id, v.vector, d.day, d.text FROM diary_vectors v "
+        "JOIN diary d ON d.id = v.diary_id WHERE v.model = ?",
+        (config.EMBED_MODEL,),
+    ).fetchall()
+
+
 def nearest(vectors, query, limit, floor=0.0, exclude=()):
     """近い順に [(近さ, id), ...] を返す。vectors は load_all の結果。"""
     scored = []

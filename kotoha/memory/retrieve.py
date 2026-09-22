@@ -1,5 +1,5 @@
 from .. import config, notify
-from . import db, embed, strength
+from . import db, diary, embed, strength
 
 _ALIVE = db.alive_sql()          # `?` が1つ。引数には db.now_utc() を渡す
 _COLS = "id, layer, kind, text, occurred_at, confirmed_at, pinned, strength, strength_at"
@@ -37,19 +37,26 @@ def _query_text(user_text: str, recent_text: str) -> str:
     return "\n".join([*tail, user_text])
 
 
-def _by_meaning(conn, query_text: str, known):
-    """意味の近い記憶を返す。タグと違い、言葉が一致しなくてもたどり着ける。
+def _query_vector(query_text: str, rows, pages):
+    """照らし合わせる文の座標。1往復に1回だけ作り、記憶にも日記にも使う。
 
-    Ollamaが答えなければ静かに空を返す。読み上げと同じで、無くても会話は続く。
+    比べる相手が1つも無ければ作らない（Ollama に行かない）。答えなければ
+    None。読み上げと同じで、無くても会話は続く。意味の想起を切っていれば
+    （EMBED_RESERVE=0）、日記の想起も一緒に切れる。
     """
     if not (config.EMBED_ENABLED and config.EMBED_RESERVE) or not embed.available():
-        return []
-    rows = embed.load_all(conn)
-    if not rows:
-        return []
+        return None
+    if not rows and not pages:
+        return None
     try:
-        query = embed.embed([query_text])[0]
+        return embed.embed([query_text])[0]
     except embed.EmbedError:
+        return None
+
+
+def _by_meaning(conn, query, known, rows):
+    """意味の近い記憶を返す。タグと違い、言葉が一致しなくてもたどり着ける。"""
+    if query is None or not rows:
         return []
 
     # 薄れた記憶は、同じ近さでも出にくい。強い手がかり（高い近さ）なら出る。
@@ -78,7 +85,32 @@ def _by_meaning(conn, query_text: str, known):
     return sorted(found, key=lambda r: order[r["id"]])
 
 
+def recall_diary(query, pages, skip_days=()):
+    """発言に意味の近い日記。ここ数日ぶん（毎回添えている日）は除く。
+
+    記憶と違って強さは持たない。日記は「その日がどんな日だったか」で、
+    使うほど強まるものではない。近さの床は記憶と同じ。
+    """
+    if query is None or not pages:
+        return []
+    scored = []
+    for r in pages:
+        if r["day"] in skip_days:
+            continue
+        score = embed.similarity(query, embed.unpack(r["vector"]))
+        if score >= config.EMBED_FLOOR:
+            scored.append((score, r["day"], r["text"]))
+    scored.sort(reverse=True)
+    return [{"day": day, "text": text} for _, day, text in scored[: config.DIARY_RECALL_LIMIT]]
+
+
 def retrieve(conn, user_text: str, recent_text: str = ""):
+    pinned, related, _ = retrieve_all(conn, user_text, recent_text)
+    return pinned, related
+
+
+def retrieve_all(conn, user_text: str, recent_text: str = ""):
+    """(保護記憶, 関連記憶, 思い当たる日記)。座標は1回だけ作る。"""
     haystack = user_text + "\n" + recent_text
     hits = match_tags(haystack, load_tag_dict(conn))
     # どのタグで当たったか。**1〜2字のタグ（例「雨」）は部分一致で誤って当たる。**
@@ -150,9 +182,13 @@ def retrieve(conn, user_text: str, recent_text: str = ""):
 
     pinned = pinned_only(conn)
     known = {c["id"] for c in cand} | {p["id"] for p in pinned}
-    by_meaning = _by_meaning(conn, _query_text(user_text, recent_text), known)
+    rows = embed.load_all(conn) if config.EMBED_ENABLED else []
+    pages = embed.load_diary(conn) if config.EMBED_ENABLED and config.DIARY_RECALL_LIMIT else []
+    query = _query_vector(_query_text(user_text, recent_text), rows, pages)
+    by_meaning = _by_meaning(conn, query, known, rows)
     # 予約したぶんは必ず渡す。後ろに足すだけだと、タグが当たった回は枠が
     # 埋まりきって出番が来ない。取り違えても割を食うのは予約枠だけで済む。
     keep = config.RELATED_LIMIT - len(by_meaning)
     related = [c for c in cand if not c["pinned"]][:keep] + by_meaning
-    return pinned, related
+    diaries = recall_diary(query, pages, {r["day"] for r in diary.shown(conn)})
+    return pinned, related, diaries

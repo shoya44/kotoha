@@ -329,7 +329,7 @@ def _memory_count(conn) -> int:
 
 
 def build_prompt(conn, user_text: str, recent, pinned, related, fast: bool = False,
-                 closing: str = "") -> str:
+                 closing: str = "", diaries=()) -> str:
     fixed = _read("fixed_rules.txt")
     persona = _read("persona.txt")
     now = clock.now()
@@ -384,6 +384,7 @@ def build_prompt(conn, user_text: str, recent, pinned, related, fast: bool = Fal
 
     remind_block = remind.block(conn) if not fast else ""
     diary_block = diary.block(conn) if not fast else ""
+    recalled_block = diary.recalled_block(diaries) if not fast else ""
     habit_block = habits.block(conn) if not fast else ""
 
     basic_block = ""
@@ -418,6 +419,7 @@ def build_prompt(conn, user_text: str, recent, pinned, related, fast: bool = Fal
         machine_block,
         remind_block,
         diary_block,
+        recalled_block,
         habit_block,
         basic_block,
         topic_block,
@@ -546,12 +548,12 @@ def speak(conn, closing: str, extra: str = "", keep: bool = True, chain: int = N
     """
     recent = db.fetch_recent(conn, config.RECENT_TURNS, config.RECENT_CHARS)
     seed = "\n".join(r["text"] for r in recent[-4:])
-    pinned, related = retrieve.retrieve(conn, seed, "")
+    pinned, related, diaries = retrieve.retrieve_all(conn, seed, "")
     if chain is not None:
         closing = f"{closing}\n{FOLLOW_UP_NOTICE}"
     if extra:
         closing = f"{extra}\n\n{closing}"
-    prompt = build_prompt(conn, "", recent, pinned, related, closing=closing)
+    prompt = build_prompt(conn, "", recent, pinned, related, closing=closing, diaries=diaries)
     raw = llm.chat(prompt)
     clean, ids = parse_used_ids(raw)
     clean, mood, why = parse_mood(clean)
@@ -618,8 +620,8 @@ def stream_turn(conn, user_text: str):
     conn.commit()
     recent = _fetch_recent(conn, user_text)
     recent_text = "\n".join(r["text"] for r in recent)
-    pinned, related = retrieve.retrieve(conn, user_text, recent_text)
-    prompt = build_prompt(conn, user_text, recent, pinned, related)
+    pinned, related, diaries = retrieve.retrieve_all(conn, user_text, recent_text)
+    prompt = build_prompt(conn, user_text, recent, pinned, related, diaries=diaries)
 
     raw, said = "", 0
     try:
@@ -676,8 +678,8 @@ def run_turn(conn, user_text: str):
             _record_pending(conn, ids)
             return _finish(conn, turn_id, clean, ids, mode, mood, kept, why, dropped, topic)
 
-    pinned, related = retrieve.retrieve(conn, user_text, recent_text)
-    prompt = build_prompt(conn, user_text, recent, pinned, related)
+    pinned, related, diaries = retrieve.retrieve_all(conn, user_text, recent_text)
+    prompt = build_prompt(conn, user_text, recent, pinned, related, diaries=diaries)
     raw = llm.chat(prompt)
     clean, ids = parse_used_ids(raw)
     clean, mood, why = parse_mood(clean)
