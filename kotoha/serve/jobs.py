@@ -10,7 +10,7 @@ import time
 from datetime import datetime, timedelta
 
 from .. import config, notify
-from ..memory import consolidate, db, diary, embed, habits, remind
+from ..memory import consolidate, db, diary, embed, habits, remind, review
 from ..talk import chat, coding, garbage, presence, quake, schedule, upkeep, weather
 from . import hub
 from .announce import announce, can_speak, collecting, flush_held
@@ -59,6 +59,11 @@ def run_periodic_jobs(conn, outside=None) -> None:
     if db.overdue(conn, db.LAST_FORGET_AT, config.MAINTENANCE_SECONDS):
         db.run_maintenance(conn)
     maybe_diary(conn)
+    if review.due(conn):
+        try:
+            review.run(conn)
+        except Exception as error:
+            notify.log(f"夜の整理で失敗: {error!r}")
     if habits.due(conn):
         try:
             habits.reflect(conn)
