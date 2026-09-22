@@ -139,6 +139,9 @@ REACH_OUT_INTERVAL_HOURS = _number("KOTOHA_REACH_OUT_INTERVAL_HOURS", float, min
 REACH_OUT_FROM_HOUR = _number("KOTOHA_REACH_OUT_FROM_HOUR", minimum=0, maximum=23)
 REACH_OUT_TO_HOUR = _number("KOTOHA_REACH_OUT_TO_HOUR", minimum=0, maximum=23)
 DISK_WARN_GB = _number("KOTOHA_DISK_WARN_GB", minimum=0)
+# Claude Code の様子を見るか。**記録の末尾の種類と時刻しか読まない**（talk/coding.py）。
+CODING_ENABLED = _boolean("KOTOHA_CODING_ENABLED")
+CODING_MIN_MINUTES = _number("KOTOHA_CODING_MIN_MINUTES", float, minimum=0)
 BRIEFING_ENABLED = _boolean("KOTOHA_BRIEFING_ENABLED")
 LOOKOUT_ENABLED = _boolean("KOTOHA_LOOKOUT_ENABLED")
 LOOKOUT_SIT_HOURS = _number("KOTOHA_LOOKOUT_SIT_HOURS", float, minimum=0.5)

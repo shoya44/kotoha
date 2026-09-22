@@ -25,6 +25,12 @@ config.PUSH_ENABLED = False
 _LOGS = tempfile.TemporaryDirectory(prefix="kotoha logs ")
 notify.LOG_PATH = pathlib.Path(_LOGS.name) / "notify.log"
 
+# **本物の ~/.claude も読まない。** 読むだけとはいえ、そこに何があるかで
+# プロンプトの行が増えたり減ったりすると、テストが持ち主の作業状況で揺れる。
+from kotoha.talk import coding  # noqa: E402
+
+coding.SESSIONS_DIR = pathlib.Path(_LOGS.name) / "claude-projects"
+
 
 class WentOutside(RuntimeError):
     """テストから外へ出ようとした。差し替え忘れ。"""

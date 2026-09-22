@@ -227,7 +227,7 @@ class TagStrippingTests(unittest.TestCase):
 
     def test_normal_tags_are_removed(self):
         text, ids = chat.parse_used_ids("おかえりー [USED: 1,2] [MOOD: 機嫌がいい]")
-        text, mood = chat.parse_mood(text)
+        text, mood, _why = chat.parse_mood(text)
         self.assertEqual(text, "おかえりー")
         self.assertEqual(ids, [1, 2])
         self.assertEqual(mood, "機嫌がいい")
@@ -236,28 +236,44 @@ class TagStrippingTests(unittest.TestCase):
         text, ids = chat.parse_used_ids("ねむい [USED: 3")
         self.assertEqual(text, "ねむい")
         self.assertEqual(ids, [3])
-        text, mood = chat.parse_mood("ねむい [MOOD: 眠い")
+        text, mood, _why = chat.parse_mood("ねむい [MOOD: 眠い")
         self.assertEqual(text, "ねむい")
         self.assertEqual(mood, "眠い")
 
     def test_fullwidth_brackets_are_still_stripped(self):
-        text, mood = chat.parse_mood("はいはい ［MOOD：疲れ気味］")
+        text, mood, _why = chat.parse_mood("はいはい ［MOOD：疲れ気味］")
         self.assertEqual(text, "はいはい")
         self.assertEqual(mood, "疲れ気味")
 
     def test_unknown_label_is_dropped_but_tag_removed(self):
-        text, mood = chat.parse_mood("しらない [MOOD: ごきげん斜め]")
+        text, mood, _why = chat.parse_mood("しらない [MOOD: ごきげん斜め]")
         self.assertEqual(text, "しらない")
         self.assertIsNone(mood)
 
     def test_text_without_tags_is_untouched(self):
         self.assertEqual(chat.parse_used_ids("タグなしの返事"), ("タグなしの返事", []))
-        self.assertEqual(chat.parse_mood("タグなしの返事"), ("タグなしの返事", None))
+        self.assertEqual(chat.parse_mood("タグなしの返事"), ("タグなしの返事", None, ""))
 
     def test_multiline_reply_keeps_its_body(self):
-        text, mood = chat.parse_mood("一行目\n二行目 [MOOD: ふつう]")
+        text, mood, _why = chat.parse_mood("一行目\n二行目 [MOOD: ふつう]")
         self.assertEqual(text, "一行目\n二行目")
         self.assertEqual(mood, "ふつう")
+
+    def test_reason_comes_after_the_bar(self):
+        text, mood, why = chat.parse_mood("ふーん [MOOD: すねている|返事がなかったから]")
+        self.assertEqual((text, mood, why), ("ふーん", "すねている", "返事がなかったから"))
+
+    def test_fullwidth_bar_is_accepted(self):
+        _text, mood, why = chat.parse_mood("やった [MOOD: 機嫌がいい｜褒められた]")
+        self.assertEqual((mood, why), ("機嫌がいい", "褒められた"))
+
+    def test_reason_is_clipped(self):
+        _text, _mood, why = chat.parse_mood("ん [MOOD: 眠い|" + "長" * 100 + "]")
+        self.assertEqual(len(why), chat.REASON_CHARS)
+
+    def test_reason_is_dropped_with_an_unknown_label(self):
+        _text, mood, why = chat.parse_mood("ん [MOOD: ごきげん斜め|理由]")
+        self.assertEqual((mood, why), (None, ""))
 
 
 class MoodTests(DbCase):
@@ -286,6 +302,32 @@ class MoodTests(DbCase):
     def test_unknown_stored_label_falls_back(self):
         self.remember("ごきげん斜め")
         self.assertEqual(chat.current_mood(self.conn, self.AWAKE), chat.DEFAULT_MOOD)
+
+    def test_reason_follows_the_mood(self):
+        """きっかけは、機嫌が生きているあいだだけ渡す。"""
+        self.remember("すねている")
+        db.set_state(self.conn, db.MOOD_WHY, "返事がなかったから")
+        self.conn.commit()
+        self.assertEqual(chat.mood_reason(self.conn, self.AWAKE), "返事がなかったから")
+        prompt = chat.build_prompt(self.conn, "やっほー", [], [], [])
+        self.assertIn("今の機嫌: すねている", prompt)
+        self.assertIn("きっかけ: 返事がなかったから", prompt)
+
+    def test_reason_fades_with_the_mood(self):
+        self.remember("すねている", ago(hours=7))
+        db.set_state(self.conn, db.MOOD_WHY, "返事がなかったから")
+        self.conn.commit()
+        self.assertEqual(chat.mood_reason(self.conn, self.AWAKE), "")
+        prompt = chat.build_prompt(self.conn, "やっほー", [], [], [])
+        line = next(l for l in prompt.split("\n") if l.startswith("今の機嫌:"))
+        self.assertNotIn("きっかけ", line)
+
+    def test_reason_is_stored_with_the_mood(self):
+        turn_id = db.start_turn(self.conn, "user", "ただいま")
+        chat._finish(self.conn, turn_id, "おかえりー", [], "slow", "機嫌がいい", (), "帰ってきた")
+        self.assertEqual(db.get_state(self.conn, db.MOOD_WHY), "帰ってきた")
+        chat.remember(self.conn, "ふん", mood="すねている", why="無視された")
+        self.assertEqual(db.get_state(self.conn, db.MOOD_WHY), "無視された")
 
     def test_sleepiness_does_not_survive_into_the_day(self):
         """深夜に一度そう言うと、昼まで眠いままだった。時刻で外す。"""
@@ -320,7 +362,10 @@ class MoodTests(DbCase):
         rules = (config.PROMPTS_DIR / "fixed_rules.txt").read_text(encoding="utf-8")
         example = re.search(r"\[MOOD[:：]\s*([^\]］\n]+)\]", rules)
         self.assertIsNotNone(example, "fixed_rules.txt に [MOOD: …] の例が無い")
-        self.assertIn(example.group(1).strip(), chat.MOODS)
+        # 例にはきっかけも付いている。ラベルは「|」の手前。
+        _text, label, why = chat.parse_mood(example.group(0))
+        self.assertIn(label, chat.MOODS)
+        self.assertTrue(why, "例には、きっかけの書き方も見せる")
 
 
 class TagSweepTests(unittest.TestCase):
