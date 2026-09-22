@@ -17,7 +17,13 @@ import ctypes.wintypes as w
 from .window import (WNDCLASS, WNDPROC, WS_EX_LAYERED, WS_EX_TOOLWINDOW, WS_EX_TOPMOST,
                      WS_POPUP, SW_HIDE, SW_SHOWNOACTIVATE, HWND_TOPMOST, SWP_NOACTIVATE,
                      WM_CLOSE, WM_DESTROY, WM_LBUTTONUP, gdi32, kernel32, user32, _signature,
-                     LRESULT, work_area)
+                     LRESULT, work_area_at)
+
+# Windows 11 は、どの窓にも勝手に1ドットの縁を引く。角を丸めた窓では
+# 段になって太く見えるので、そちらは消して、自分で細く引く。
+dwmapi = ctypes.WinDLL("dwmapi", use_last_error=True)
+DWMWA_BORDER_COLOR = 34
+DWMWA_COLOR_NONE = 0xFFFFFFFE
 
 WS_CHILD, WS_VISIBLE, WS_BORDER = 0x40000000, 0x10000000, 0x00800000
 # 折り返して伸びる入力にする。横へ流す（AUTOHSCROLL）と、打った先が見えない。
@@ -42,6 +48,11 @@ PANEL = 0x00241F1E          # #1e1f24
 INPUT_BG = 0x002C2726       # #26272c
 INK = 0x00E2E7E9            # #e9e7e2
 MUTED = 0x009D9898          # #98989d
+# 縁の色。下地より一段だけ明るい。**目立たせるためではなく、壁紙から浮かせるため。**
+EDGE = 0x003A3533           # #33353a
+# 縁の太さ（ドット）。FrameRgn だと角で段が重なって太く見えるので、ペンで引く。
+EDGE_WIDTH = 1
+PS_SOLID, NULL_BRUSH = 0, 5
 # 窓ごと薄くする。壁紙が透けるが、字は読める濃さ。
 OPACITY = 232
 MAX_WIDTH = 280
@@ -79,8 +90,12 @@ _signature(gdi32.SetTextColor, w.DWORD, w.HDC, w.DWORD)
 _signature(gdi32.SetBkColor, w.DWORD, w.HDC, w.DWORD)
 _signature(gdi32.SetBkMode, ctypes.c_int, w.HDC, ctypes.c_int)
 _signature(gdi32.SelectObject, w.HGDIOBJ, w.HDC, w.HGDIOBJ)
-_signature(gdi32.FrameRgn, w.BOOL, w.HDC, w.HANDLE, w.HBRUSH, ctypes.c_int, ctypes.c_int)
 _signature(gdi32.FillRgn, w.BOOL, w.HDC, w.HANDLE, w.HBRUSH)
+_signature(gdi32.CreatePen, w.HANDLE, ctypes.c_int, ctypes.c_int, w.DWORD)
+_signature(gdi32.GetStockObject, w.HGDIOBJ, ctypes.c_int)
+_signature(gdi32.RoundRect, w.BOOL, w.HDC, ctypes.c_int, ctypes.c_int, ctypes.c_int,
+           ctypes.c_int, ctypes.c_int, ctypes.c_int)
+_signature(dwmapi.DwmSetWindowAttribute, ctypes.c_long, w.HWND, w.DWORD, w.LPVOID, w.DWORD)
 _signature(user32.SetLayeredWindowAttributes, w.BOOL, w.HWND, w.DWORD, w.BYTE, w.DWORD)
 
 
@@ -102,6 +117,7 @@ class Bubble:
         self._proc = WNDPROC(self._handle)
         self._brush = gdi32.CreateSolidBrush(PANEL)
         self._input_brush = gdi32.CreateSolidBrush(INPUT_BG)
+        self._pen = gdi32.CreatePen(PS_SOLID, EDGE_WIDTH, EDGE)
         self._region = None
         self._font = gdi32.CreateFontW(-14, 0, 0, 0, 400, 0, 0, 0, DEFAULT_CHARSET,
                                        0, 0, 0, 0, "Yu Gothic UI")
@@ -111,6 +127,11 @@ class Bubble:
             WS_POPUP, 0, 0, 10, 10, None, None, kernel32.GetModuleHandleW(None), None)
         # 窓ごと薄くする。**字も背景も同じだけ透ける**ので、文字は消えない。
         user32.SetLayeredWindowAttributes(self.hwnd, 0, OPACITY, LWA_ALPHA)
+        # Windows 11 の縁を消す。古い Windows では知らない番号なので、断られても
+        # 構わない（そのときは縁もそもそも引かれない）。
+        none = w.DWORD(DWMWA_COLOR_NONE)
+        dwmapi.DwmSetWindowAttribute(self.hwnd, DWMWA_BORDER_COLOR,
+                                     ctypes.byref(none), ctypes.sizeof(none))
         self.edit = user32.CreateWindowExW(
             0, "EDIT", "", WS_CHILD | ES_MULTILINE | ES_AUTOVSCROLL, 0, 0, 10, 10,
             self.hwnd, None, kernel32.GetModuleHandleW(None), None)
@@ -164,10 +185,13 @@ class Bubble:
 
         **下の端は動かさない。** 行が増えたぶんは上へ伸びる（iPhoneの入力と同じ）。
         下が動くと、姿との間が開いたり詰まったりして落ち着かない。
+
+        **収める画面は、姿のいる画面。** 主画面で測ると、サブディスプレイに
+        運んだ姿の上には出ず、主画面の端に置き去りになる。
         """
         self.height = (self._said_height + PADDING * 2
                        + (self._input_height() if self.asking else 0))
-        left, top, right, bottom = work_area()
+        left, top, right, bottom = work_area_at(*self._anchor)
         x = min(max(left + MARGIN, self._anchor[0] - self.width // 2),
                 right - self.width - MARGIN)
         y = min(max(top + MARGIN, self._anchor[1] - self.height - 8),
@@ -241,6 +265,12 @@ class Bubble:
             dc = user32.BeginPaint(hwnd, ctypes.byref(paint))
             rect = w.RECT(0, 0, self.width, self.height)
             user32.FillRect(dc, ctypes.byref(rect), self._brush)
+            # 縁を1本。中は塗らない（NULL_BRUSH）。角丸は窓のリージョンと同じ丸み。
+            old_pen = gdi32.SelectObject(dc, self._pen)
+            old_brush = gdi32.SelectObject(dc, gdi32.GetStockObject(NULL_BRUSH))
+            gdi32.RoundRect(dc, 0, 0, self.width, self.height, ROUND, ROUND)
+            gdi32.SelectObject(dc, old_brush)
+            gdi32.SelectObject(dc, old_pen)
             if self.asking:
                 # 入力欄の下地。会話画面の入力と同じ、少し明るい角丸。
                 field = gdi32.CreateRoundRectRgn(
