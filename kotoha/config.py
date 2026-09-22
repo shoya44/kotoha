@@ -140,6 +140,10 @@ REACH_OUT_AFTER_HOURS = _number("KOTOHA_REACH_OUT_AFTER_HOURS", float, minimum=0
 REACH_OUT_INTERVAL_HOURS = _number("KOTOHA_REACH_OUT_INTERVAL_HOURS", float, minimum=0.1)
 REACH_OUT_FROM_HOUR = _number("KOTOHA_REACH_OUT_FROM_HOUR", minimum=0, maximum=23)
 REACH_OUT_TO_HOUR = _number("KOTOHA_REACH_OUT_TO_HOUR", minimum=0, maximum=23)
+# 後から思い出す。想起で床のすぐ下だった記憶を1つ預かり、会話が途切れてから言う（1日1回）。
+AFTERTHOUGHT_ENABLED = _boolean("KOTOHA_AFTERTHOUGHT_ENABLED")
+AFTERTHOUGHT_MARGIN = _number("KOTOHA_AFTERTHOUGHT_MARGIN", float, minimum=0, maximum=0.5)
+AFTERTHOUGHT_AFTER_MINUTES = _number("KOTOHA_AFTERTHOUGHT_AFTER_MINUTES", float, minimum=1)
 DISK_WARN_GB = _number("KOTOHA_DISK_WARN_GB", minimum=0)
 # Claude Code の様子を見るか。**記録の末尾の種類と時刻しか読まない**（talk/coding.py）。
 CODING_ENABLED = _boolean("KOTOHA_CODING_ENABLED")

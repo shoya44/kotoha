@@ -10,7 +10,7 @@ import time
 from datetime import datetime, timedelta
 
 from .. import config, notify
-from ..memory import consolidate, db, diary, embed, habits, remind, review
+from ..memory import consolidate, db, diary, embed, habits, remind, retrieve, review
 from ..talk import chat, coding, garbage, presence, quake, schedule, upkeep, weather
 from . import hub
 from .announce import announce, can_speak, collecting, flush_held
@@ -78,6 +78,7 @@ def run_periodic_jobs(conn, outside=None) -> None:
         maybe_lookout(conn)
         maybe_coding(conn)
         maybe_reach_out(conn)
+        maybe_afterthought(conn)
     try:
         flush_held(conn)
     except Exception as error:
@@ -163,6 +164,35 @@ def maybe_reach_out(conn) -> None:
     db.set_state(conn, db.LAST_REACH_OUT_AT, db.now_utc())
     conn.commit()
     announce(conn, chat.REACH_OUT_CLOSING)
+
+
+def maybe_afterthought(conn) -> None:
+    """会話中に思い出しかけて出なかったことを、間が空いてから言う。
+
+    人が風呂で「そういえば」と思い出すのと同じ。その場では出なかった記憶
+    （近さが床のすぐ下）を想起が1つ預けていて、会話が途切れてしばらくしたら
+    口に出す。1日1回。声をかけてよい時間帯は暇なときの声かけと同じ。
+    """
+    if not (config.AFTERTHOUGHT_ENABLED and can_speak()):
+        return
+    if not db.get_state(conn, db.AFTERTHOUGHT_ID):
+        return
+    today = datetime.now().strftime("%Y-%m-%d")
+    if db.done_today(conn, db.LAST_AFTERTHOUGHT_ON, today):
+        return
+    if not db.overdue(conn, db.LAST_CONVERSATION_AT, config.AFTERTHOUGHT_AFTER_MINUTES * 60):
+        return
+    hour = datetime.now().hour
+    if not config.REACH_OUT_FROM_HOUR <= hour < config.REACH_OUT_TO_HOUR:
+        return
+    row = retrieve.take_afterthought(conn)
+    if row is None:
+        conn.commit()
+        return
+    db.mark_today(conn, db.LAST_AFTERTHOUGHT_ON, today)
+    db.set_state(conn, db.LAST_AFTERTHOUGHT_ID, row["id"])
+    conn.commit()
+    announce(conn, chat.AFTERTHOUGHT_CLOSING.format(memory=chat._mem_line(row)), keep=False)
 
 
 def maybe_coding(conn) -> None:
