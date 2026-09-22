@@ -7,7 +7,7 @@ from tests.support import DbCase, use_temp_db
 
 _TMP = use_temp_db("forget")
 
-from kotoha.memory import consolidate, db, retrieve  # noqa: E402
+from kotoha.memory import consolidate, db, retrieve, strength  # noqa: E402
 
 NODE_SQL = (
     "INSERT INTO memory_nodes(layer, kind, text, occurred_at, confirmed_at, "
@@ -102,38 +102,56 @@ class MemoryLifetimeTests(DbCase):
         self.assertIsNotNone(last)
         self.assertLess(db.seconds_since(last), config.MAINTENANCE_SECONDS)
 
-    # --- 延命（想起された記憶は生き延びる） ---
+    # --- 延命（思い出した記憶は強くなり、消える時刻が遠のく） ---
 
-    def assert_extended(self, node_id, days):
-        expires = self.expires_of(node_id)
-        expected = self.conn.execute(
-            "SELECT strftime('%Y-%m-%dT%H:%M:%SZ', 'now', ?) AS t", (f"+{days} days",)
-        ).fetchone()["t"]
-        self.assertEqual(expires[:13], expected[:13])  # 秒単位のずれは許容
+    def strength_of(self, node_id):
+        row = self.conn.execute(
+            "SELECT id, layer, strength, strength_at, confirmed_at FROM memory_nodes WHERE id = ?",
+            (node_id,)).fetchone()
+        return strength.of_rows([row])[node_id]
 
-    def test_usage_extends_expiry_per_layer(self):
+    def assert_follows_strength(self, node_id):
+        """消える時刻は、いまの強さから導いた時刻と一致する。"""
+        row = self.conn.execute(
+            "SELECT layer, strength, strength_at, expires_at FROM memory_nodes WHERE id = ?",
+            (node_id,)).fetchone()
+        at = strength._parse(row["strength_at"])
+        self.assertEqual(row["expires_at"], strength.fades_at(row["strength"], row["layer"], at))
+
+    def test_usage_makes_a_memory_stronger_and_it_lives_longer(self):
         episode = self.add(layer="episode", kind="event", expires=EXPIRED, key="ep")
         semantic = self.add(expires=EXPIRED, key="se")
         db.update_usage(self.conn, [episode, semantic], turn_id=1)
         self.conn.commit()
-        self.assert_extended(episode, config.EPISODE_DAYS)
-        self.assert_extended(semantic, config.SEMANTIC_DAYS)
+        for node in (episode, semantic):
+            self.assertGreater(self.strength_of(node), 1.0)
+            self.assertGreater(self.expires_of(node), db.now_utc())
+            self.assert_follows_strength(node)
+        # 同じ強さでも、出来事は意味より早く薄れる。
+        self.assertLess(self.expires_of(episode), self.expires_of(semantic))
 
-    def test_usage_never_shortens_or_revives_expiry(self):
-        far = self.add(expires=FAR, key="far")
+    def test_usage_never_turns_an_endless_memory_into_a_dated_one(self):
         endless = self.add(expires=None, key="endless")
-        db.update_usage(self.conn, [far, endless], turn_id=1)
+        db.update_usage(self.conn, [endless], turn_id=1)
         self.conn.commit()
-        self.assertEqual(self.expires_of(far), FAR)
         self.assertIsNone(self.expires_of(endless))
+        self.assertGreater(self.strength_of(endless), 1.0)
 
-    def test_reconfirm_extends_expiry(self):
+    def test_strength_is_capped(self):
+        node = self.add(expires=EXPIRED, key="cap")
+        for turn in range(20):
+            db.update_usage(self.conn, [node], turn_id=turn)
+        self.conn.commit()
+        self.assertLessEqual(self.strength_of(node), config.STRENGTH_MAX + 1e-9)
+
+    def test_reconfirm_strengthens(self):
         node = self.add(expires=EXPIRED, key="reconfirm")
         consolidate._validate_and_save(self.conn, {"reconfirm_ids": [node]}, [])
         self.conn.commit()
-        self.assert_extended(node, config.SEMANTIC_DAYS)
+        self.assertGreater(self.expires_of(node), db.now_utc())
+        self.assert_follows_strength(node)
 
-    def test_update_extends_expiry(self):
+    def test_update_strengthens(self):
         node = self.add(expires=EXPIRED, key="update")
         db.insert_message(self.conn, 1, "user", "訂正します")
         self.conn.commit()
@@ -144,7 +162,8 @@ class MemoryLifetimeTests(DbCase):
             messages,
         )
         self.conn.commit()
-        self.assert_extended(node, config.SEMANTIC_DAYS)
+        self.assertGreater(self.expires_of(node), db.now_utc())
+        self.assert_follows_strength(node)
 
 
 if __name__ == "__main__":

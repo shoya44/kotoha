@@ -1,8 +1,8 @@
 from .. import config, notify
-from . import db, embed
+from . import db, embed, strength
 
 _ALIVE = db.alive_sql()          # `?` が1つ。引数には db.now_utc() を渡す
-_COLS = "id, layer, kind, text, occurred_at, confirmed_at, pinned"
+_COLS = "id, layer, kind, text, occurred_at, confirmed_at, pinned, strength, strength_at"
 
 # 続きのある話を、毎回これだけは渡す。最近のエピソードと同じ枠に入れていると、
 # 出来事が続いた週は押し出されて、続きを聞く機会が来ない。
@@ -52,11 +52,17 @@ def _by_meaning(conn, query_text: str, known):
     except embed.EmbedError:
         return []
 
+    # 薄れた記憶は、同じ近さでも出にくい。強い手がかり（高い近さ）なら出る。
+    now = db.now_utc()
+    strengths = strength.of_rows(conn.execute(
+        f"SELECT id, layer, confirmed_at, strength, strength_at FROM memory_nodes WHERE {_ALIVE}",
+        (now,)).fetchall())
     scored = []
     for r in rows:
-        if r["node_id"] in known:
+        if r["node_id"] in known or r["node_id"] not in strengths:
             continue
         score = embed.similarity(query, embed.unpack(r["vector"]))
+        score *= strength.weight(strengths[r["node_id"]])
         # 近いものが無い回もある。無理に引くと、関係ない記憶で枠を潰す。
         if score >= config.EMBED_FLOOR:
             scored.append((score, r["node_id"]))
@@ -91,16 +97,18 @@ def retrieve(conn, user_text: str, recent_text: str = ""):
 
     if hits:
         ph = ",".join("?" * len(hits))
-        add(
-            conn.execute(
-                f"SELECT {_COLS} FROM memory_tags t JOIN memory_nodes n ON n.id = t.node_id "
-                f"WHERE t.tag IN ({ph}) AND {_ALIVE} "
-                # よく想起されたタグ・最近使った記憶を先に返す。use_count は0〜3で
-                # 頭打ちになり未使用なら日数で戻るので、古い記憶が居座り続けない。
-                f"ORDER BY t.use_count DESC, n.last_used_at DESC, n.confirmed_at DESC LIMIT ?",
-                (*hits, db.now_utc(), config.TAG_CANDIDATE_LIMIT),
-            ).fetchall()
-        )
+        tagged = conn.execute(
+            f"SELECT {_COLS} FROM memory_tags t JOIN memory_nodes n ON n.id = t.node_id "
+            f"WHERE t.tag IN ({ph}) AND {_ALIVE} "
+            # 同じ強さなら、よく想起されたタグ・最近使った記憶を先に。use_count は
+            # 0〜3で頭打ちになり未使用なら日数で戻るので、古い記憶が居座り続けない。
+            f"ORDER BY t.use_count DESC, n.last_used_at DESC, n.confirmed_at DESC LIMIT ?",
+            (*hits, db.now_utc(), config.TAG_CANDIDATE_LIMIT),
+        ).fetchall()
+        # **強い記憶が先。** 使うほど強く、放っておくほど薄れる。並べ替えは安定なので、
+        # 同じ強さのあいだでは上の順が残る。
+        now_strength = strength.of_rows(tagged)
+        add(sorted(tagged, key=lambda r: -now_strength[r["id"]]))
 
     if cand:
         ids = [c["id"] for c in cand]

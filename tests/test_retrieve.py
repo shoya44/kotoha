@@ -7,7 +7,7 @@ from tests.support import DbCase, use_temp_db
 
 _TMP = use_temp_db("retrieve")
 
-from kotoha.memory import db, embed, retrieve  # noqa: E402
+from kotoha.memory import db, embed, retrieve, strength  # noqa: E402
 
 NODE_SQL = (
     "INSERT INTO memory_nodes(layer, kind, text, occurred_at, confirmed_at, "
@@ -35,12 +35,30 @@ class TagOrderTests(DbCase):
         self.conn.commit()
         return cur.lastrowid
 
-    def test_frequently_used_memory_comes_first(self):
-        """use_count が書かれるだけで読まれない状態への退行を防ぐ。"""
+    def strengthen(self, node_id, value):
+        self.conn.execute("UPDATE memory_nodes SET strength = ?, strength_at = ? WHERE id = ?",
+                          (value, db.now_utc(), node_id))
+        self.conn.commit()
+
+    def test_the_stronger_memory_comes_first(self):
+        """使うほど強く、放っておくほど薄れる。並びは強さで決まる。"""
+        weak = self.add("たまにしか使わない", "仕事", 3,
+                        "2026-09-01T00:00:00Z", "2026-09-01T00:00:00Z")
+        strong = self.add("よく思い出す", "仕事", 0,
+                          "2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z")
+        self.strengthen(weak, 0.5)
+        self.strengthen(strong, 4.0)
+        _, related = retrieve.retrieve(self.conn, "仕事の話をしよう")
+        self.assertEqual([r["id"] for r in related][:2], [strong, weak])
+
+    def test_frequently_used_memory_comes_first_at_equal_strength(self):
+        """同じ強さなら、use_count が読まれる（書かれるだけの退行を防ぐ）。"""
         rare = self.add("たまにしか使わない", "仕事", 0,
                         "2026-09-01T00:00:00Z", "2026-09-01T00:00:00Z")
         often = self.add("よく思い出す", "仕事", 3,
-                         "2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z")
+                         "2026-09-01T00:00:00Z", "2026-09-01T00:00:00Z")
+        for node in (rare, often):
+            self.strengthen(node, 1.0)
         _, related = retrieve.retrieve(self.conn, "仕事の話をしよう")
         self.assertEqual([r["id"] for r in related][:2], [often, rare])
 
@@ -49,6 +67,8 @@ class TagOrderTests(DbCase):
                          "2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z")
         newer = self.add("最近使った", "趣味", 1,
                          "2026-01-01T00:00:00Z", "2026-09-01T00:00:00Z")
+        for node in (older, newer):
+            self.strengthen(node, 1.0)
         _, related = retrieve.retrieve(self.conn, "趣味の話")
         self.assertEqual([r["id"] for r in related][:2], [newer, older])
 
@@ -142,6 +162,12 @@ class MeaningTests(DbCase):
         self.conn.commit()
         return node_id
 
+    def fresh(self, node_id):
+        """いま思い出したばかりの強さにする。古い記憶でも薄れていない、という設定。"""
+        self.conn.execute("UPDATE memory_nodes SET strength = ?, strength_at = ? WHERE id = ?",
+                          (strength.FRESH, db.now_utc(), node_id))
+        self.conn.commit()
+
     def use(self, scores, error=None):
         """本文ごとの近さを決めて、engine と similarity を差し替える。"""
         table = {blob(text): score for text, score in scores.items()}
@@ -162,10 +188,25 @@ class MeaningTests(DbCase):
     def test_meaningful_memory_is_recalled_without_a_matching_word(self):
         """タグが当たらなくても、意味が近ければ出てくる。"""
         # 直近枠からあふれる古さにしておく。出てきたら意味でたどり着いた証拠。
-        self.add("ユーザーは豆から珈琲を淹れている。",
-                 when="2026-01-05T00:00:00Z")
+        node = self.add("ユーザーは豆から珈琲を淹れている。",
+                        when="2026-01-05T00:00:00Z")
+        self.fresh(node)
         self.fill_recent()
         self.use({"ユーザーは豆から珈琲を淹れている。": 0.80})
+        _, related = retrieve.retrieve(self.conn, "珈琲")
+        self.assertIn("ユーザーは豆から珈琲を淹れている。", self.texts(related))
+
+    def test_a_faded_memory_needs_a_stronger_cue(self):
+        """思い出せそうで出ない。薄れた記憶は、床ぎりぎりの近さでは出ず、強い手がかりなら出る。"""
+        node = self.add("ユーザーは豆から珈琲を淹れている。", when="2026-01-05T00:00:00Z")
+        self.conn.execute("UPDATE memory_nodes SET strength = 0.15, strength_at = ? WHERE id = ?",
+                          (db.now_utc(), node))
+        self.conn.commit()
+        self.fill_recent()
+        self.use({"ユーザーは豆から珈琲を淹れている。": 0.70})
+        _, related = retrieve.retrieve(self.conn, "珈琲")
+        self.assertNotIn("ユーザーは豆から珈琲を淹れている。", self.texts(related))
+        self.use({"ユーザーは豆から珈琲を淹れている。": 0.95})
         _, related = retrieve.retrieve(self.conn, "珈琲")
         self.assertIn("ユーザーは豆から珈琲を淹れている。", self.texts(related))
 
