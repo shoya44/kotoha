@@ -58,6 +58,7 @@
         </span>
       </button>
       <span id="mode" aria-live="polite"></span>
+      <button class="sheet-button" id="frameReturn" type="button" hidden>額縁に戻る</button>
     </header>
 
     <section class="mini-avatar">
@@ -70,9 +71,20 @@
     </section>
 
     <main id="log" aria-live="polite" aria-relevant="additions"></main>
+    <section id="framePanel" hidden aria-label="額縁">
+      <time id="frameClock"></time>
+      <p id="frameBubble" aria-live="polite"></p>
+      <p id="frameLetter"></p>
+      <button class="sheet-button" id="frameChat" type="button">話しかける</button>
+    </section>
 
     <!-- 画面のいちばん下。つまみ・入力欄・「最新へ」を、ひとまとまりで置く。 -->
     <div class="composer">
+    <section id="growthCard" hidden aria-label="ことはからの提案">
+      <p id="growthText"></p>
+      <details><summary>きっかけになった会話</summary><div id="growthEvidence"></div></details>
+      <div id="growthActions"></div>
+    </section>
 
     <!-- 入力欄の高さは打つほど変わる。真上に貼り付けておけば、どの高さでもずれない。 -->
     <button id="jumpBottom" type="button" aria-label="最新メッセージへ移動">
@@ -148,6 +160,10 @@
       </div>
 
       <div class="sheet-section">
+        <button class="sheet-row" data-open="vessel" type="button">
+          <span>この器の役割</span><span aria-hidden="true">›</span>
+        </button>
+        <button class="sheet-row" id="quietToggle" type="button"><span>静かな同席（1時間）</span><span id="quietValue">開始</span></button>
         <button class="sheet-row" data-open="prompts" type="button">
           <span>ことばを直す</span>
           <span aria-hidden="true">›</span>
@@ -191,6 +207,23 @@
         </button>
       </div>
       </div>
+
+      <section class="sheet-page" data-page="vessel" aria-label="この器の役割">
+        <div class="sheet-nav"><button class="sheet-back" data-back type="button">戻る</button>
+          <span class="sheet-nav-title">この器の役割</span></div>
+        <label class="vessel-field">種類
+          <select id="vesselKind">
+            <option value="screen">会話画面（自動では移動しない）</option>
+            <option value="pc">家に固定したPC — 寝床・作業のそば</option>
+            <option value="tablet">家に固定したタブレット — 暇な時間の居場所</option>
+            <option value="iphone">iPhone — 持ち歩く器</option>
+          </select>
+        </label>
+        <label class="vessel-field">呼び名<input id="vesselLabel" maxlength="32" value="会話画面"></label>
+        <label class="vessel-field"><span><input id="vesselFrame" type="checkbox"> タブレットを額縁表示にする</span></label>
+        <p class="sheet-note" id="vesselNote">自動で移るのは、家に固定したPCとタブレットの間だけです。</p>
+        <button class="sheet-button primary" id="vesselSave" type="button">保存</button>
+      </section>
 
       <section class="sheet-page" data-page="prompts" aria-label="ことばを直す">
         <div class="sheet-nav">

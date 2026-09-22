@@ -15,7 +15,7 @@ from datetime import datetime
 
 from .. import config
 from ..talk import llm
-from . import db, diary
+from . import db, diary, growth
 
 # 一度に持つ習慣の上限。多いと「何となく」ではなくなる。
 LIMIT = 6
@@ -84,16 +84,35 @@ def _prompt(conn, entries, current) -> str:
         for r in reversed(entries))
     known = "\n".join(f"[id:{r['id']}] {r['text']}" for r in current) or "（まだ無い）"
     trust = trust_line(conn) or "相手への信頼: （まだ決めていない）"
-    return f"{head}\n\nいま覚えている習慣:\n{known}\n\n{trust}\n\n最近の日記:\n{days}\n\nJSON:"
+    return f"{head}\n\nいま覚えている習慣:\n{known}\n\n{trust}\n\n最近の日記:\n{days}\n" + growth.instruction(conn) + "\nJSON:"
 
 
 def _as_json(raw: str):
-    start, end = raw.find("{"), raw.rfind("}")
-    if start < 0 or end <= start:
+    start = raw.find("{")
+    if start < 0:
         raise ValueError("習慣の振り返りをJSONとして読めなかった。")
+    decoder = json.JSONDecoder()
     try:
-        return json.loads(raw[start:end + 1])
+        return decoder.raw_decode(raw[start:])[0]
     except json.JSONDecodeError:
+        # 任意の growth が途中で切れても、その前に完結した既存の習慣は守る。
+        tail, result, key = raw[start + 1:].lstrip(), {}, None
+        try:
+            while tail:
+                key, end = decoder.raw_decode(tail)
+                tail = tail[end:].lstrip()
+                if not isinstance(key, str) or not tail.startswith(":"):
+                    break
+                tail = tail[1:].lstrip()
+                value, end = decoder.raw_decode(tail)
+                result[key] = value
+                tail = tail[end:].lstrip()
+                if not tail.startswith(","):
+                    break
+                tail = tail[1:].lstrip()
+        except json.JSONDecodeError:
+            if key == "growth" and isinstance(result.get("habits"), list):
+                return result
         raise ValueError("習慣の振り返りをJSONとして読めなかった。") from None
 
 
@@ -107,7 +126,7 @@ def reflect(conn) -> int:
     conn.commit()
     entries = diary.recent(conn, LOOKBACK_DAYS)
     current = conn.execute("SELECT id, text FROM habits WHERE retired_at IS NULL").fetchall()
-    data = _as_json(llm.chat(_prompt(conn, entries, current), max_tokens=config.DIARY_MAX_TOKENS))
+    data = _as_json(llm.chat(_prompt(conn, entries, current), max_tokens=config.HABITS_MAX_TOKENS))
     specs = data.get("habits") if isinstance(data, dict) else None
     if not isinstance(specs, list):
         raise ValueError("習慣の振り返りに habits が無い。")
@@ -133,5 +152,6 @@ def reflect(conn) -> int:
             kept.add(cursor.lastrowid)
     for hid in known - kept:
         conn.execute("UPDATE habits SET retired_at = ? WHERE id = ?", (now, hid))
+    growth.propose(conn, data.get("growth"))
     conn.commit()
     return len(kept)

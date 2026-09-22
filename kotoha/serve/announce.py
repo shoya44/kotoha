@@ -13,7 +13,7 @@ from datetime import datetime, timedelta
 
 from .. import config, notify
 from ..memory import db, remind
-from ..talk import chat, presence
+from ..talk import chat, presence, living
 from . import hub
 
 # 巡回のあいだ立てる印。ここが True の間、announce は鳴らさずに預かる。
@@ -138,7 +138,8 @@ def _say(conn, items) -> str:
     # 言葉はできている。落ちたのは配るところだけなので、そこだけやり直す。
     notify.log(f"言えたのに届かなかった。次の巡回で配り直す: {whole[:40]}")
     _put_held(conn, [{"text": whole, "plain": whole, "keep": keep,
-                      "remind_ids": ids, "remind_texts": texts}])
+                      "remind_ids": ids, "remind_texts": texts,
+                      "casual": all(i.get("casual", False) for i in carried + items)}])
     conn.commit()
     return ""
 
@@ -160,6 +161,9 @@ def reaches_the_person() -> bool:
     if kind is None:
         return False
     if kind != hub.DESKTOP:
+        attended = hub.frame_attended()
+        if attended is not None:
+            return attended
         return True
     idle = presence.idle_seconds()
     if idle is None:
@@ -177,7 +181,7 @@ def _deliver(text: str, ids) -> bool:
     履歴にも残った・でも通知は落ちた」が唯一の、痕跡なく消える道だった。
     """
     seen = reaches_the_person()
-    if seen:
+    if seen or hub.frame_attended() is not None:
         hub.say(text)
         hub.refresh(said_ago=0)          # 言った直後は、こちらを向かせる
     if not seen or config.PUSH_WHEN_EMBODIED:
@@ -199,7 +203,8 @@ def can_speak() -> bool:
 
 
 def announce(conn, closing: str, plain: str = "", extra: str = "",
-             keep: bool = True, remind_ids=(), remind_texts=(), chain: int = None) -> str:
+             keep: bool = True, remind_ids=(), remind_texts=(), chain: int = None,
+             casual: bool = False) -> str:
     """ことはのほうから何か言う。言ったことが、そのまま通知になる。
 
     通知はすべてここを通す。言わずに鳴らすことはしない。開いても何も
@@ -219,7 +224,7 @@ def announce(conn, closing: str, plain: str = "", extra: str = "",
     あいだ預かるのは同じ（同じ分の朝の一言と1通にまとめる）だが、その預かりは
     巡回の終わりに、間を待たずに出る（flush_held）。
     """
-    if not can_speak():
+    if (casual and living.quiet(conn)) or not can_speak():
         return ""
     if _collecting or (chain is None and _too_soon(conn)):
         items = _held(conn)
@@ -229,13 +234,13 @@ def announce(conn, closing: str, plain: str = "", extra: str = "",
             items = items[1:]
         items.append({"closing": closing, "plain": plain, "extra": extra, "keep": keep,
                       "remind_ids": list(remind_ids), "remind_texts": list(remind_texts),
-                      "chain": chain})
+                      "chain": chain, "casual": casual})
         _put_held(conn, items)
         conn.commit()
         return HELD
     return _say(conn, [{"closing": closing, "plain": plain, "extra": extra, "keep": keep,
                         "remind_ids": list(remind_ids),
-                        "remind_texts": list(remind_texts), "chain": chain}])
+                        "remind_texts": list(remind_texts), "chain": chain, "casual": casual}])
 
 
 def _give_back(conn, items) -> None:
@@ -268,6 +273,10 @@ def flush_held(conn) -> str:
     if not can_speak():
         return ""
     items = _held(conn)
+    if living.quiet(conn):
+        items = [i for i in items if not i.get("casual")]
+        _put_held(conn, items)
+        conn.commit()
     if not items:
         return ""
     # 頼まれごとが混ざっていれば、間を待たない（announce の chain と同じ理由）。

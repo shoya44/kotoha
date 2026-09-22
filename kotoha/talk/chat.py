@@ -3,8 +3,8 @@ from datetime import datetime, timezone
 from typing import NamedTuple
 
 from .. import clock, config, notify
-from ..memory import db, diary, habits, remind, retrieve
-from . import actions, coding, figure, presence, schedule
+from ..memory import db, diary, habits, remind, retrieve, growth
+from . import actions, coding, figure, presence, schedule, living
 from . import llm, router
 
 FAST_NOTICE = (
@@ -266,6 +266,10 @@ def where_she_is(conn) -> str:
     正は脳のメモリ（serve/hub.py）で、ここで読むのはその写し。姿が
     どこにも出ていなければ空を返し、その行は載せない。
     """
+    from ..serve import hub
+    place = hub.context()
+    if place:
+        return place
     name = db.get_state(conn, db.BODY_WHERE)
     if not name:
         return ""
@@ -401,6 +405,12 @@ def build_prompt(conn, user_text: str, recent, pinned, related, fast: bool = Fal
     place = where_she_is(conn)
     if place:
         lines.append(place)
+    quiet_line = living.block(conn)
+    if quiet_line:
+        lines.append(quiet_line)
+    growth_line = growth.block(conn)
+    if growth_line:
+        lines.append(growth_line)
     ignored = unanswered(recent)
     if ignored:
         lines.append(ignored)
@@ -492,7 +502,11 @@ def _fetch_recent(conn, user_text: str):
 
 def _finish(conn, turn_id: int, clean: str, ids, mode: str, mood: str = None, kept=(),
             why: str = "", dropped=(), topic: str = None):
+    clean, offered = growth.offer(conn, clean)
     db.insert_message(conn, turn_id, "assistant", clean)
+    if offered:
+        row = conn.execute("SELECT id FROM messages WHERE turn_id = ? AND role = 'assistant'", (turn_id,)).fetchone()
+        growth.mark_offered(conn, row["id"])
     db.set_state(conn, db.LAST_CONVERSATION_AT, db.now_utc())
     remind.answered(conn)      # 返事があった。追いかけはここで終わり
     if mood:
@@ -674,8 +688,14 @@ def stream_turn(conn, user_text: str):
     生成が落ちても、**言いかけたぶんは捨てない。** 1文字も来ていないとき
     だけ、まとめて受け取る道（投げ直しつき）へ落ちる。
     """
+    control_reply = growth.respond(conn, user_text)
+    living.accept(conn, user_text)
     turn_id = db.start_or_resume_turn(conn, user_text)
     conn.commit()
+    if control_reply:
+        done = _finish(conn, turn_id, control_reply, [], "local")
+        yield {"done": done, "rest": done.reply}
+        return
     recent = _fetch_recent(conn, user_text)
     recent_text = "\n".join(r["text"] for r in recent)
     pinned, related, diaries = retrieve.retrieve_all(conn, user_text, recent_text)
@@ -704,6 +724,7 @@ def stream_turn(conn, user_text: str):
     done = _finish(conn, turn_id, clean, ids, "slow", mood, kept, why, dropped, topic)
     # まだ声にしていないぶん。食い違ったら黙って足さない（二度言うほうが困る）。
     rest = clean[said:] if clean[:said] == strip_tags(raw)[:said] else ""
+    rest += done.reply[len(clean):]
     yield {"done": done, "rest": rest}
     # 頼まれごとは、返答を保存し終えてから。入れ直しならここで落ちる。
     if todo:
@@ -711,8 +732,12 @@ def stream_turn(conn, user_text: str):
 
 
 def run_turn(conn, user_text: str):
+    control_reply = growth.respond(conn, user_text)
+    living.accept(conn, user_text)
     turn_id = db.start_or_resume_turn(conn, user_text)
     conn.commit()
+    if control_reply:
+        return _finish(conn, turn_id, control_reply, [], "local")
 
     recent = _fetch_recent(conn, user_text)
     recent_text = "\n".join(r["text"] for r in recent)
