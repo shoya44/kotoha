@@ -46,10 +46,15 @@ class FrameTests(unittest.TestCase):
 
 
 class SheetTests(unittest.TestCase):
+    # 素材は27枚で、読むのに0.5秒かかる。どのテストも読むだけなので、1回で足りる。
+    loaded = None
+
     def setUp(self):
         if not (sheet.SPRITE_DIR / "sprites.json").exists():
             self.skipTest("素材がまだ作られていない（python -m tools.build_sprites）")
-        self.sheet = sheet.Sheet().load()
+        if SheetTests.loaded is None:
+            SheetTests.loaded = sheet.Sheet().load()
+        self.sheet = SheetTests.loaded
 
     def test_every_frame_is_the_size_it_says(self):
         width, height = self.sheet.size

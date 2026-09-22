@@ -12,19 +12,27 @@ on:
     branches: [main]
   pull_request:
 
+# 同じPRに続けて押したら、前の走りは止める。順番待ちの列を短くする。
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     runs-on: windows-latest
+    env:
+      # 走る場所の文字集合（cp1252 / cp932）に振り回されない。
+      PYTHONUTF8: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
           cache: pip
-      - run: pip install -r requirements.txt
+      - run: pip install -r requirements.txt pyflakes
       # 走る前に、名前の無さを確かめる。NameError は裏の巡回を殺さず、
       # 静かに止める（実際に一度起きた）。tests/ を含めないのは、
       # 差し替えのための副作用importが「未使用」として落ちるため。
-      - run: pip install pyflakes
       - run: python -m pyflakes kotoha tools
-      - run: python -m unittest discover -s tests -t .
+      # 同じ discover だが、どこに時間がかかったかも出す（測ってから決めるため）。
+      - run: python -m tools.time_tests 20

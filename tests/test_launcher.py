@@ -90,9 +90,12 @@ class LauncherTests(LauncherFixture, unittest.TestCase):
             self.assertFalse(self.launcher.is_kotoha("http://127.0.0.1:8000"))
 
     def test_browser_waits_for_readiness(self):
+        # 様子見の間（0.5秒）は本物を待たない。待つこと自体は確かめる対象ではない。
+        stopped = threading.Event()
+        stopped.wait = lambda timeout=None: False
         with patch.object(self.launcher, "is_kotoha", side_effect=[False, True]), \
              patch.object(self.launcher, "open_browser") as browser:
-            self.launcher.open_when_ready("http://local", threading.Event())
+            self.launcher.open_when_ready("http://local", stopped)
         browser.assert_called_once_with("http://local")
 
     def test_timeout_and_shutdown_do_not_open_browser(self):
@@ -213,6 +216,7 @@ class LauncherTests(LauncherFixture, unittest.TestCase):
         # 待ちきってから諦めるところを見る。待つ時間そのものは確かめない。
         self.config.STARTUP_TIMEOUT_SECONDS = 0.01
         with patch.object(self.launcher, "tailscale_json", return_value={"BackendState": "NeedsLogin"}), \
+             patch.object(self.launcher.time, "sleep"), \
              patch.object(self.launcher, "tailscale_command") as command:
             with self.assertRaisesRegex(self.launcher.ServeError, "未接続"):
                 self.launcher.start_serve("http://127.0.0.1:8000")

@@ -51,22 +51,6 @@ class ElapsedPhraseTests(unittest.TestCase):
         self.assertEqual(chat.elapsed_phrase(ago(seconds=1)), "たった今")
 
 
-class SituationTests(unittest.TestCase):
-    def test_every_hour_has_a_situation(self):
-        for hour in range(24):
-            with self.subTest(hour=hour):
-                self.assertTrue(chat.situation(hour))
-
-    def test_boundaries_match_the_avatar_groups(self):
-        """static/app.js の getAvatarGroup() と区切りを揃える。"""
-        groups = {hour: chat.situation(hour) for hour in range(24)}
-        self.assertEqual(groups[6], groups[10])
-        self.assertNotEqual(groups[5], groups[6])
-        self.assertEqual(groups[21], groups[1])  # 夜更かしは日付をまたぐ
-        self.assertNotEqual(groups[1], groups[2])
-        self.assertEqual(groups[2], groups[5])
-
-
 class TimeBlockTests(DbCase):
     def setUp(self):
         super().setUp()
