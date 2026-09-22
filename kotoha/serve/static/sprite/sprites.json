@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-19",
+  "generated": "2026-09-22",
   "source": "img/dot",
   "sizes": {
     "full": [
@@ -39,7 +39,7 @@
       "blink": false
     },
     "snack": {
-      "blink": false
+      "blink": true
     },
     "sulk": {
       "blink": true
