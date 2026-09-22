@@ -122,7 +122,11 @@ def connect() -> sqlite3.Connection:
 # (版, [SQL...]) を古い順に並べる。**一度入れたものは書き換えない。**
 # 書き換えると、途中の版で止まっているDBだけが別の形になる。
 #   例: (1, ["ALTER TABLE messages ADD COLUMN vessel TEXT"]),
-MIGRATIONS: list = []
+MIGRATIONS: list = [
+    # 頼まれごとの繰り返し（毎日/平日）と、追いかけの段数（本人に頼まれたものは 0）。
+    (1, ["ALTER TABLE reminders ADD COLUMN repeat TEXT",
+         "ALTER TABLE reminders ADD COLUMN chain INTEGER NOT NULL DEFAULT 0"]),
+]
 
 
 def migrate(conn: sqlite3.Connection) -> None:

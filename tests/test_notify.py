@@ -121,7 +121,7 @@ class ReachOutTests(DbCase):
         self.pushed = []
         notify.push = lambda title, body, *a, **k: self.pushed.append(body) or True
         # 本物のGeminiを叩かせない。
-        chat.speak = lambda conn, closing, extra="", keep=True: "そういえばあれ、どうなった？"
+        chat.speak = lambda conn, closing, extra="", keep=True, chain=None: "そういえばあれ、どうなった？"
 
     def quiet_for(self, hours):
         long_ago = f"{datetime.now().year - 1}-01-01T00:00:00Z"
@@ -165,7 +165,7 @@ class ReachOutTests(DbCase):
 
 
     @staticmethod
-    def explode(conn, closing, extra="", keep=True):
+    def explode(conn, closing, extra="", keep=True, chain=None):
         raise ZeroDivisionError("わざと")
 
 
@@ -187,7 +187,7 @@ class WatchTests(unittest.TestCase):
         notify.log = lambda text: None   # 本物のログに書き込まない
         notify.ready = lambda: True
         # 見張りも announce を通る。本物のGeminiは叩かせない。
-        chat.speak = lambda conn, closing, extra="", keep=True: ""
+        chat.speak = lambda conn, closing, extra="", keep=True, chain=None: ""
         chat.remember = lambda conn, text, ids=(), mood="", keep=True: None
         self.pushed = []
         notify.push = lambda title, body, *a, **k: self.pushed.append(body) or True
@@ -251,7 +251,7 @@ class TogetherTests(DbCase):
         notify.push = lambda title, body, *a, **k: self.pushed.append(body) or True
         # 本物のGeminiは叩かせない。渡された指示をそのまま返して中身を見る。
         self.asked = []
-        chat.speak = lambda conn, closing, extra="", keep=True: (
+        chat.speak = lambda conn, closing, extra="", keep=True, chain=None: (
             self.asked.append((closing, extra, keep)) or "うん、わかった")
         chat.remember = lambda conn, text, ids=(), mood="", keep=True: None
 
@@ -372,7 +372,7 @@ class HeldSurvivalTests(DbCase):
         self.mute()
 
     def mute(self):
-        chat.speak = lambda conn, closing, extra="", keep=True: ""
+        chat.speak = lambda conn, closing, extra="", keep=True, chain=None: ""
 
     def hold(self, closing="言うことがある。"):
         announce_mod._collecting = True
@@ -390,7 +390,7 @@ class HeldSurvivalTests(DbCase):
     def test_it_is_said_once_it_can_be(self):
         self.hold()
         announce_mod.flush_held(self.conn)
-        chat.speak = lambda conn, closing, extra="", keep=True: "おまたせ"
+        chat.speak = lambda conn, closing, extra="", keep=True, chain=None: "おまたせ"
         self.assertEqual(announce_mod.flush_held(self.conn), "おまたせ")
         self.assertEqual(announce_mod._held(self.conn), [])
 
@@ -449,7 +449,7 @@ class UndeliveredTests(DbCase):
         chat.remember = lambda conn, text, ids=(), mood="", keep=True: None
         self.spoken = 0
 
-        def speak(conn, closing, extra="", keep=True):
+        def speak(conn, closing, extra="", keep=True, chain=None):
             self.spoken += 1
             return "おまたせ"
         chat.speak = speak
@@ -491,7 +491,7 @@ class SnoozeButtonTests(DbCase):
         self.sent = []
         notify.push = lambda title, body, *a, **k: self.sent.append(
             (body, k.get("buttons"), k.get("url"))) or True
-        chat.speak = lambda conn, closing, extra="", keep=True: "歯医者の時間だよー"
+        chat.speak = lambda conn, closing, extra="", keep=True, chain=None: "歯医者の時間だよー"
 
     def fire(self, text="歯医者"):
         remind.add(self.conn, datetime.now() - timedelta(minutes=1), text)

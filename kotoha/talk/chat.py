@@ -375,6 +375,7 @@ def _finish(conn, turn_id: int, clean: str, ids, mode: str, mood: str = None, ke
             why: str = ""):
     db.insert_message(conn, turn_id, "assistant", clean)
     db.set_state(conn, db.LAST_CONVERSATION_AT, db.now_utc())
+    remind.answered(conn)      # 返事があった。追いかけはここで終わり
     if mood:
         db.set_state(conn, db.MOOD, mood)
         db.set_state(conn, db.MOOD_WHY, why)
@@ -394,7 +395,7 @@ class Turn(NamedTuple):
 
     reply: str
     mode: str
-    kept: list = []      # この回に預かった頼まれごと [(時刻, 用件), …]
+    kept: list = []      # この回に預かった頼まれごと [(時刻, 用件, 繰り返し), …]
 
 
 def _keep_reminders(conn, clean: str):
@@ -403,8 +404,8 @@ def _keep_reminders(conn, clean: str):
     ここで捨てると、本人は「覚えとくね」と言ったのに何も残らない。
     """
     clean, later = remind.parse(clean)
-    for when, what in later:
-        remind.add(conn, when, what)
+    for when, what, repeat in later:
+        remind.add(conn, when, what, repeat)
     return clean, later
 
 
@@ -442,15 +443,29 @@ BRIEFING_CLOSING = (
 )
 
 
-def speak(conn, closing: str, extra: str = "", keep: bool = True):
+FOLLOW_UP_NOTICE = (
+    "返事が要ることなのに来なかったら、もう一度言う時刻を [REMIND: 時刻|用件] で"
+    "自分に入れてよい。何分後にするか、何度まで言うかは用件の重さで決める。"
+    "影響が小さければ一度でいい。遅れたら困ることなら何度でも。"
+    "もう言わないと決めたら入れない。そのときは、そう言ってもいい。"
+)
+
+
+def speak(conn, closing: str, extra: str = "", keep: bool = True, chain: int = None):
     """ことはのほうから口を開く。作った文は履歴に残し、それを返す。
 
     話しかけられていないので「今回の発言」が無い。そこだけ差し替えて、
     人格も記憶も時刻も、普段と同じものを渡す。
+
+    chain が None でなければ頼まれごとを言っている最中で、**自分で自分に
+    「もう一度」を入れてよい**（その段数が chain）。それ以外の独り言では、
+    自分で予定を作らせない。
     """
     recent = db.fetch_recent(conn, config.RECENT_TURNS, config.RECENT_CHARS)
     seed = "\n".join(r["text"] for r in recent[-4:])
     pinned, related = retrieve.retrieve(conn, seed, "")
+    if chain is not None:
+        closing = f"{closing}\n{FOLLOW_UP_NOTICE}"
     if extra:
         closing = f"{extra}\n\n{closing}"
     prompt = build_prompt(conn, "", recent, pinned, related, closing=closing)
@@ -458,7 +473,10 @@ def speak(conn, closing: str, extra: str = "", keep: bool = True):
     clean, ids = parse_used_ids(raw)
     clean, mood, why = parse_mood(clean)
     clean, _ = parse_action(clean)   # 頼まれてもいないのに動かさない
-    clean, _ = remind.parse(clean)   # 自分で自分に予定を作らせない
+    clean, later = remind.parse(clean)
+    if chain is not None:            # 追いかけだけは、自分で入れてよい
+        for when, what, _ in later:
+            remind.follow_up(conn, chain, when, what)
     clean = strip_tags(clean)
     if not clean:
         return ""
