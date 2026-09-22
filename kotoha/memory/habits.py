@@ -45,6 +45,27 @@ def block(conn) -> str:
             "毎回は出さない）:\n" + lines)
 
 
+TRUST_LEVELS = ("高い", "ふつう", "低め")
+TRUST_WHY_CHARS = 60
+
+
+def trust_line(conn) -> str:
+    """プロンプトに載せる1行。まだ振り返っていなければ空。"""
+    level = db.get_state(conn, db.TRUST)
+    if level not in TRUST_LEVELS:
+        return ""
+    why = db.get_state(conn, db.TRUST_WHY) or ""
+    return f"相手への信頼: {level}" + (f"（{why}）" if why else "")
+
+
+def _remember_trust(conn, spec) -> None:
+    """振り返りの trust を書き置く。読めない形なら前のまま。"""
+    if not isinstance(spec, dict) or spec.get("level") not in TRUST_LEVELS:
+        return
+    db.set_state(conn, db.TRUST, spec["level"])
+    db.set_state(conn, db.TRUST_WHY, " ".join((spec.get("why") or "").split())[:TRUST_WHY_CHARS])
+
+
 def due(conn) -> bool:
     """そろそろ振り返る頃か。日記が7日ぶん溜まっていて、前回から7日。"""
     if not config.DIARY_ENABLED:
@@ -55,14 +76,15 @@ def due(conn) -> bool:
     return count >= MIN_DIARY_DAYS
 
 
-def _prompt(entries, current) -> str:
+def _prompt(conn, entries, current) -> str:
     from ..talk import chat
     head = chat._read("habits_system.txt")
     days = "\n".join(
         f"{r['day']}（{'月火水木金土日'[datetime.strptime(r['day'], diary.DAY).weekday()]}）: {r['text']}"
         for r in reversed(entries))
     known = "\n".join(f"[id:{r['id']}] {r['text']}" for r in current) or "（まだ無い）"
-    return f"{head}\n\nいま覚えている習慣:\n{known}\n\n最近の日記:\n{days}\n\nJSON:"
+    trust = trust_line(conn) or "相手への信頼: （まだ決めていない）"
+    return f"{head}\n\nいま覚えている習慣:\n{known}\n\n{trust}\n\n最近の日記:\n{days}\n\nJSON:"
 
 
 def _as_json(raw: str):
@@ -85,10 +107,11 @@ def reflect(conn) -> int:
     conn.commit()
     entries = diary.recent(conn, LOOKBACK_DAYS)
     current = conn.execute("SELECT id, text FROM habits WHERE retired_at IS NULL").fetchall()
-    data = _as_json(llm.chat(_prompt(entries, current), max_tokens=config.DIARY_MAX_TOKENS))
+    data = _as_json(llm.chat(_prompt(conn, entries, current), max_tokens=config.DIARY_MAX_TOKENS))
     specs = data.get("habits") if isinstance(data, dict) else None
     if not isinstance(specs, list):
         raise ValueError("習慣の振り返りに habits が無い。")
+    _remember_trust(conn, data.get("trust"))
     now = db.now_utc()
     known = {r["id"] for r in current}
     kept = set()

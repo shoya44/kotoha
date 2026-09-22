@@ -24,6 +24,15 @@ MOODS = {
     "疲れ気味": "テンションは低いが、話は聞く",
     "すねている": "そっけないが、本当は構ってほしい",
 }
+# ラベルの座標。快−不快（valence）と、元気−疲れ（arousal）。-1〜1。
+# **語彙はラベルのまま**で、中身だけ連続にする。ラベルはこの点のどれかに一番近いもの。
+MOOD_AXES = {
+    "ふつう": (0.0, 0.0),
+    "機嫌がいい": (0.6, 0.3),
+    "眠い": (0.0, -0.7),
+    "疲れ気味": (-0.2, -0.5),
+    "すねている": (-0.6, 0.1),
+}
 # 何も分からないときの機嫌。時間帯ぶんの穴埋めは figure.MOOD_PRIOR が持つ。
 DEFAULT_MOOD = "ふつう"
 # 機嫌の薄れ方。「まだ強い」「薄れてきた」「だいぶ薄れた」の境。これを切ったら時間帯ぶんに戻る。
@@ -54,8 +63,48 @@ def mood_note(conn) -> str:
     return ""
 
 
+def mood_axes(conn, hour: int = None):
+    """いまの気分を2つの数で。(快−不快, 元気−疲れ)。
+
+    申告したラベルの点から、時間帯の下地の点へ、黙っているあいだに半減期で
+    戻っていく。ラベル（current_mood）は濃さが残るうちは申告どおりだが、
+    言葉（mood_words）はこの点から出るので、「すねている」が夜更けに薄れる
+    途中で「気分は少し沈み気味、元気は低め」と言える。5段の階段ではなく、
+    連続した1本の道の上に居る。
+    """
+    hour = clock.now().hour if hour is None else hour
+    base = MOOD_AXES[figure.prior(hour)]
+    label = db.get_state(conn, db.MOOD)
+    if label not in MOODS or not figure.keeps(hour, label):
+        return base
+    told = MOOD_AXES[label]
+    level = mood_intensity(conn)
+    return tuple(b + (t - b) * level for b, t in zip(base, told))
+
+
+def mood_words(axes) -> str:
+    """2つの数を言葉に。「少し沈み気味、元気は低め」のように。どちらも平らなら空。"""
+    valence, arousal = axes
+    parts = []
+    if valence >= 0.35:
+        parts.append("気分は上向き")
+    elif valence <= -0.35:
+        parts.append("気分は沈み気味")
+    elif abs(valence) >= 0.15:
+        parts.append("気分は少し" + ("上向き" if valence > 0 else "沈み気味"))
+    if arousal >= 0.35:
+        parts.append("元気はある")
+    elif arousal <= -0.35:
+        parts.append("元気は低め")
+    elif abs(arousal) >= 0.15:
+        parts.append("元気は少し" + ("ある" if arousal > 0 else "低め"))
+    return "、".join(parts)
+
+
 def current_mood(conn, hour: int = None) -> str:
     """いまの機嫌。**薄れきったものも、時間帯に合わないものも引きずらない。**
+
+    ラベルは濃さが残るうちは申告どおり。連続した中身は mood_axes が持つ。
 
     申告が無ければ、その時間帯ぶんで埋める（`figure.prior`）。申告があっても、
     起きている時間に「眠い」は残さない（`figure.keeps`）。どちらの表も
@@ -66,11 +115,9 @@ def current_mood(conn, hour: int = None) -> str:
     """
     hour = clock.now().hour if hour is None else hour
     label = db.get_state(conn, db.MOOD)
-    if label not in MOODS:
+    if label not in MOODS or not figure.keeps(hour, label):
         return figure.prior(hour)
     if mood_intensity(conn) < MOOD_GONE:
-        return figure.prior(hour)
-    if not figure.keeps(hour, label):
         return figure.prior(hour)
     return label
 
@@ -342,8 +389,12 @@ def build_prompt(conn, user_text: str, recent, pinned, related, fast: bool = Fal
         f"前回の会話: {elapsed_phrase(db.get_state(conn, 'last_conversation_at'))}",
         f"今のことは: {situation(now.hour)}",
         f"今の機嫌: {mood}（{MOODS[mood]}）" + (f"。きっかけ: {why}" if why else "")
-        + (f"。{mood_note(conn)}" if why and mood_note(conn) else ""),
+        + (f"。{mood_note(conn)}" if why and mood_note(conn) else "")
+        + (f"。{mood_words(mood_axes(conn, now.hour))}" if mood_words(mood_axes(conn, now.hour)) else ""),
     ]
+    trust = habits.trust_line(conn)
+    if trust:
+        lines.append(trust)
     topic = topic_line(conn)
     if topic:
         lines.append(topic)
