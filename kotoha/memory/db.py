@@ -141,6 +141,10 @@ MIGRATIONS: list = [
     # 頼まれごとの繰り返し（毎日/平日）と、追いかけの段数（本人に頼まれたものは 0）。
     (1, ["ALTER TABLE reminders ADD COLUMN repeat TEXT",
          "ALTER TABLE reminders ADD COLUMN chain INTEGER NOT NULL DEFAULT 0"]),
+    # 記憶の強さ。期限は強さから導くようになった（memory/strength.py）。
+    # 既存の記憶には、残り日数から逆算した強さを入れる（migrate の後段）。
+    (2, ["ALTER TABLE memory_nodes ADD COLUMN strength REAL NOT NULL DEFAULT 1.0",
+         "ALTER TABLE memory_nodes ADD COLUMN strength_at TEXT"]),
 ]
 
 
@@ -158,6 +162,9 @@ def migrate(conn: sqlite3.Connection) -> None:
             continue
         for sql in statements:
             conn.execute(sql)
+        if target == 2:
+            from . import strength          # 循環を避けて、ここで読む
+            strength.backfill(conn)
         conn.execute(f"PRAGMA user_version = {target}")
         version = target
     conn.commit()
@@ -387,26 +394,17 @@ def shifted(days: float) -> str:
     return (clock.utc_now() + timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-# 想起・再確認された記憶は期限を延ばす。触れられない記憶だけが自然に薄れる。
-EXTEND_EXPIRES = (
-    "expires_at = CASE WHEN expires_at IS NULL THEN NULL ELSE MAX(expires_at, "
-    "CASE layer WHEN 'episode' THEN ? ELSE ? END) END"
-)
-
-
-def extend_args() -> tuple:
-    return (shifted(config.EPISODE_DAYS), shifted(config.SEMANTIC_DAYS))
 
 
 def update_usage(conn, node_ids: list, turn_id: int) -> None:
     if not node_ids:
         return
+    from . import strength          # 循環を避けて、ここで読む
     now = now_utc()
     for nid in node_ids:
-        conn.execute(
-            f"UPDATE memory_nodes SET last_used_at = ?, {EXTEND_EXPIRES} WHERE id = ?",
-            (now, *extend_args(), nid),
-        )
+        # 思い出した記憶は強くなり、消える時刻が遠のく。触れられない記憶だけが薄れる。
+        strength.reinforce(conn, nid)
+        conn.execute("UPDATE memory_nodes SET last_used_at = ? WHERE id = ?", (now, nid))
         conn.execute(
             "UPDATE memory_tags SET use_count = MIN(use_count + 1, 3), "
             "last_used_at = ?, last_used_turn_id = ? WHERE node_id = ?",

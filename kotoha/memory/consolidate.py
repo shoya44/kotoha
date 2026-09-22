@@ -1,9 +1,9 @@
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 from .. import config
 from ..talk import llm
-from . import db, embed, retrieve
+from . import db, embed, retrieve, strength
 
 MAX_NEW_NODES = 8
 # 同じバッチで続けて失敗したら諦める回数。
@@ -203,11 +203,11 @@ def _validate_and_save(conn, data, messages) -> int:
         kind = spec.get("kind")
         text = (spec.get("text") or "").strip()
         if layer == "episode":
-            kind, limit, days = "event", 400, config.EPISODE_DAYS
+            kind, limit = "event", 400
         elif layer == "semantic":
             if kind not in ("fact", "preference", "open_topic", "procedure"):
                 continue
-            limit, days = 200, config.SEMANTIC_DAYS
+            limit = 200
         else:
             continue
         if not text or len(text) > limit:
@@ -231,12 +231,15 @@ def _validate_and_save(conn, data, messages) -> int:
                 tags.append(nt)
         base = msg_date[src[0]]
         occurred = _safe_date(spec.get("occurred_at"), base)
-        expires = (_parse_dt(base) + timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        # 作ったばかりの記憶は強さ1。期限は、その強さが床に落ちる時刻。
+        expires = strength.touch_new(layer, _parse_dt(base))
 
         cur = conn.execute(
             "INSERT OR IGNORE INTO memory_nodes(layer, kind, text, occurred_at, confirmed_at, "
-            "last_used_at, expires_at, pinned, source_key) VALUES (?,?,?,?,?,?,?,0,?)",
-            (layer, kind, text, occurred, base, base, expires, f"batch:{first_id}-{last_id}:{idx}"),
+            "last_used_at, expires_at, pinned, source_key, strength, strength_at) "
+            "VALUES (?,?,?,?,?,?,?,0,?,?,?)",
+            (layer, kind, text, occurred, base, base, expires, f"batch:{first_id}-{last_id}:{idx}",
+             strength.FRESH, base),
         )
         if cur.rowcount == 0:
             continue
@@ -273,10 +276,8 @@ def _validate_and_save(conn, data, messages) -> int:
     now = db.now_utc()
     for nid in dict.fromkeys(list(reconfirm) + merged_ids):
         if isinstance(nid, int):
-            conn.execute(
-                f"UPDATE memory_nodes SET confirmed_at = ?, {db.EXTEND_EXPIRES} WHERE id = ?",
-                (now, *db.extend_args(), nid),
-            )
+            strength.reinforce(conn, nid)       # 確かめ直した＝思い出したのと同じ
+            conn.execute("UPDATE memory_nodes SET confirmed_at = ? WHERE id = ?", (now, nid))
 
     # 更新 (updates)
     updates = data.get("updates", [])
@@ -292,10 +293,9 @@ def _validate_and_save(conn, data, messages) -> int:
             src = [i for i in u.get("source_message_ids", []) if isinstance(i, int) and i in msg_ids]
             if not src:
                 continue
-            conn.execute(
-                f"UPDATE memory_nodes SET text = ?, confirmed_at = ?, {db.EXTEND_EXPIRES} WHERE id = ?",
-                (text, now, *db.extend_args(), nid),
-            )
+            strength.reinforce(conn, nid)
+            conn.execute("UPDATE memory_nodes SET text = ?, confirmed_at = ? WHERE id = ?",
+                         (text, now, nid))
             for mid in src:
                 conn.execute("INSERT OR IGNORE INTO memory_sources(node_id, message_id) VALUES (?,?)", (nid, mid))
             # 訂正時は近道リセット

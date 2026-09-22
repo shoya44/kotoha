@@ -12,7 +12,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from .. import config, notify
-from ..memory import db, diary, habits, remind
+from ..memory import db, diary, habits, remind, strength
 from ..talk import chat, llm, presence
 from . import admin, hub, jobs, voice
 
@@ -369,11 +369,12 @@ def memories_list(request: Request, kind: str = "semantic"):
     where, order = MEMORY_LISTS[kind]
     with db.session() as conn:
         rows = conn.execute(
-            f"SELECT id, layer, kind, text, occurred_at, confirmed_at, expires_at, pinned "
-            f"FROM memory_nodes WHERE {where} ORDER BY {order} LIMIT ?",
+            f"SELECT id, layer, kind, text, occurred_at, confirmed_at, expires_at, pinned, "
+            f"strength, strength_at FROM memory_nodes WHERE {where} ORDER BY {order} LIMIT ?",
             (MEMORY_LIST_LIMIT,),
         ).fetchall()
-        return {"memories": [dict(r) for r in rows]}
+        now = strength.of_rows(rows)
+        return {"memories": [dict(r) | {"strength": round(now[r["id"]], 2)} for r in rows]}
 
 
 @app.get("/api/memories/{node_id}")
@@ -391,12 +392,13 @@ def memory_detail(request: Request, node_id: int):
             r["message_id"] for r in
             conn.execute("SELECT message_id FROM memory_sources WHERE node_id = ?", (node_id,))
         ]
-        return {"memory": dict(row), "tags": tags, "sources": sources}
+        memory = dict(row) | {"strength": round(strength.of_rows([row])[row["id"]], 2)}
+        return {"memory": memory, "tags": tags, "sources": sources}
 
 
 @app.put("/api/memories/{node_id}")
 def memory_update(request: Request, node_id: int, payload: dict):
-    """本文を直す。整理の updates と同じく、確認日時を進めて期限も延ばす。"""
+    """本文を直す。整理の updates と同じく、確認日時を進めて強さも足す。"""
     _check_token(request)
     text = (payload.get("text") or "").strip()
     if not text:
@@ -408,9 +410,10 @@ def memory_update(request: Request, node_id: int, payload: dict):
         limit = MEMORY_TEXT_LIMITS.get(row["layer"], MEMORY_TEXT_LIMIT)
         if len(text) > limit:
             raise HTTPException(status_code=400, detail=f"{limit}字までにしてください")
+        strength.reinforce(conn, node_id)      # 手で確かめ直した＝思い出したのと同じ
         changed = conn.execute(
-            f"UPDATE memory_nodes SET text = ?, confirmed_at = ?, {db.EXTEND_EXPIRES} WHERE id = ?",
-            (text, db.now_utc(), *db.extend_args(), node_id),
+            "UPDATE memory_nodes SET text = ?, confirmed_at = ? WHERE id = ?",
+            (text, db.now_utc(), node_id),
         ).rowcount
         if not changed:
             raise HTTPException(status_code=404, detail="その記憶はありません")

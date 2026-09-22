@@ -12,7 +12,7 @@ from tests.support import Clock, DbCase, use_temp_db
 _TMP = use_temp_db("clock")
 
 from kotoha import clock  # noqa: E402
-from kotoha.memory import db, retrieve  # noqa: E402
+from kotoha.memory import db, retrieve, strength  # noqa: E402
 from kotoha.talk import chat  # noqa: E402
 
 
@@ -48,8 +48,11 @@ class FrozenClockTests(DbCase):
             self.add("使う", 5)
             tick.advance(days=4)
             db.update_usage(self.conn, [1], turn_id=1)
-            row = self.conn.execute("SELECT expires_at FROM memory_nodes WHERE id = 1").fetchone()
-            self.assertEqual(row["expires_at"], db.shifted(180))     # 止めた「今」から180日
+            row = self.conn.execute(
+                "SELECT layer, strength, expires_at FROM memory_nodes WHERE id = 1").fetchone()
+            # 止めた「今」から、いまの強さが床に落ちるまで。進めた分だけ間が空き、大きく足される。
+            self.assertEqual(row["expires_at"], strength.fades_at(row["strength"], row["layer"]))
+            self.assertGreater(row["expires_at"], db.shifted(180))
 
     def test_mood_fades_with_the_clock(self):
         with Clock(datetime(2026, 9, 22, 12, 0)) as tick:
