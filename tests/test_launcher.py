@@ -257,9 +257,14 @@ class LauncherTests(LauncherFixture, unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="kotoha launcher ") as tmp:
             target = Path(tmp) / "kotoha.bat"
             target.write_bytes((ROOT / "kotoha.bat").read_bytes())
+            # pause の「続行するには…」は、日本語の Windows では cp932 で出る。
+            # UTF-8 で読むと読み手の糸が落ちて stdout が None になり、確かめたい
+            # 英語の1行まで失う（英語の CI では出ないので、そこでは通っていた）。
+            # 読めない字は置き換えて、行は残す。
             result = subprocess.run(
                 ["cmd.exe", "/d", "/c", "call", str(target)],
                 cwd=ROOT, input="\n", capture_output=True, text=True, timeout=10,
+                encoding="utf-8", errors="replace",
             )
             self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
             self.assertIn('Run "kotoha.bat setup" first', result.stdout)
