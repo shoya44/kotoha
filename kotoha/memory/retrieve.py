@@ -4,6 +4,10 @@ from . import db, embed
 _ALIVE = f"(expires_at IS NULL OR expires_at > {db.NOW_SQL})"
 _COLS = "id, layer, kind, text, occurred_at, confirmed_at, pinned"
 
+# 続きのある話を、毎回これだけは渡す。最近のエピソードと同じ枠に入れていると、
+# 出来事が続いた週は押し出されて、続きを聞く機会が来ない。
+OPEN_TOPIC_LIMIT = 2
+
 
 def load_tag_dict(conn):
     rows = conn.execute("SELECT DISTINCT tag FROM memory_tags").fetchall()
@@ -118,6 +122,14 @@ def retrieve(conn, user_text: str, recent_text: str = ""):
                     (*nids, config.HOP_LIMIT),
                 ).fetchall()
             )
+
+    add(
+        conn.execute(
+            f"SELECT {_COLS} FROM memory_nodes WHERE {_ALIVE} AND kind = 'open_topic' "
+            f"ORDER BY confirmed_at DESC LIMIT ?",
+            (OPEN_TOPIC_LIMIT,),
+        ).fetchall()
+    )
 
     add(
         conn.execute(

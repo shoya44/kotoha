@@ -141,6 +141,30 @@ class UnansweredTests(unittest.TestCase):
 
 
 
+class OpenTopicBlockTests(DbCase):
+    """続きのある話は、関連記憶に混ぜず、それと分かる形で渡す。"""
+
+    def row(self, node_id, kind, text):
+        return {"id": node_id, "layer": "semantic", "kind": kind, "text": text,
+                "occurred_at": "2026-09-01", "confirmed_at": "2026-09-01T00:00:00Z",
+                "pinned": 0}
+
+    def test_open_topics_get_their_own_block(self):
+        related = [self.row(1, "fact", "コーヒーは豆から淹れる"),
+                   self.row(2, "open_topic", "引っ越し先を探している")]
+        prompt = chat.build_prompt(self.conn, "やっほー", [], [], related)
+        topic, rest = prompt.split("関連記憶:")
+        self.assertIn("気になっていること", topic)
+        self.assertIn("引っ越し先", topic)
+        self.assertNotIn("引っ越し先", rest)
+        self.assertIn("コーヒー", rest)
+
+    def test_no_block_without_open_topics(self):
+        prompt = chat.build_prompt(self.conn, "やっほー", [], [],
+                                   [self.row(1, "fact", "コーヒーは豆から淹れる")])
+        self.assertNotIn("気になっていること", prompt)
+
+
 class UnansweredPromptTests(DbCase):
     def test_prompt_carries_the_line(self):
         recent = [{"turn_id": 1, "role": "assistant", "text": "…",
