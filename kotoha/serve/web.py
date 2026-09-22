@@ -336,7 +336,7 @@ async def _lenient_json(request: Request) -> dict:
 
 @app.post("/api/restart")
 def api_restart(request: Request):
-    """外出先から立て直すための最後の手段。start.bat が起動し直す。"""
+    """外出先から立て直すための最後の手段。kotoha.bat が起動し直す。"""
     _check_token(request)
     # 先に応答を返しきってから落とす。DBへの書き込みはその都度コミットしてある。
     threading.Timer(0.4, lambda: os._exit(config.RESTART_EXIT_CODE)).start()

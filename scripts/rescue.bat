@@ -1,8 +1,10 @@
 @echo off
 setlocal
-cd /d "%~dp0"
+cd /d "%~dp0.."
 title Kotoha Rescue
 
+rem Called by "kotoha.bat rescue". Not meant to be run directly.
+rem
 rem Prepare this PC so Kotoha can be brought back from outside the house.
 rem Run this ONCE, at home. What you do from the phone later is printed
 rem at the end (and written in docs/07).
@@ -16,14 +18,15 @@ if not errorlevel 1 goto :elevated
 echo Administrator rights are needed. A confirmation dialog will appear.
 powershell -NoProfile -Command "Start-Process -FilePath '%~f0' -Verb RunAs" >nul 2>&1
 if errorlevel 1 (
-    echo Could not elevate. Right-click rescue.bat and pick "Run as administrator".
+    echo Could not elevate. Right-click kotoha.bat, pick "Run as administrator",
+echo and then run "kotoha.bat rescue" from there.
     pause
 )
 exit /b 0
 
 :elevated
 set "TASK=Kotoha Watchdog"
-set "PYW=%~dp0.venv\Scripts\pythonw.exe"
+set "PYW=%~dp0..\.venv\Scripts\pythonw.exe"
 set "TRAY=%~dp0tray.pyw"
 set "DID1=no"
 set "DID2=no"
@@ -49,14 +52,14 @@ cls
 echo === 1. Watchdog ===
 echo.
 echo Kotoha only restarts itself when it asks for it (exit code 42).
-echo Any other crash leaves start.bat waiting at "pause", which nobody
+echo Any other crash leaves kotoha.bat waiting at "pause", which nobody
 echo can clear from outside. A scheduled task every 5 minutes fixes that.
 echo.
 echo Starting the tray twice is safe: tray.py holds a mutex and the second
 echo one quietly backs off. So no liveness check is needed here.
 echo.
 if not exist "%PYW%" (
-    echo   [warn] %PYW% not found. Run setup.bat first.
+    echo   [warn] %PYW% not found. Run "kotoha.bat setup" first.
     echo       Skipping this step.
     pause
     goto :step2
@@ -177,7 +180,7 @@ echo   4. Still nothing
 echo        SSH in and run:  schtasks /run /tn "%TASK%"
 echo        That starts the tray in YOUR desktop session, so the icon and
 echo        the figure come back too. Without the watchdog task, run
-echo        cd /d "%~dp0" ^&^& kotoha.bat tray - the chat screen works,
+echo        cd /d "%~dp0.." ^&^& kotoha.bat tray - the chat screen works,
 echo        but nothing appears on the desktop at home.
 echo.
 echo To undo:

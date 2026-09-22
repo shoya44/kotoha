@@ -1,6 +1,8 @@
 @echo off
+rem Called by "kotoha.bat setup". Not meant to be run directly.
+rem This is the one part that runs before .venv exists, because it makes it.
 setlocal
-cd /d "%~dp0"
+cd /d "%~dp0.."
 title Kotoha Setup
 set "PYTHONUTF8=1"
 if exist ".venv\Scripts\python.exe" goto :install
@@ -20,10 +22,10 @@ if errorlevel 1 (
 )
 ".venv\Scripts\python.exe" -m pip install -r requirements.txt
 if errorlevel 1 goto :failed
-call kotoha.bat init
+call "%~dp0..\kotoha.bat" init
 if errorlevel 1 goto :failed
 echo.
-echo Setup completed. Configure .env, then double-click start.bat.
+echo Setup completed. Run "kotoha.bat settings" to fill in .env, then kotoha.bat.
 pause
 exit /b 0
 :failed

@@ -19,11 +19,15 @@ PCの中で暮らしている話し相手です。同じPCの中に記憶を持�
 
 ## 始め方
 
+叩くのは **`kotoha.bat` の1枚だけ**です。あとはその後ろに言葉を付けます。
+
 | 順 | やること |
 |---|---|
-| 1 | **`setup.bat`** ── Python環境と依存を用意します |
-| 2 | **`settings.bat`** ── Geminiの鍵と合言葉を入れます |
-| 3 | **`tray.pyw`** ── タスクトレイに常駐します（`start.bat` でも動きます） |
+| 1 | **`kotoha.bat setup`** ── Python環境と依存を用意します |
+| 2 | **`kotoha.bat settings`** ── Geminiの鍵と合言葉を入れます |
+| 3 | **`kotoha.bat tray`** ── タスクトレイに常駐します（ダブルクリックだけでも動きます） |
+
+`kotoha.bat help` で、できることが並びます。
 
 Gemini の鍵は [Google AI Studio](https://aistudio.google.com/) で取れます。通知を使うなら [OneSignal](https://onesignal.com/) の登録も要りますが、無くても動きます。
 
@@ -80,7 +84,7 @@ Gemini の鍵は [Google AI Studio](https://aistudio.google.com/) で取れま�
 
 ## 設定
 
-会話画面の歯車、`settings.bat`、`.env` の直接編集。どれも同じところを書きます。画面から変えたぶんは**すぐ効きます**。
+会話画面の歯車、`kotoha.bat settings`、`.env` の直接編集。どれも同じところを書きます。画面から変えたぶんは**すぐ効きます**。
 
 とくに見ておきたいもの:
 

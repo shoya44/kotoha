@@ -19,7 +19,7 @@ _values.update({key: os.environ[key] for key in _values if key in os.environ})
 def _text(key, allow_empty=False):
     value = _values[key]
     if not allow_empty and not value:
-        raise SystemExit(f"設定エラー: {key} は空欄にできません。settings.batで修正してください。")
+        raise SystemExit(f"設定エラー: {key} は空欄にできません。kotoha.bat settings で修正してください。")
     return value
 
 
@@ -68,7 +68,7 @@ DEBUG = _boolean("KOTOHA_DEBUG")
 WEB_TOKEN = _text("KOTOHA_WEB_TOKEN", allow_empty=True)
 WEB_HOST = _text("KOTOHA_WEB_HOST")
 WEB_PORT = _number("KOTOHA_WEB_PORT", maximum=65535)
-# start.bat とトレイ常駐はこの終了コードを見て起動し直す。42以外は普通の終了。
+# kotoha.bat とトレイ常駐はこの終了コードを見て起動し直す。42以外は普通の終了。
 # **脳（serve.web）ではなくここに置く。** 取り次ぐだけのトレイが、定数ひとつの
 # ために脳を取り込むと、そちらでも巡回が立ち上がってしまう。
 RESTART_EXIT_CODE = 42

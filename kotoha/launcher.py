@@ -13,7 +13,7 @@ import urllib.parse
 import urllib.request
 import webbrowser
 
-from . import config
+from . import autostart, config
 
 
 def local_url(host, port):
@@ -56,7 +56,7 @@ def start_tailscale(quiet=False):
             )
         except OSError:
             if not quiet:
-                print("Tailscaleの画面を開けませんでした。tools.batから確認してください。")
+                print("Tailscaleの画面を開けませんでした。kotoha.bat menu から確認してください。")
     try:
         result = subprocess.run(
             [cli, "status", "--json"], capture_output=True, text=True,
@@ -100,7 +100,7 @@ def start_aivis(quiet=False):
     exe = config.AIVIS_DIR / "AivisSpeech-Engine" / "run.exe"
     if not exe.is_file():
         if not quiet:
-            print("AivisSpeech: 実行ファイルが見つかりません。settings.batで配置先を確認してください。")
+            print("AivisSpeech: 実行ファイルが見つかりません。kotoha.bat settings で配置先を確認してください。")
         return
 
     parsed = urllib.parse.urlsplit(config.VOICE_BASE_URL)
@@ -151,7 +151,7 @@ def start_ollama(quiet=False):
     exe = config.OLLAMA_DIR / "ollama.exe"
     if not exe.is_file():
         if not quiet:
-            print("Ollama: 実行ファイルが見つかりません。settings.batで配置先を確認してください。")
+            print("Ollama: 実行ファイルが見つかりません。kotoha.bat settings で配置先を確認してください。")
         return
 
     # 待ち受け先は環境変数で渡す。接続先の設定を変えても追いかけられる。
@@ -188,7 +188,7 @@ def tailscale_command(*args):
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
     except FileNotFoundError:
-        raise ServeError("Tailscaleが見つかりません。settings.batで配置先を確認してください。") from None
+        raise ServeError("Tailscaleが見つかりません。kotoha.bat settings で配置先を確認してください。") from None
     except subprocess.TimeoutExpired:
         raise ServeError("Tailscaleがタイムアウトしました。ログイン状態とHTTPS/Serveの有効化を確認してください。") from None
     except OSError:
@@ -229,7 +229,7 @@ def check_serve_config(settings, authority, target):
         proxy = (handlers.get("/") or {}).get("Proxy", "").rstrip("/")
         if handlers.keys() == {"/"} and proxy == target and tcp == {"HTTPS": True}:
             return True
-        raise ServeError("同じHTTPSポートは別の配信で使用中です。settings.batでHTTPSポートを変更してください。")
+        raise ServeError("同じHTTPSポートは別の配信で使用中です。kotoha.bat settings でHTTPSポートを変更してください。")
     return False
 
 
@@ -303,7 +303,7 @@ def open_when_ready(url, stopped, timeout=None):
                     publish_and_open(url, stopped)
                 except ServeError as error:
                     print(f"配信失敗: {error}")
-                    print("設定を確認し、start.batを再実行してください。")
+                    print("設定を確認し、kotoha.batを実行し直してください。")
             return
         stopped.wait(0.5)
     if not stopped.is_set():
@@ -315,12 +315,14 @@ def main():
     missing = [name for name in ("httpx", "fastapi", "uvicorn")
                if importlib.util.find_spec(name) is None]
     if missing:
-        raise SystemExit("依存関係が不足しています。setup.batを実行してください: " + ", ".join(missing))
+        raise SystemExit("依存関係が不足しています。kotoha.bat setup を実行してください: " + ", ".join(missing))
     config.require_keys()
     if not config.WEB_TOKEN:
         raise SystemExit(".env の KOTOHA_WEB_TOKEN を設定してください。")
     if not 1 <= config.WEB_PORT <= 65535:
         raise SystemExit("KOTOHA_WEB_PORT は1〜65535で設定してください。")
+    # 入口の場所が変わっていたら、ログイン時の常駐と見張り番をここで直す。
+    autostart.repair()
 
     url, connect_host = local_url(config.WEB_HOST, config.WEB_PORT)
     if config.TAILSCALE_SERVE_ENABLED:

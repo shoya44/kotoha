@@ -1,10 +1,95 @@
 @echo off
+rem The one entry point. Everything else is a subcommand of this file.
+rem Keeping a single door means nothing has to be remembered about which
+rem file to click, and shortcuts and the docs can all point at one name.
+rem The long parts live in scripts\ and are not meant to be run directly.
 setlocal
 cd /d "%~dp0"
 set "PYTHONUTF8=1"
-if not exist ".venv\Scripts\python.exe" (
-    echo Python environment not found. Run setup.bat first.
-    exit /b 1
-)
-".venv\Scripts\python.exe" -m kotoha %*
+set "PY=.venv\Scripts\python.exe"
+
+rem setup and rescue have to work before the Python environment exists.
+if /i "%~1"=="setup"  goto :setup
+if /i "%~1"=="rescue" goto :rescue
+if /i "%~1"=="help"   goto :help
+if /i "%~1"=="--help" goto :help
+if /i "%~1"=="/?"     goto :help
+
+if not exist "%PY%" goto :nopython
+
+if /i "%~1"=="menu"     goto :menu
+if /i "%~1"=="settings" goto :settings
+if "%~1"=="" goto :run
+
+rem The rest goes straight to the CLI: status, backup, memory, note, ...
+"%PY%" -m kotoha %*
 exit /b %errorlevel%
+
+rem --------------------------------------------------------------
+:run
+title Kotoha
+:loop
+"%PY%" -m kotoha.launcher
+rem 42 is the restart request from the app. errorlevel is a "greater or equal"
+rem test, so the highest code has to be checked first.
+if errorlevel 42 (
+    echo.
+    echo Restarting Kotoha...
+    echo.
+    goto :loop
+)
+if errorlevel 1 goto :failed
+exit /b 0
+
+:failed
+echo.
+echo Kotoha could not start. Check the message above.
+pause
+exit /b 1
+
+rem --------------------------------------------------------------
+:setup
+call "%~dp0scripts\setup.bat"
+exit /b %errorlevel%
+
+:rescue
+call "%~dp0scripts\rescue.bat"
+exit /b %errorlevel%
+
+:menu
+call "%~dp0scripts\menu.bat"
+exit /b %errorlevel%
+
+:settings
+title Kotoha Settings
+"%PY%" -m kotoha.settings
+set "settings_result=%errorlevel%"
+if not "%settings_result%"=="0" echo Settings check failed. Run "kotoha.bat settings" again to correct it.
+pause
+exit /b %settings_result%
+
+rem --------------------------------------------------------------
+:nopython
+echo Python environment not found. Run "kotoha.bat setup" first.
+rem Only wait when it was double-clicked, so a console call stays quiet.
+if "%~1"=="" pause
+exit /b 1
+
+:help
+echo.
+echo   kotoha.bat               start Kotoha (web + browser). Double-click this
+echo   kotoha.bat setup         create the Python environment. Once, at the start
+echo   kotoha.bat settings      edit and check .env
+echo   kotoha.bat tray          live in the task tray
+echo   kotoha.bat autostart on  start the tray at logon (off / status too)
+echo   kotoha.bat menu          a menu of the usual things
+echo   kotoha.bat rescue        prepare remote recovery (needs administrator)
+echo.
+echo   kotoha.bat start         talk in the console
+echo   kotoha.bat status        show how she is doing
+echo   kotoha.bat memory        show what she remembers
+echo   kotoha.bat remind        show what she was asked to hold
+echo   kotoha.bat note "..."    let her remember something about herself
+echo   kotoha.bat backup        take a copy of the memories
+echo.
+exit /b 0

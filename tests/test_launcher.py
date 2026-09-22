@@ -43,11 +43,17 @@ class LauncherFixture:
         self.config.OLLAMA_AUTO_START = True
         self.config.OLLAMA_DIR = Path(self.tmp.name) / "Ollama"
         self.config.require_keys = Mock()
+        # 常駐の登録は本物のレジストリとタスクを触る。テストでは何もしない。
+        self.autostart = types.ModuleType("kotoha.autostart")
+        self.autostart.repair = Mock()
         package = types.ModuleType("kotoha")
         package.config = self.config
+        package.autostart = self.autostart
         spec = importlib.util.spec_from_file_location("kotoha.launcher", ROOT / "kotoha/launcher.py")
         self.launcher = importlib.util.module_from_spec(spec)
-        self.modules = patch.dict("sys.modules", {"kotoha": package, "kotoha.config": self.config})
+        self.modules = patch.dict("sys.modules", {
+            "kotoha": package, "kotoha.config": self.config,
+            "kotoha.autostart": self.autostart})
         self.modules.start()
         self.addCleanup(self.modules.stop)
         spec.loader.exec_module(self.launcher)
@@ -103,7 +109,7 @@ class LauncherTests(LauncherFixture, unittest.TestCase):
     def test_missing_dependency_stops_before_startup(self):
         with patch.object(self.launcher.importlib.util, "find_spec", return_value=None), \
              patch.object(self.launcher, "start_tailscale") as tailscale:
-            with self.assertRaisesRegex(SystemExit, "setup.bat"):
+            with self.assertRaisesRegex(SystemExit, "kotoha.bat setup"):
                 self.launcher.main()
         tailscale.assert_not_called()
 
@@ -247,17 +253,16 @@ class LauncherTests(LauncherFixture, unittest.TestCase):
         self.assertNotIn("private details", str(error.exception))
 
     def test_batch_failure_from_directory_with_spaces(self):
+        """入口は1枚。空白を含む場所に置かれても、道を見失わない。"""
         with tempfile.TemporaryDirectory(prefix="kotoha launcher ") as tmp:
-            folder = Path(tmp)
-            for name in ("kotoha.bat", "start.bat"):
-                target = folder / name
-                target.write_bytes((ROOT / name).read_bytes())
-                result = subprocess.run(
-                    ["cmd.exe", "/d", "/c", "call", str(target)],
-                    cwd=ROOT, input="\n", capture_output=True, text=True, timeout=10,
-                )
-                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
-                self.assertIn("Run setup.bat first", result.stdout)
+            target = Path(tmp) / "kotoha.bat"
+            target.write_bytes((ROOT / "kotoha.bat").read_bytes())
+            result = subprocess.run(
+                ["cmd.exe", "/d", "/c", "call", str(target)],
+                cwd=ROOT, input="\n", capture_output=True, text=True, timeout=10,
+            )
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            self.assertIn('Run "kotoha.bat setup" first', result.stdout)
 
 
 class EngineStartTests(LauncherFixture):
