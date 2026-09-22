@@ -34,6 +34,7 @@ const elements = {
   reminderList: $("reminderList"),
   reminderNote: $("reminderNote"),
   diaryList: $("diaryList"),
+  habitList: $("habitList"),
   diaryNote: $("diaryNote"),
   machineList: $("machineList"),
   machineNote: $("machineNote"),
@@ -386,6 +387,11 @@ function diaryDay(day) {
 async function loadDiary() {
   const data = await fetchPanel(elements.diaryNote, "/api/diary");
   if (!data) return;
+  const habits = data.habits || [];
+  elements.habitList.replaceChildren(...(habits.length ? [
+    Object.assign(document.createElement("div"), { className: "when", textContent: "何となく覚えていること" }),
+    ...habits.map(h => Object.assign(document.createElement("div"), { className: "habit", textContent: h.text })),
+  ] : []));
   const items = data.diary;
   elements.diaryList.replaceChildren(...items.map(item => {
     const row = document.createElement("article");

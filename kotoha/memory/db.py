@@ -34,6 +34,14 @@ CREATE TABLE IF NOT EXISTS diary (
   created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS habits (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  text TEXT NOT NULL,
+  first_at TEXT NOT NULL,
+  confirmed_at TEXT NOT NULL,
+  retired_at TEXT
+);
+
 CREATE TABLE IF NOT EXISTS memory_nodes (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   layer TEXT NOT NULL CHECK (layer IN ('episode', 'semantic')),
@@ -307,6 +315,7 @@ LAST_PROCESSED_MESSAGE_ID = "last_processed_message_id"
 LAST_REACH_OUT_AT = "last_reach_out_at"
 LAST_BRIEFING_ON = "last_briefing_on"
 LAST_DIARY_ON = "last_diary_on"
+LAST_HABITS_AT = "last_habits_at"
 LAST_LATE_NIGHT_ON = "last_late_night_on"
 LAST_LINKED_NODE_ID = "last_linked_node_id"
 PENDING_RECONSOLIDATION_IDS = "pending_reconsolidation_ids"

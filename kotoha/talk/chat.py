@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from typing import NamedTuple
 
 from .. import config, notify
-from ..memory import db, diary, remind, retrieve
+from ..memory import db, diary, habits, remind, retrieve
 from . import actions, coding, figure, presence, schedule
 from . import llm, router
 
@@ -322,6 +322,7 @@ def build_prompt(conn, user_text: str, recent, pinned, related, fast: bool = Fal
 
     remind_block = remind.block(conn) if not fast else ""
     diary_block = diary.block(conn) if not fast else ""
+    habit_block = habits.block(conn) if not fast else ""
 
     basic_block = ""
     if pinned:
@@ -355,6 +356,7 @@ def build_prompt(conn, user_text: str, recent, pinned, related, fast: bool = Fal
         machine_block,
         remind_block,
         diary_block,
+        habit_block,
         basic_block,
         topic_block,
         related_block,

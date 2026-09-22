@@ -12,7 +12,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from .. import config, notify
-from ..memory import db, diary, remind
+from ..memory import db, diary, habits, remind
 from ..talk import chat, llm, presence
 from . import admin, hub, jobs, voice
 
@@ -468,7 +468,8 @@ def diary_list(request: Request):
     _check_token(request)
     with db.session() as conn:
         rows = diary.recent(conn, DIARY_LIST_LIMIT)
-        return {"diary": [dict(r) for r in rows]}
+        return {"diary": [dict(r) for r in rows],
+                "habits": [dict(r) for r in habits.alive(conn)]}
 
 
 @app.delete("/api/reminders/{reminder_id}")

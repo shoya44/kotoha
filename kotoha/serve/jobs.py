@@ -10,7 +10,7 @@ import time
 from datetime import datetime, timedelta
 
 from .. import config, notify
-from ..memory import consolidate, db, diary, embed, remind
+from ..memory import consolidate, db, diary, embed, habits, remind
 from ..talk import chat, coding, garbage, presence, quake, schedule, upkeep, weather
 from . import hub
 from .announce import announce, can_speak, collecting, flush_held
@@ -59,6 +59,11 @@ def run_periodic_jobs(conn, outside=None) -> None:
     if db.overdue(conn, db.LAST_FORGET_AT, config.MAINTENANCE_SECONDS):
         db.run_maintenance(conn)
     maybe_diary(conn)
+    if habits.due(conn):
+        try:
+            habits.reflect(conn)
+        except Exception as error:
+            notify.log(f"習慣の振り返りで失敗: {error!r}")
     # 朝の一言、頼まれごと、見守り、暇なときの声かけ。どれも滅多に鳴らない。
     # この巡回のあいだは鳴らさずに預かる。朝の一言と頼まれごとが同じ分に
     # 重なることがあり、2通に分けると同じ人から立て続けに届く。
