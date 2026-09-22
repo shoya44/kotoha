@@ -855,6 +855,62 @@ if (iso !== false) {
   return bubble;
 }
 
+// 返事を、文ごとの吹き出しに分けて出す。**全文が一度に出ると、書き置きに見える。**
+// 人は長い文ほど打つのに時間がかかる。2つ目からは打っている印を挟み、
+// 長さぶんだけ待ってから出す。分けるのは見た目だけで、脳には1つの返事のまま
+// （履歴を読み直すと1つの吹き出しに戻る）。
+const PIECE_MS_PER_CHAR = 45;
+const PIECE_MIN_MS = 350;
+const PIECE_MAX_MS = 1500;
+const PIECES_MAX = 3;      // これより細かくは割らない。細切れは、かえってせわしない
+const PIECE_SHORT = 6;     // これ未満の文（「明日やる。」）は前につなぐ。ひと息で打てる長さ
+
+function splitReply(text) {
+  const raw = [];
+  let buffer = "";
+  for (const ch of text) {
+    buffer += ch;
+    if (SENTENCE_END.includes(ch)) {
+      raw.push(buffer);
+      buffer = "";
+    }
+  }
+  if (buffer) raw.push(buffer);
+
+  const parts = [];
+  let broke = false;   // 直前の文が改行で終わっていたか。つなぐときも改行のまま残す
+  for (const piece of raw) {
+    const part = piece.trim();
+    if (!part) continue;
+    const last = parts[parts.length - 1];
+    const joinable = last !== undefined
+      && (part.length < PIECE_SHORT || parts.length >= PIECES_MAX);
+    if (joinable) parts[parts.length - 1] = last + (broke ? "\n" : "") + part;
+    else parts.push(part);
+    broke = piece.endsWith("\n");
+  }
+  return parts;
+}
+
+function typingTime(text) {
+  return Math.min(PIECE_MAX_MS, Math.max(PIECE_MIN_MS, text.length * PIECE_MS_PER_CHAR));
+}
+
+async function showReply(text, iso) {
+  const parts = splitReply(text);
+  if (parts.length <= 1) {
+    addMessage("assistant", text, iso);
+    return;
+  }
+  addMessage("assistant", parts[0], iso);
+  for (const part of parts.slice(1)) {
+    const typingRow = addTypingIndicator();
+    await wait(typingTime(part));
+    typingRow?.remove();
+    addMessage("assistant", part, false);
+  }
+}
+
 function addTypingIndicator() {
   const bubble = addMessage("assistant", "", false);
   bubble.classList.add("typing");
@@ -1462,15 +1518,16 @@ async function send() {
 
     const data = await response.json();
     if (data.last_id) lastMessageId = data.last_id;
-    // ことは側から始まる会話も、通常のAIメッセージとして同じ見た目で扱う。
-    addMessage("assistant", data.reply);
-    (data.kept || []).forEach(showKept);
+    // 文ごとの吹き出しに分けて出す。声は分けずに、最初の吹き出しと同時に始める。
+    const shown = showReply(data.reply);
     reactAvatar();
     elements.mode.textContent = data.mode || "";
     setStatus(calling ? "通話中" : "いるよ", calling ? "calling" : "online");
     // 通話中はつなぎ言葉を挟む都合があるので、読み上げは呼び出し側に任せる。
-    if (calling) return data.reply;
-    return speak(data.reply);
+    const spoken = calling ? Promise.resolve(data.reply) : speak(data.reply);
+    await shown;
+    (data.kept || []).forEach(showKept);
+    return spoken;
   } catch {
     typingRow?.remove();
     addMessage("system", "[エラー] 通信失敗");
