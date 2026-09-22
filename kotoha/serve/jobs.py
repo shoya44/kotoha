@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 
 from .. import config, notify
 from ..memory import consolidate, db, embed, remind
-from ..talk import chat, garbage, presence, quake, schedule, upkeep, weather
+from ..talk import chat, coding, garbage, presence, quake, schedule, upkeep, weather
 from . import hub
 from .announce import announce, can_speak, collecting, flush_held
 
@@ -65,6 +65,7 @@ def run_periodic_jobs(conn, outside=None) -> None:
         maybe_reminders(conn)
         maybe_briefing(conn, outside)
         maybe_lookout(conn)
+        maybe_coding(conn)
         maybe_reach_out(conn)
     try:
         flush_held(conn)
@@ -151,6 +152,22 @@ def maybe_reach_out(conn) -> None:
     db.set_state(conn, db.LAST_REACH_OUT_AT, db.now_utc())
     conn.commit()
     announce(conn, chat.REACH_OUT_CLOSING)
+
+
+def maybe_coding(conn) -> None:
+    """頼んでいた Claude Code の仕事が終わったら、一声かける。
+
+    様子の見張りそのもの（どれが動いていて、どれが返事待ちか）は言えなくても
+    続ける。言えるようになったときに、溜まったぶんをまとめて言われても困る。
+    """
+    if not config.CODING_ENABLED:
+        return
+    for one in coding.finished(conn):
+        if not can_speak():
+            continue
+        announce(conn, f"{one.place} で頼んでいた Claude Code の作業が終わって、"
+                       "返事を待っている。一行で知らせる。",
+                 plain=f"{one.place} の Claude Code、終わったみたい")
 
 
 def maybe_lookout(conn) -> None:
