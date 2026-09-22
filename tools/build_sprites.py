@@ -151,6 +151,94 @@ def _grow(image, out_w: int, out_h: int):
     return out
 
 
+# まばたき差分を本体に合わせるときの、目のまわりの窓。中身の幅と高さに対する割合で
+# (左, 右, 上, 下)。目は中身の上から 3〜4 割のところにあり、座っている絵でも変わらない。
+EYE_WINDOW = (0.10, 0.90, 0.12, 0.50)
+# 顔が下のほうにある絵は、窓を下げる。寝そべっていると目は中身の 6〜7 割の高さ。
+# **`--check` で並べた絵を見て、目が窓に入っていない絵をここに足す。**
+EYE_WINDOWS = {
+    "bored": (0.10, 0.90, 0.42, 0.80),
+}
+# ずれを探す幅（出す大きさでのドット）。実測でいちばん大きかったずれは 7 ドット。
+BLINK_SEARCH = 8
+# 窓の縁をなじませる幅（ドット）。切れ目が線になって見えないように。
+FEATHER = 4
+
+
+def _eye_window(box, place, ratio, window=EYE_WINDOW):
+    """出す大きさの中での、目のまわりの窓。(x0, y0, x1, y1)、右下は含まない。"""
+    left, top, right, bottom = box
+    width, height = right - left + 1, bottom - top + 1
+    x = left + place[0]
+    y = top + place[1]
+    return (round((x + width * window[0]) * ratio),
+            round((y + height * window[2]) * ratio),
+            round((x + width * window[1]) * ratio),
+            round((y + height * window[3]) * ratio))
+
+
+def _mismatch(base, blink, window, dx: int, dy: int, step: int = 1) -> float:
+    """窓の中で、差分を (dx, dy) ずらして重ねたときの食い違い。小さいほど揃っている。"""
+    x0, y0, x1, y1 = window
+    width, height = base.width, base.height
+    total = count = 0
+    for y in range(y0, y1, step):
+        sy = y + dy
+        if not 0 <= sy < height:
+            continue
+        for x in range(x0, x1, step):
+            sx = x + dx
+            if not 0 <= sx < width:
+                continue
+            i, j = (y * width + x) * 4, (sy * width + sx) * 4
+            total += (abs(base.px[i + 3] - blink.px[j + 3]) * 2
+                      + abs(base.px[i] - blink.px[j])
+                      + abs(base.px[i + 1] - blink.px[j + 1])
+                      + abs(base.px[i + 2] - blink.px[j + 2]))
+            count += 1
+    return total / count if count else float("inf")
+
+
+def _fit_blink(base, blink, window, guess=(0, 0), search: int = BLINK_SEARCH):
+    """まばたき差分を、本体に重ねる。**目のまわりだけ差分から取り、ほかは本体のまま。**
+
+    差分は描き直した絵なので、髪の毛先や輪郭が本体と少しずつ違う。中心と床で
+    揃えても、目を閉じるたびに絵ぜんたいが揺れた（実測で最大7ドット。顔が
+    横に跳ねる）。目のまわりの窓の中でいちばん重なるずれを探し、**その窓だけ**を
+    本体に重ねる。窓の外は本体そのものなので、体も髪の先も動かない。
+    窓の縁は数ドットかけてなじませ、切れ目を線にしない。
+
+    (重ねた絵, 見つけたずれ) を返す。guess を中心に ±search を探す。
+    """
+    x0, y0, x1, y1 = window
+    best = None
+    for dy in range(guess[1] - search, guess[1] + search + 1):
+        for dx in range(guess[0] - search, guess[0] + search + 1):
+            score = _mismatch(base, blink, window, dx, dy, step=2)
+            if best is None or score < best[0]:
+                best = (score, dx, dy)
+    _score, dx, dy = best
+    out = png.Image(base.width, base.height)
+    out.px[:] = base.px
+    width, height = base.width, base.height
+    for y in range(max(0, y0), min(height, y1)):
+        sy = y + dy
+        for x in range(max(0, x0), min(width, x1)):
+            sx = x + dx
+            edge = min(x - x0, x1 - 1 - x, y - y0, y1 - 1 - y)
+            weight = min(FEATHER, edge + 1) / FEATHER
+            i = (y * width + x) * 4
+            if 0 <= sx < width and 0 <= sy < height:
+                j = (sy * width + sx) * 4
+                source = blink.px[j:j + 4]
+            else:
+                source = b"\0\0\0\0"
+            for channel in range(4):
+                out.px[i + channel] = round(base.px[i + channel] * (1 - weight)
+                                            + source[channel] * weight)
+    return out, (dx, dy)
+
+
 def _head(image, bounds, part: float):
     """頭を中心にした正方形の切り抜き。part は中身の高さに対する割合。"""
     left, top, right, bottom = bounds
@@ -192,7 +280,37 @@ def _icon(image, bounds, size: int):
     return out
 
 
-def main() -> int:
+# `--check` で書く、見比べ用の1枚。本体・まばたき・違い（赤）を横に並べ、絵ごとに1段。
+# **目が窓に入っているかは、これを見る。** 違いが目のまわりに無ければ、窓が外れている。
+CHECK_PATH = BASE_DIR / "img" / "blink-check.png"
+CHECK_BG = (30, 30, 34, 255)
+
+
+def _check_sheet(checks, path) -> None:
+    width, height = checks[0][1].width, checks[0][1].height
+    sheet = png.Image(width * 3, height * len(checks))
+    for row, (_name, base, fitted, window) in enumerate(checks):
+        for y in range(height):
+            for x in range(width):
+                i = (y * width + x) * 4
+                for column, image in enumerate((base, fitted)):
+                    j = ((row * height + y) * sheet.width + column * width + x) * 4
+                    px = image.px[i:i + 4]
+                    sheet.px[j:j + 4] = (bytes((px[0], px[1], px[2], 255)) if px[3] > 127
+                                         else bytes(CHECK_BG))
+                j = ((row * height + y) * sheet.width + 2 * width + x) * 4
+                diff = sum(abs(base.px[i + k] - fitted.px[i + k]) for k in range(4))
+                inside = window[0] <= x < window[2] and window[1] <= y < window[3]
+                if diff > 60:
+                    sheet.px[j:j + 4] = bytes((min(255, diff), 40, 40, 255))
+                elif inside:
+                    sheet.px[j:j + 4] = bytes((44, 44, 60, 255))     # 窓の範囲を薄く
+                else:
+                    sheet.px[j:j + 4] = bytes(CHECK_BG)
+    png.save(path, sheet)
+
+
+def main(check: bool = False) -> int:
     if not SOURCE_DIR.is_dir():
         print(f"素材が見つからない: {SOURCE_DIR}")
         return 1
@@ -262,6 +380,7 @@ def main() -> int:
         return ((canvas_w - (right - left + 1)) // 2 - left,
                 (canvas_h - MARGIN_BOTTOM) - (bottom + 1))
 
+    checks = []
     for name, (image, scale, box, blink) in plan.items():
         place = placement(box)
         blink_place = place
@@ -269,16 +388,29 @@ def main() -> int:
             blink_scale = reference / blink.width
             blink_box = tuple(round(v * blink_scale) for v in png.bounds(blink))
             blink_place = placement(blink_box)
+        found, last_ratio = (0, 0), None
         for folder in HEIGHTS:
             out_w, out_h = sizes[folder]
             ratio = out_h / canvas_h
-            png.save(OUT_DIR / folder / f"{name}.png",
-                     render(image, scale, place, out_w, out_h, ratio))
+            base = render(image, scale, place, out_w, out_h, ratio)
+            png.save(OUT_DIR / folder / f"{name}.png", base)
             if blink is not None:
-                png.save(OUT_DIR / folder / f"{name}{BLINK_SUFFIX}.png",
-                         render(blink, blink_scale, blink_place, out_w, out_h, ratio))
+                drawn = render(blink, blink_scale, blink_place, out_w, out_h, ratio)
+                # 前の大きさで見つけたずれを起点に、細かく探し直す（総当たりは重い）。
+                if last_ratio is None:
+                    guess, search = (0, 0), BLINK_SEARCH
+                else:
+                    guess = tuple(round(v * ratio / last_ratio) for v in found)
+                    search = 2
+                window = _eye_window(box, place, ratio, EYE_WINDOWS.get(name, EYE_WINDOW))
+                fitted, found = _fit_blink(base, drawn, window, guess, search)
+                last_ratio = ratio
+                png.save(OUT_DIR / folder / f"{name}{BLINK_SUFFIX}.png", fitted)
+                if folder == "full":
+                    checks.append((name, base, fitted, window))
         sprites[name] = {"blink": blink is not None}
-        print(f"  書いた: {name}{'（まばたきあり）' if blink is not None else ''}")
+        note = f"（まばたきあり。ずれ {found[0]:+d},{found[1]:+d} を吸収）" if blink is not None else ""
+        print(f"  書いた: {name}{note}")
 
     face_name = FACE_FROM if FACE_FROM in plan else next(iter(plan))
     face_image = plan[face_name][0]
@@ -301,6 +433,10 @@ def main() -> int:
     (OUT_DIR / "sprites.json").write_text(
         json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
+    if check and checks:
+        _check_sheet(checks, CHECK_PATH)
+        print(f"  書いた: 見比べ用の1枚 {CHECK_PATH}（本体・まばたき・違い）")
+
     blinks = sum(1 for s in sprites.values() if s["blink"])
     print(f"\n{len(sprites)}種類（まばたきあり {blinks}種類）")
     print("実寸: " + "、".join(f"{k} {v[0]}x{v[1]}" for k, v in sizes.items()))
@@ -310,4 +446,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(main(check="--check" in sys.argv[1:]))
