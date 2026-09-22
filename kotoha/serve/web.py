@@ -178,8 +178,9 @@ async def api_chat_stream(request: Request, payload: dict):
                             "rest": part["rest"],
                             "last_id": conn.execute(
                                 "SELECT MAX(id) AS id FROM messages").fetchone()["id"],
-                            "kept": [{"due_at": when.strftime(remind.STAMP), "text": what}
-                                     for when, what, _ in turn.kept],
+                            "kept": [{"due_at": when.strftime(remind.STAMP), "text": what,
+                                      "repeat": repeat}
+                                     for when, what, repeat in turn.kept],
                         }})
                     else:
                         hand(part)
@@ -227,8 +228,9 @@ def api_chat(request: Request, payload: dict):
     answer = {"reply": turn.reply, "mode": turn.mode, "last_id": last_id}
     if turn.kept:
         # 預かったことを画面にも出す。ことはの言葉は変えず、印だけ足す。
-        answer["kept"] = [{"due_at": when.strftime(remind.STAMP), "text": what}
-                          for when, what, _ in turn.kept]
+        answer["kept"] = [{"due_at": when.strftime(remind.STAMP), "text": what,
+                           "repeat": repeat}
+                          for when, what, repeat in turn.kept]
     return answer
 
 

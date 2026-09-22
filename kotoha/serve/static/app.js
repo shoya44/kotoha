@@ -358,12 +358,17 @@ async function handleSnoozeLink() {
 function showKept(item) {
   const chip = document.createElement("div");
   chip.className = "kept-chip";
-  chip.textContent = `Rm. ${reminderWhen(item.due_at)} ${item.text}`;
+  chip.textContent = `Rm. ${reminderWhen(item.due_at)} ${item.text}${repeatMark(item)}`;
   elements.log.appendChild(chip);
   chip.scrollIntoView({ block: "nearest" });
 }
 
 // ===== 預かっているもの =====
+// 繰り返し（毎日・平日）は、そう見えないと「一度きり」と区別がつかない。
+function repeatMark(item) {
+  return item.repeat ? `（${item.repeat}）` : "";
+}
+
 function reminderWhen(due) {
   // "2026-09-18 09:00" → "9/18 09:00"。今年の予定に年は要らない。
   const [date, time] = due.split(" ");
@@ -386,7 +391,7 @@ async function loadReminders() {
 
     const body = document.createElement("span");
     body.className = "body";
-    body.textContent = item.text;
+    body.textContent = item.text + repeatMark(item);
 
     // 取り消しは2度押し。押し間違いで預けたものが消えるほうが困る。
     const drop = document.createElement("button");

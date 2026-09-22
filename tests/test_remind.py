@@ -507,7 +507,14 @@ class KeptAnswerTests(DbCase):
         self.reply_with("仕方ないなー。[REMIND: 2026-09-18 09:00|歯医者]")
         answer = self.send()
         self.assertEqual(answer["reply"], "仕方ないなー。")      # 言葉は変わらない
-        self.assertEqual(answer["kept"], [{"due_at": "2026-09-18 09:00", "text": "歯医者"}])
+        self.assertEqual(answer["kept"], [{"due_at": "2026-09-18 09:00", "text": "歯医者",
+                                           "repeat": None}])
+
+    def test_a_repeat_comes_back_with_the_mark(self):
+        """毎日か一度きりかは、印で見分けられないと確かめようがない。"""
+        self.reply_with("いいよ。[REMIND: 2026-09-18 22:00|薬を飲んだか聞く|毎日]")
+        answer = self.send("毎晩22時に薬飲んだか聞いて")
+        self.assertEqual(answer["kept"][0]["repeat"], "毎日")
 
     def test_an_ordinary_reply_has_no_mark(self):
         self.reply_with("ふーん、そうなんだ。")
