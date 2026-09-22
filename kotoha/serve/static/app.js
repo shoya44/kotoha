@@ -363,6 +363,15 @@ function showKept(item) {
   chip.scrollIntoView({ block: "nearest" });
 }
 
+// 取り消した印。会話の中でことはが判断して消したものも、目で確かめられる。
+function showDropped(item) {
+  const chip = document.createElement("div");
+  chip.className = "kept-chip";
+  chip.textContent = `Rm. 取り消し ${item.text}${repeatMark(item)}`;
+  elements.log.appendChild(chip);
+  chip.scrollIntoView({ block: "nearest" });
+}
+
 // ===== 預かっているもの =====
 // 繰り返し（毎日・平日）は、そう見えないと「一度きり」と区別がつかない。
 function repeatMark(item) {
@@ -1532,6 +1541,7 @@ async function send() {
     const spoken = calling ? Promise.resolve(data.reply) : speak(data.reply);
     await shown;
     (data.kept || []).forEach(showKept);
+    (data.dropped || []).forEach(showDropped);
     return spoken;
   } catch {
     typingRow?.remove();
@@ -1623,6 +1633,7 @@ async function sendStream(text, onFirst) {
     if (done.last_id) lastMessageId = done.last_id;
     addMessage("assistant", done.reply);
     (done.kept || []).forEach(showKept);
+    (done.dropped || []).forEach(showDropped);
     reactAvatar();
     elements.mode.textContent = done.mode || "";
     setStatus(calling ? "通話中" : "いるよ", calling ? "calling" : "online");

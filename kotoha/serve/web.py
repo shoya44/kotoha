@@ -181,6 +181,8 @@ async def api_chat_stream(request: Request, payload: dict):
                             "kept": [{"due_at": when.strftime(remind.STAMP), "text": what,
                                       "repeat": repeat}
                                      for when, what, repeat in turn.kept],
+                            "dropped": [{"id": i, "text": what, "repeat": repeat}
+                                        for i, what, repeat in turn.dropped],
                         }})
                     else:
                         hand(part)
@@ -231,6 +233,9 @@ def api_chat(request: Request, payload: dict):
         answer["kept"] = [{"due_at": when.strftime(remind.STAMP), "text": what,
                            "repeat": repeat}
                           for when, what, repeat in turn.kept]
+    if turn.dropped:
+        answer["dropped"] = [{"id": i, "text": what, "repeat": repeat}
+                             for i, what, repeat in turn.dropped]
     return answer
 
 

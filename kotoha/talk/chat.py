@@ -210,7 +210,7 @@ def _strip_tag(text: str, name: str):
     return clean, match.group(1).strip()
 
 
-TAG_NAMES = ("USED", "MOOD", "DO", "REMIND")
+TAG_NAMES = ("USED", "MOOD", "DO", "REMIND", "DROP")
 
 
 def strip_tags(text: str) -> str:
@@ -372,7 +372,7 @@ def _fetch_recent(conn, user_text: str):
 
 
 def _finish(conn, turn_id: int, clean: str, ids, mode: str, mood: str = None, kept=(),
-            why: str = ""):
+            why: str = "", dropped=()):
     db.insert_message(conn, turn_id, "assistant", clean)
     db.set_state(conn, db.LAST_CONVERSATION_AT, db.now_utc())
     remind.answered(conn)      # 返事があった。追いかけはここで終わり
@@ -387,7 +387,7 @@ def _finish(conn, turn_id: int, clean: str, ids, mode: str, mood: str = None, ke
         db.count_mood_change(conn, turn_id)
     db.update_usage(conn, ids, turn_id)
     conn.commit()
-    return Turn(clean, mode, list(kept))
+    return Turn(clean, mode, list(kept), list(dropped))
 
 
 class Turn(NamedTuple):
@@ -396,6 +396,7 @@ class Turn(NamedTuple):
     reply: str
     mode: str
     kept: list = []      # この回に預かった頼まれごと [(時刻, 用件, 繰り返し), …]
+    dropped: list = []   # この回に取り消した頼まれごと [(id, 用件, 繰り返し), …]
 
 
 def _keep_reminders(conn, clean: str):
@@ -407,6 +408,12 @@ def _keep_reminders(conn, clean: str):
     for when, what, repeat in later:
         remind.add(conn, when, what, repeat)
     return clean, later
+
+
+def _drop_reminders(conn, clean: str):
+    """「もういい」と判断した取り消し。消せたものを返す。"""
+    clean, ids = remind.parse_drop(clean)
+    return clean, remind.drop_many(conn, ids) if ids else []
 
 
 def trace_recall(pinned, related, used) -> None:
@@ -550,10 +557,11 @@ def stream_turn(conn, user_text: str):
     clean, mood, why = parse_mood(clean)
     clean, todo = parse_action(clean)
     clean, kept = _keep_reminders(conn, clean)
+    clean, dropped = _drop_reminders(conn, clean)
     clean = strip_tags(clean)
     _record_pending(conn, ids)
     trace_recall(pinned, related, ids)
-    done = _finish(conn, turn_id, clean, ids, "slow", mood, kept, why)
+    done = _finish(conn, turn_id, clean, ids, "slow", mood, kept, why, dropped)
     # まだ声にしていないぶん。食い違ったら黙って足さない（二度言うほうが困る）。
     rest = clean[said:] if clean[:said] == strip_tags(raw)[:said] else ""
     yield {"done": done, "rest": rest}
@@ -581,10 +589,11 @@ def run_turn(conn, user_text: str):
             clean, ids = parse_used_ids(raw)
             clean, mood, why = parse_mood(clean)
             clean, kept = _keep_reminders(conn, clean)
+            clean, dropped = _drop_reminders(conn, clean)
             clean = strip_tags(clean)
             ids = [i for i in ids if i in allowed]
             _record_pending(conn, ids)
-            return _finish(conn, turn_id, clean, ids, mode, mood, kept, why)
+            return _finish(conn, turn_id, clean, ids, mode, mood, kept, why, dropped)
 
     pinned, related = retrieve.retrieve(conn, user_text, recent_text)
     prompt = build_prompt(conn, user_text, recent, pinned, related)
@@ -593,10 +602,11 @@ def run_turn(conn, user_text: str):
     clean, mood, why = parse_mood(clean)
     clean, todo = parse_action(clean)
     clean, kept = _keep_reminders(conn, clean)
+    clean, dropped = _drop_reminders(conn, clean)
     clean = strip_tags(clean)
     _record_pending(conn, ids)
     trace_recall(pinned, related, ids)
-    done = _finish(conn, turn_id, clean, ids, mode, mood, kept, why)
+    done = _finish(conn, turn_id, clean, ids, mode, mood, kept, why, dropped)
     # 頼まれごとは、返答を保存し終えてから。入れ直しならここで落ちる。
     if todo:
         actions.run(todo)

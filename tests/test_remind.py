@@ -163,6 +163,73 @@ class RepeatTests(DbCase):
         self.assertEqual(remind.pending(self.conn), [])
 
 
+class FlexibleRepeatTests(DbCase):
+    """週末だけ、月水金、休日。言葉は揃えて持ち、次に当たる日を探す。"""
+
+    def test_words_are_normalized(self):
+        cases = {"週末": "土日", "月水金": "月水金", "金水月": "月水金", "毎週月曜・水曜": "月水",
+                 "日曜日": "日", "月火水木金土日": "毎日", "土日祝": "休日", "仕事の日": "平日",
+                 "平日": "平日", "なんとなく": None, "": None}
+        for word, want in cases.items():
+            with self.subTest(word=word):
+                self.assertEqual(remind.normalize_repeat(word), want)
+
+    def test_a_weekday_set_rides_in_the_tag(self):
+        _, found = remind.parse("[REMIND: 2026-09-22 21:00|ゴミ出し|月水金]")
+        self.assertEqual(found[0][2], "月水金")
+
+    def test_mon_wed_fri_goes_to_the_next_of_those(self):
+        """9/22（火）の次は 9/23（水）。9/23 の次は 9/25（金）、その次は 9/28（月）。"""
+        now = datetime(2026, 9, 22, 21, 30)
+        self.assertEqual(remind.next_due(datetime(2026, 9, 22, 21, 0), "月水金", now),
+                         datetime(2026, 9, 23, 21, 0))
+        self.assertEqual(remind.next_due(datetime(2026, 9, 25, 21, 0), "月水金",
+                                         datetime(2026, 9, 25, 22, 0)),
+                         datetime(2026, 9, 28, 21, 0))
+
+    def test_weekend_goes_to_saturday(self):
+        self.assertEqual(remind.next_due(datetime(2026, 9, 22, 9, 0), "週末",
+                                         datetime(2026, 9, 22, 10, 0)),
+                         datetime(2026, 9, 26, 9, 0))
+
+    def test_days_off_include_holidays(self):
+        """9/23 は秋分の日。休日は祝日にも当たる。"""
+        self.assertEqual(remind.next_due(datetime(2026, 9, 22, 9, 0), "休日",
+                                         datetime(2026, 9, 22, 10, 0)),
+                         datetime(2026, 9, 23, 9, 0))
+
+    def test_the_set_is_kept_after_it_fires(self):
+        remind.add(self.conn, datetime(2026, 9, 22, 21, 0), "ゴミ出し", "月水金")
+        self.conn.commit()
+        remind.done(self.conn, remind.pending(self.conn)[0]["id"])
+        self.assertEqual(remind.pending(self.conn)[0]["repeat"], "月水金")
+
+
+class DropTagTests(DbCase):
+    """会話の中でことはが判断して取り消す。本人に頼まれたぶんだけ。"""
+
+    def test_parse_pulls_ids(self):
+        clean, ids = remind.parse_drop("わかった、もう言わないね。[DROP: #3, 5]")
+        self.assertEqual(clean, "わかった、もう言わないね。")
+        self.assertEqual(ids, [3, 5])
+
+    def test_unreadable_ids_are_dropped_quietly(self):
+        self.assertEqual(remind.parse_drop("[DROP: x]")[1], [])
+
+    def test_block_shows_the_number_to_point_at(self):
+        remind.add(self.conn, datetime(2026, 9, 22, 21, 0), "薬", "毎日")
+        self.conn.commit()
+        self.assertIn("#1 2026-09-22 21:00 薬（毎日）", remind.block(self.conn))
+
+    def test_only_what_the_owner_asked_can_be_dropped(self):
+        remind.add(self.conn, datetime(2026, 9, 22, 21, 0), "薬", "毎日")
+        remind.add(self.conn, datetime(2026, 9, 22, 21, 30), "薬", chain=1)
+        self.conn.commit()
+        gone = remind.drop_many(self.conn, [1, 2, 99])
+        self.assertEqual(gone, [(1, "薬", "毎日")])
+        self.assertEqual([r["chain"] for r in remind.pending(self.conn)], [1])
+
+
 class FollowUpTests(DbCase):
     """自分で入れる「もう一度」。返事が来たら終わり。上限で手を引く。"""
 
@@ -515,6 +582,15 @@ class KeptAnswerTests(DbCase):
         self.reply_with("いいよ。[REMIND: 2026-09-18 22:00|薬を飲んだか聞く|毎日]")
         answer = self.send("毎晩22時に薬飲んだか聞いて")
         self.assertEqual(answer["kept"][0]["repeat"], "毎日")
+
+    def test_a_drop_from_the_talk_comes_back_with_the_mark(self):
+        remind.add(self.conn, datetime(2026, 9, 22, 21, 0), "薬を飲んだか聞く", "毎日")
+        self.conn.commit()
+        self.reply_with("そっか、じゃあもう聞かないね。[DROP: 1]")
+        answer = self.send("薬のはもういいよ")
+        self.assertEqual(answer["reply"], "そっか、じゃあもう聞かないね。")
+        self.assertEqual(answer["dropped"], [{"id": 1, "text": "薬を飲んだか聞く", "repeat": "毎日"}])
+        self.assertEqual(remind.pending(self.conn), [])
 
     def test_an_ordinary_reply_has_no_mark(self):
         self.reply_with("ふーん、そうなんだ。")

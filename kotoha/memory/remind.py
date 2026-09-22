@@ -6,7 +6,8 @@
 言って終わりではない。**返事が要ることなら、もう一度言う時刻を自分で
 入れる**（追いかけ）。何度言うか、いつ諦めるかは用件の重さで本人が決める。
 こちらで決めるのは、際限なく続かないための上限だけ。
-毎日・平日の繰り返しは、言い終わるたびに次の日のぶんを入れ直す。
+繰り返し（毎日・平日・休日・曜日の組）は、言い終わるたびに次の日のぶんを
+入れ直す。取り消しは画面からでも、会話の中でことはが判断してでもできる。
 """
 
 import re
@@ -21,7 +22,13 @@ STAMP = "%Y-%m-%d %H:%M"
 # 起動していなかった間に過ぎたものを、まとめて言われても困る。
 LATE_LIMIT = timedelta(hours=12)
 # 繰り返しの言い方。タグの3つ目に書く。知らない言葉は「一度きり」に落とす。
-REPEATS = ("毎日", "平日")
+# 決まった言葉のほかに、曜日の組（「月水金」「土日」）をそのまま持つ。
+REPEATS = ("毎日", "平日", "休日")
+WEEKDAYS = "月火水木金土日"
+ALIASES = {"週末": "土日", "毎週末": "土日", "土日祝": "休日", "休み": "休日",
+           "休みの日": "休日", "仕事の日": "平日", "毎朝": "毎日", "毎晩": "毎日", "毎週": "毎日"}
+# 「月曜日」の「日」を曜日の「日」と取り違えないよう、「曜日」から先に落とす。
+_NOISE = re.compile(r"曜日|曜|毎週|と|や|[・,、/／\s]")
 # 追いかけの上限。**ここまで来たら、返事は無いものとして手を引く。**
 # 何度言うかは本人が決めるが、言えるまで毎回API の枠を食う道は塞いでおく。
 CHAIN_LIMIT = 6
@@ -40,8 +47,38 @@ def parse(text: str):
             when = datetime.strptime(when, STAMP)
         except ValueError:
             continue        # 読めない時刻は黙って捨てる。妙な予定を残さない。
-        found.append((when, what, repeat if repeat in REPEATS else None))
+        found.append((when, what, normalize_repeat(repeat)))
     return TAG.sub("", text).strip(), found
+
+
+def normalize_repeat(word):
+    """繰り返しの言葉を、持ち歩ける形に揃える。読めなければ None（一度きり）。
+
+    「週末」→「土日」、「毎週月曜・水曜」→「月水」。曜日の組は月〜日の順に
+    並べ直す。同じことを違う書き方で預かって、別物に見えないように。
+    """
+    if not word:
+        return None
+    word = word.strip()
+    word = ALIASES.get(word, word)
+    if word in REPEATS:
+        return word
+    letters = _NOISE.sub("", word)
+    if letters and all(c in WEEKDAYS for c in letters):
+        days = "".join(c for c in WEEKDAYS if c in letters)
+        return "毎日" if days == WEEKDAYS else days
+    return None
+
+
+def falls_on(repeat: str, day) -> bool:
+    """その日が、繰り返しに当たるか。「平日」「休日」は暦（土日・祝日）を見る。"""
+    if repeat == "毎日":
+        return True
+    plan = None
+    if repeat in ("平日", "休日"):
+        plan = schedule.today(day.date() if hasattr(day, "date") else day)
+        return plan["working"] if repeat == "平日" else not plan["working"]
+    return WEEKDAYS[day.weekday()] in repeat
 
 
 def add(conn, due: datetime, text: str, repeat: str = None, chain: int = 0) -> None:
@@ -58,12 +95,13 @@ def next_due(due: datetime, repeat: str, now=None):
     **もう過ぎた日は飛ばす。** 何日か寝ていたあとに1日ずつ畳み直すのは、
     畳んだ記録が日数ぶん並ぶだけで、誰の役にも立たない。
     """
-    if repeat not in REPEATS:
+    repeat = normalize_repeat(repeat)
+    if not repeat:
         return None
     now = now or datetime.now()
     day = due + timedelta(days=1)
     for _ in range(400):              # 1年寝ていても抜ける
-        if day > now and (repeat != "平日" or schedule.today(day.date())["working"]):
+        if day > now and falls_on(repeat, day):
             break
         day += timedelta(days=1)
     return day
@@ -143,7 +181,38 @@ def follow_up(conn, parent_chain: int, due: datetime, text: str) -> bool:
     return True
 
 
+DROP_TAG = re.compile(r"\[DROP:\s*([^\]]*?)\s*\]")
+
+
+def parse_drop(text: str):
+    """文から「取り消す」を取り出す。(タグを消した文, [id, …])。
+
+    ことはが会話から「もういい」と判断したときに使う。本人に頼まれたぶん
+    （chain=0）だけが対象で、読めない id は黙って捨てる。
+    """
+    ids = []
+    for body in DROP_TAG.findall(text):
+        for one in body.replace("#", "").split(","):
+            try:
+                ids.append(int(one.strip()))
+            except ValueError:
+                continue
+    return DROP_TAG.sub("", text).strip(), ids
+
+
+def drop_many(conn, ids):
+    """会話から取り消す。消せたものの用件を返す（画面に印を出すため）。"""
+    gone = []
+    for one in ids:
+        row = conn.execute("SELECT text, repeat FROM reminders WHERE id = ? AND done_at IS NULL "
+                           "AND chain = 0", (one,)).fetchone()
+        if row and drop(conn, one):
+            gone.append((one, row["text"], row["repeat"]))
+    return gone
+
+
 def drop(conn, reminder_id: int) -> bool:
+    """取り消す。繰り返しも、この1件を消せば次は入らない（done を通らない）。"""
     cursor = conn.execute("DELETE FROM reminders WHERE id = ? AND done_at IS NULL",
                           (reminder_id,))
     return cursor.rowcount > 0
@@ -196,7 +265,7 @@ def block(conn) -> str:
     if not rows:
         return ""
     items = "、".join(
-        f"{r['due_at']} {r['text']}" + (f"（{r['repeat']}）" if r["repeat"] else "")
+        f"#{r['id']} {r['due_at']} {r['text']}" + (f"（{r['repeat']}）" if r["repeat"] else "")
         + ("（自分で決めた追いかけ）" if r["chain"] else "")
         for r in rows)
     return f"預かっている頼まれごと: {items}"
