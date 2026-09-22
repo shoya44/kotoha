@@ -154,6 +154,8 @@ BRIEFING_GRACE_HOURS = _number("KOTOHA_BRIEFING_GRACE_HOURS", minimum=1, maximum
 DIARY_ENABLED = _boolean("KOTOHA_DIARY_ENABLED")
 DIARY_HOUR = _number("KOTOHA_DIARY_HOUR", minimum=0, maximum=23)
 DIARY_MAX_TOKENS = _number("KOTOHA_DIARY_MAX_TOKENS")
+# 夜の整理（memory/review.py）。日記を書いたあと、ここ1週間の記憶を寄せる・直す・閉じる。
+REVIEW_ENABLED = _boolean("KOTOHA_REVIEW_ENABLED")
 LATITUDE = _number("KOTOHA_LATITUDE", float, minimum=-90, maximum=90)
 LONGITUDE = _number("KOTOHA_LONGITUDE", float, minimum=-180, maximum=180)
 BROWSER_AUTO_OPEN = _boolean("KOTOHA_BROWSER_AUTO_OPEN")
