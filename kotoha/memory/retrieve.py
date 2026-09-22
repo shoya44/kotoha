@@ -64,7 +64,7 @@ def _by_meaning(conn, query, known, rows):
     strengths = strength.of_rows(conn.execute(
         f"SELECT id, layer, confirmed_at, strength, strength_at FROM memory_nodes WHERE {_ALIVE}",
         (now,)).fetchall())
-    scored = []
+    scored, near = [], []
     for r in rows:
         if r["node_id"] in known or r["node_id"] not in strengths:
             continue
@@ -73,6 +73,9 @@ def _by_meaning(conn, query, known, rows):
         # 近いものが無い回もある。無理に引くと、関係ない記憶で枠を潰す。
         if score >= config.EMBED_FLOOR:
             scored.append((score, r["node_id"]))
+        elif score >= config.EMBED_FLOOR - config.AFTERTHOUGHT_MARGIN:
+            near.append((score, r["node_id"]))
+    _keep_afterthought(conn, near)
     if not scored:
         return []
     scored.sort(reverse=True)
@@ -83,6 +86,35 @@ def _by_meaning(conn, query, known, rows):
     ).fetchall()
     order = {node_id: i for i, node_id in enumerate(ids)}
     return sorted(found, key=lambda r: order[r["id"]])
+
+
+def _keep_afterthought(conn, near) -> None:
+    """思い出しかけて出なかった記憶を1つ預かる。会話が途切れてから言う。
+
+    床のすぐ下は「関係ありそうだが、いまは出てこない」。人が風呂で思い出す
+    のはこれで、その場では黙っているのが正しい。いちばん惜しかった1件だけ。
+    今日もう言ったものと同じなら預からない（同じことを二度は言わない）。
+    """
+    if not (near and config.AFTERTHOUGHT_ENABLED):
+        return
+    near.sort(reverse=True)
+    node_id = near[0][1]
+    if str(node_id) == db.get_state(conn, db.LAST_AFTERTHOUGHT_ID):
+        return
+    db.set_state(conn, db.AFTERTHOUGHT_ID, node_id)
+    db.set_state(conn, db.AFTERTHOUGHT_AT, db.now_utc())
+
+
+def take_afterthought(conn):
+    """預かっている「そういえば」を取り出して空にする。無ければ None。"""
+    node_id = db.get_state(conn, db.AFTERTHOUGHT_ID)
+    if not node_id:
+        return None
+    db.set_state(conn, db.AFTERTHOUGHT_ID, "")
+    row = conn.execute(
+        f"SELECT {_COLS} FROM memory_nodes WHERE id = ? AND {_ALIVE}", (int(node_id), db.now_utc())
+    ).fetchone()
+    return row
 
 
 def recall_diary(query, pages, skip_days=()):
