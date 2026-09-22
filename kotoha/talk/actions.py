@@ -126,7 +126,7 @@ def _start_ollama():
 
 
 def _restart_self():
-    # 返答を届けきってから落ちる。start.bat かトレイ常駐が上げ直す。
+    # 返答を届けきってから落ちる。kotoha.bat かトレイ常駐が上げ直す。
     threading.Timer(RESTART_DELAY, lambda: os._exit(config.RESTART_EXIT_CODE)).start()
     return "ことは: 入れ直す"
 

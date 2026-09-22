@@ -2,7 +2,7 @@
 
 画面を持たないので pythonw.exe から起動する。そうするとコンソールが1枚も
 出ない。本体（uvicorn）は子プロセスにして見張り、落ちたら上げ直す。画面から
-の再起動（終了コード42）も、これまで start.bat が見ていたのをここで引き取る。
+の再起動（終了コード42）も、これまで kotoha.bat が見ていたのをここで引き取る。
 
 トレイまわりは ctypes で直に触っている。pystray と Pillow を入れれば短く
 書けるが、依存3つで動いている構成に10MB超を足す理由がない。
@@ -18,7 +18,7 @@ import threading
 import time
 import webbrowser
 
-from . import config
+from . import autostart, config
 from .config import RESTART_EXIT_CODE
 
 _STATIC = config.BASE_DIR / "kotoha" / "serve" / "static"
@@ -126,7 +126,7 @@ class Supervisor:
         return self.process is not None and self.process.poll() is None
 
     def serving(self) -> bool:
-        """誰かがことはを動かしているか。start.bat から上がっていることもある。"""
+        """誰かがことはを動かしているか。kotoha.bat から上がっていることもある。"""
         from .launcher import is_kotoha, local_url
 
         url, _ = local_url(config.WEB_HOST, config.WEB_PORT)
@@ -150,7 +150,7 @@ class Supervisor:
     def _loop(self):
         while not self.stopping.is_set():
             if self.serving():
-                # すでに動いている。start.bat から上げた本体を横取りしない。
+                # すでに動いている。kotoha.bat から上げた本体を横取りしない。
                 # ここで子を作ると、ポートが塞がっていて即終了し、上げ直し続ける。
                 self.stopping.wait(WATCH_WAIT)
                 continue
@@ -210,7 +210,7 @@ class Figure:
         runner = pathlib.Path(sys.executable).with_name("pythonw.exe")
         return subprocess.Popen(
             [str(runner if runner.exists() else sys.executable),
-             str(config.BASE_DIR / "mascot.pyw")],
+             str(config.BASE_DIR / "scripts" / "mascot.pyw")],
             cwd=str(config.BASE_DIR),
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
@@ -509,6 +509,8 @@ def main():
         log("すでに常駐しているので、何もしない")
         return
     log("常駐をはじめる")
+    # 上がれたいま、次に上がる道が古くなっていないか見ておく。
+    autostart.repair(say=log)
 
     supervisor = Supervisor()
     figure = Figure()

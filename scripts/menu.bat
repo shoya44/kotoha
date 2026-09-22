@@ -1,10 +1,12 @@
 @echo off
+rem Called by "kotoha.bat menu". Not meant to be run directly.
 setlocal
-cd /d "%~dp0"
-title Kotoha Tools
+cd /d "%~dp0.."
+title Kotoha Menu
+set "KOTOHA=%~dp0..\kotoha.bat"
 :menu
 cls
-echo === Kotoha Tools ===
+echo === Kotoha ===
 echo 1. Start Web + browser + Tailscale
 echo 2. Start console chat
 echo 3. Show status
@@ -28,34 +30,34 @@ if errorlevel 2 goto :console
 if errorlevel 1 goto :web
 exit /b 1
 :web
-start "Kotoha" "%ComSpec%" /d /c call "%~dp0start.bat"
+start "Kotoha" "%ComSpec%" /d /c call "%KOTOHA%"
 goto :menu
 :console
-call kotoha.bat start
+call "%KOTOHA%" start
 pause
 goto :menu
 :status
-call kotoha.bat status
+call "%KOTOHA%" status
 pause
 goto :menu
 :memory
-call kotoha.bat memory
+call "%KOTOHA%" memory
 pause
 goto :menu
 :backup
-call kotoha.bat backup
+call "%KOTOHA%" backup
 pause
 goto :menu
 :tailscale
-call kotoha.bat tailscale
+call "%KOTOHA%" tailscale
 pause
 goto :menu
 :readme
-start "" notepad.exe "%~dp0README.md"
+start "" notepad.exe "%~dp0..\README.md"
 goto :menu
 :config
-call settings.bat
+call "%KOTOHA%" settings
 goto :menu
 :setup
-call setup.bat
+call "%KOTOHA%" setup
 goto :menu

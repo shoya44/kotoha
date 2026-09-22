@@ -134,51 +134,34 @@ def _note(conn, args) -> None:
     print("意味で引けるようになるのは、次の巡回のあと。")
 
 
-AUTOSTART_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
-AUTOSTART_NAME = "ことは"
-
-
-def _autostart_command() -> str:
-    """pythonw から直に呼ぶ。batを挟むと、そこでコンソールが一瞬出る。"""
-    runner = config.BASE_DIR / ".venv" / "Scripts" / "pythonw.exe"
-    return f'"{runner}" "{config.BASE_DIR / "tray.pyw"}"'
-
-
 def _autostart(args) -> None:
     """Windowsのログイン時にトレイ常駐を上げるかどうか。"""
-    import winreg
+    from . import autostart
 
     action = (args[0] if args else "status").lower()
-    with winreg.OpenKey(winreg.HKEY_CURRENT_USER, AUTOSTART_KEY, 0,
-                        winreg.KEY_READ | winreg.KEY_WRITE) as key:
-        try:
-            current = winreg.QueryValueEx(key, AUTOSTART_NAME)[0]
-        except FileNotFoundError:
-            current = None
-        if action == "on":
-            winreg.SetValueEx(key, AUTOSTART_NAME, 0, winreg.REG_SZ, _autostart_command())
-            print("ログイン時に常駐します。")
-            print(f"  {_autostart_command()}")
-        elif action == "off":
-            if current is None:
-                print("もともと登録されていません。")
-            else:
-                winreg.DeleteValue(key, AUTOSTART_NAME)
-                print("ログイン時の常駐をやめました。")
-        elif action == "status":
-            print(f"登録あり: {current}" if current else "登録なし")
-        else:
-            print('使い方: kotoha.bat autostart [on|off|status]')
+    if action == "on":
+        print("ログイン時に常駐します。")
+        print(f"  {autostart.enable()}")
+    elif action == "off":
+        print("ログイン時の常駐をやめました。" if autostart.disable()
+              else "もともと登録されていません。")
+    elif action == "status":
+        value = autostart.current()
+        print(f"登録あり: {value}" if value else "登録なし")
+    else:
+        print("使い方: kotoha.bat autostart [on|off|status]")
 
 
 def _tray() -> None:
     """いますぐ常駐させる。コンソールを残さないよう pythonw に渡す。"""
     import subprocess
 
+    from . import autostart
+
     runner = config.BASE_DIR / ".venv" / "Scripts" / "pythonw.exe"
     if not runner.is_file():
-        raise SystemExit("pythonw.exe が見つかりません。setup.bat を実行してください。")
-    subprocess.Popen([str(runner), str(config.BASE_DIR / "tray.pyw")],
+        raise SystemExit("pythonw.exe が見つかりません。kotoha.bat setup を実行してください。")
+    subprocess.Popen([str(runner), str(autostart.TRAY)],
                      cwd=str(config.BASE_DIR),
                      creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     print("タスクトレイに常駐しました。アイコンから開けます。")
