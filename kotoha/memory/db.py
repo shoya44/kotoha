@@ -150,6 +150,20 @@ def init(conn: sqlite3.Connection) -> None:
     migrate(conn)
 
 
+def forget_states(conn, prefix: str, keep) -> None:
+    """同じ接頭辞の書き置きのうち、もう要らないものを消す。
+
+    セッションのように相手が入れ替わるものは、名前ごとに1行ずつ増える。
+    見なくなったぶんを残すと、app_state がじわじわ太る。
+    """
+    keep = list(keep)
+    ph = ",".join("?" * len(keep))
+    sql = "DELETE FROM app_state WHERE key LIKE ?"
+    if keep:
+        sql += f" AND key NOT IN ({ph})"
+    conn.execute(sql, (prefix + "%", *keep))
+
+
 def count_mood_change(conn, turn_id: int) -> None:
     """機嫌が動いた。**書くのは動いたときだけ**なので、ほとんどの回は何もしない。
 
@@ -298,6 +312,10 @@ FRONT_STREAK_FROM = "front_streak_from"
 # 道具ごとの生死と、ドライブごとの空き。うしろに相手の名前が付く。
 UP_PREFIX = "up:"
 DISK_PREFIX = "disk:"
+# Claude Code のセッションごとの様子。うしろにセッションの id が付く（talk/coding.py）。
+CODING_PREFIX = "coding:"
+# いまの機嫌になったきっかけ。機嫌と一緒に書き、機嫌が薄れれば読まれない。
+MOOD_WHY = "mood_why"
 
 
 @contextlib.contextmanager
