@@ -33,6 +33,8 @@ const elements = {
   promptRevert: $("promptRevert"),
   reminderList: $("reminderList"),
   reminderNote: $("reminderNote"),
+  diaryList: $("diaryList"),
+  diaryNote: $("diaryNote"),
   machineList: $("machineList"),
   machineNote: $("machineNote"),
   settingsList: $("settingsList"),
@@ -370,6 +372,34 @@ function showDropped(item) {
   chip.textContent = `Rm. 取り消し ${item.text}${repeatMark(item)}`;
   elements.log.appendChild(chip);
   chip.scrollIntoView({ block: "nearest" });
+}
+
+// ===== 日記 =====
+function diaryDay(day) {
+  // "2026-09-21" → "9/21（月）"。年は今年なら省く。
+  const [year, month, date] = day.split("-").map(Number);
+  const weekday = "日月火水木金土"[new Date(year, month - 1, date).getDay()];
+  const head = year === new Date().getFullYear() ? "" : `${year}/`;
+  return `${head}${month}/${date}（${weekday}）`;
+}
+
+async function loadDiary() {
+  const data = await fetchPanel(elements.diaryNote, "/api/diary");
+  if (!data) return;
+  const items = data.diary;
+  elements.diaryList.replaceChildren(...items.map(item => {
+    const row = document.createElement("article");
+    row.className = "diary-item";
+    const when = document.createElement("div");
+    when.className = "when";
+    when.textContent = diaryDay(item.day);
+    const body = document.createElement("p");
+    body.className = "body";
+    body.textContent = item.text;
+    row.append(when, body);
+    return row;
+  }));
+  setNote(elements.diaryNote, items.length ? "" : "まだ日記はありません。日付が変わったあとに1日ぶんを書きます。");
 }
 
 // ===== 預かっているもの =====
@@ -1854,6 +1884,7 @@ for (const row of document.querySelectorAll("[data-open]")) {
     if (name === "memories") loadMemories();
     if (name === "machine") loadMachine();
     if (name === "reminders") loadReminders();
+    if (name === "diary") loadDiary();
   });
 }
 

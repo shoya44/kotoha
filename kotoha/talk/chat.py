@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from typing import NamedTuple
 
 from .. import config, notify
-from ..memory import db, remind, retrieve
+from ..memory import db, diary, remind, retrieve
 from . import actions, coding, figure, presence, schedule
 from . import llm, router
 
@@ -321,6 +321,7 @@ def build_prompt(conn, user_text: str, recent, pinned, related, fast: bool = Fal
         )
 
     remind_block = remind.block(conn) if not fast else ""
+    diary_block = diary.block(conn) if not fast else ""
 
     basic_block = ""
     if pinned:
@@ -353,6 +354,7 @@ def build_prompt(conn, user_text: str, recent, pinned, related, fast: bool = Fal
         time_block,
         machine_block,
         remind_block,
+        diary_block,
         basic_block,
         topic_block,
         related_block,
@@ -446,6 +448,7 @@ BRIEFING_CLOSING = (
     "朝いちばん。今日のことを短く伝える。\n"
     "日付にひとこと触れる。渡したものには全部触れる。落とさない。\n"
     "空模様があれば傘と服装まで、ゴミの日なら何の日か、頼まれごとがあれば時刻まで。\n"
+    "昨日の日記があれば、そこから今日に繋がる一言（だらしなかったなら、軽く釘を刺す）。\n"
     "四行まで。読み上げや箇条書きにはしない。いつもの調子で。"
 )
 

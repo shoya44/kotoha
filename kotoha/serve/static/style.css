@@ -1027,6 +1027,26 @@ button.setting-row:last-child { border-bottom: 0; }
   font-variant-numeric: tabular-nums;
 }
 
+.diary-item {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--separator-weak);
+}
+
+.diary-item:last-child { border-bottom: 0; }
+
+.diary-item .when {
+  color: var(--muted);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  margin-bottom: 4px;
+}
+
+.diary-item .body {
+  margin: 0;
+  white-space: pre-wrap;
+  line-height: 1.6;
+}
+
 .reminder-item {
   display: flex;
   align-items: center;

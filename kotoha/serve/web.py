@@ -12,7 +12,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from .. import config, notify
-from ..memory import db, remind
+from ..memory import db, diary, remind
 from ..talk import chat, llm, presence
 from . import admin, hub, jobs, voice
 
@@ -357,6 +357,7 @@ MEMORY_LISTS = {
 }
 MEMORY_LIST_LIMIT = 40
 # 預かりは滅多に溜まらない。溜まっていたら、それ自体が知らせるべきこと。
+DIARY_LIST_LIMIT = 60
 REMINDER_LIST_LIMIT = 50
 
 
@@ -459,6 +460,15 @@ def reminders_list(request: Request):
     with db.session() as conn:
         rows = remind.pending(conn, REMINDER_LIST_LIMIT)
         return {"reminders": [dict(r) for r in rows]}
+
+
+@app.get("/api/diary")
+def diary_list(request: Request):
+    """ことはの日記。新しい順に。見るだけで、ここからは書かない。"""
+    _check_token(request)
+    with db.session() as conn:
+        rows = diary.recent(conn, DIARY_LIST_LIMIT)
+        return {"diary": [dict(r) for r in rows]}
 
 
 @app.delete("/api/reminders/{reminder_id}")
