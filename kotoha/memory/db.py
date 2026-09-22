@@ -355,6 +355,10 @@ MOOD_COUNTED_FROM = "mood_counted_from"
 # 実体（姿を出している器）の居場所。正は serve/hub.py が持つメモリで、
 # ここにあるのはその写し。ことは自身に居場所を言わせるために使う。
 BODY_WHERE = "body_where"
+VESSEL_PREFIX = "vessel:"
+VESSEL_NOTE_PREFIX = "vessel_note:"
+QUIET_UNTIL = "quiet_until"
+GROWTH = "growth"
 HELD_ANNOUNCEMENTS = "held_announcements"
 HELD_FAILS = "held_fails"
 FRONT_TALLY = "front_tally"

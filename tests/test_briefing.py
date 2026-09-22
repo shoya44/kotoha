@@ -1,6 +1,7 @@
 """朝のひとことと、空模様の読み。外へは一度も出ない。"""
 
 import unittest
+from unittest.mock import patch
 from datetime import datetime
 
 import httpx
@@ -362,10 +363,14 @@ class MorningMaterialTests(DbCase):
 
     def test_the_three_go_out_together(self):
         """天気・ゴミ・頼まれごとの3つを、1通にまとめて渡す。"""
-        remind.add(self.conn, datetime.now().replace(hour=23, minute=0), "歯医者")
+        morning = datetime.now().replace(hour=7, minute=0, second=0, microsecond=0)
+        remind.add(self.conn, morning.replace(hour=23), "歯医者")
         self.conn.commit()
 
-        jobs.maybe_briefing(self.conn)
+        # 夜23時以降の実行でも「朝に今日の予定を見る」条件を保つ。
+        with patch.object(remind, "datetime", wraps=datetime) as reminder_clock:
+            reminder_clock.now.return_value = morning
+            jobs.maybe_briefing(self.conn)
 
         self.assertEqual(len(self.asked), 1, "朝のひとことは1通だけ")
         extra = self.asked[0][1]

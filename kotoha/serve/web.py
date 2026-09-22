@@ -12,8 +12,8 @@ from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from .. import config, notify
-from ..memory import db, diary, habits, remind, strength
-from ..talk import chat, llm, myself, presence
+from ..memory import db, diary, growth, habits, remind, strength, vessels
+from ..talk import chat, living, llm, myself, presence
 from . import admin, hub, jobs, voice
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -162,6 +162,7 @@ async def api_chat_stream(request: Request, payload: dict):
     text = (payload.get("text") or "").strip()
     if not text:
         raise HTTPException(status_code=400, detail="入力が空")
+    hub.begin_turn()
     hub.claim(str(payload.get("vessel") or ""), "話しかけられた")
     loop = asyncio.get_running_loop()
     queue = asyncio.Queue()
@@ -194,6 +195,7 @@ async def api_chat_stream(request: Request, payload: dict):
             notify.log(f"流しながらの会話で失敗: {error!r}")
             hand({"error": "うまく言えなかった"})
         finally:
+            hub.end_turn()
             hand(None)
 
     threading.Thread(target=work, name="kotoha-chat-stream", daemon=True).start()
@@ -218,15 +220,16 @@ def api_chat(request: Request, payload: dict):
         raise HTTPException(status_code=400, detail="入力が空")
     # **話しかけた器へ、先に実体を移す。** 生成には数秒かかるので、返事より
     # あとに移すと、そのあいだ別の器が喋っているように見える。
-    hub.claim(str(payload.get("vessel") or ""), "話しかけられた")
-    with jobs.turn_lock, db.session() as conn:
-        try:
+    hub.begin_turn()
+    try:
+        hub.claim(str(payload.get("vessel") or ""), "話しかけられた")
+        with jobs.turn_lock, db.session() as conn:
             turn = chat.run_turn(conn, text)
-        except llm.LLMError as e:
-            raise HTTPException(status_code=502, detail=str(e))
-        # いま増えたぶんまで画面の目印を進める。これが無いと、次の見に行きで
-        # 自分が送ったばかりの往復をもう一度拾って、二重に並ぶ。
-        last_id = conn.execute("SELECT MAX(id) AS id FROM messages").fetchone()["id"]
+            last_id = conn.execute("SELECT MAX(id) AS id FROM messages").fetchone()["id"]
+    except llm.LLMError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+    finally:
+        hub.end_turn()
     # 話したあとは機嫌が動く。姿もそこで1回だけ合わせる。
     hub.refresh(said_ago=0)
     answer = {"reply": turn.reply, "mode": turn.mode, "last_id": last_id}
@@ -277,8 +280,8 @@ async def presence_stream(request: Request, vessel: str = ""):
     その場で気づくので、鮮度を測る必要がない。
     """
     _check_token(request, allow_query=True)
-    if not vessel:
-        raise HTTPException(status_code=400, detail="器の名前が無い")
+    if not vessels.valid_name(vessel):
+        raise HTTPException(status_code=400, detail="器の名前が無効")
     queue = asyncio.Queue(maxsize=hub.QUEUE_LIMIT)
     joined = hub.join(vessel, queue, asyncio.get_running_loop())
     # 繋がった器は、まだ何も知らない。いまの姿を1回渡しておく。
@@ -302,6 +305,77 @@ async def presence_stream(request: Request, vessel: str = ""):
         # 溜め込まれると、すぐ届くはずのものが数十秒遅れる。
         "X-Accel-Buffering": "no",
     })
+
+
+@app.get("/api/vessel")
+def vessel_profile(request: Request, vessel: str):
+    _check_token(request)
+    if not vessels.valid_name(vessel):
+        raise HTTPException(status_code=400, detail="器の名前が無効")
+    with db.session() as conn:
+        return vessels.get(conn, vessel)
+
+
+@app.post("/api/vessel")
+def vessel_save(request: Request, payload: dict):
+    _check_token(request)
+    name = payload.get("vessel")
+    with jobs.turn_lock, db.session() as conn:
+        try:
+            profile = vessels.save(conn, name, payload)
+        except (ValueError, TypeError) as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        conn.commit()
+    hub.configure(name, profile)
+    return profile
+
+
+@app.post("/api/presence/activity")
+def vessel_activity(request: Request, payload: dict):
+    _check_token(request)
+    name = payload.get("vessel")
+    if not vessels.valid_name(name) or not isinstance(payload.get("active", False), bool):
+        raise HTTPException(status_code=400, detail="器の連絡が無効")
+    return {"connected": hub.activity(name, payload.get("active", False))}
+
+
+@app.get("/api/living")
+def living_state(request: Request, vessel: str):
+    _check_token(request)
+    if not vessels.valid_name(vessel):
+        raise HTTPException(status_code=400, detail="器の名前が無効")
+    state = hub.snapshot()
+    with db.session() as conn:
+        note = json.loads(db.get_state(conn, db.VESSEL_NOTE_PREFIX + vessel) or "null")
+        if note and (hub._age(note["at"]) > 86400 or state["body"] == vessel):
+            note = None
+        return {"profile": vessels.get(conn, vessel), "note": note,
+                "where": (state["profile"] or {}).get("label", ""), "quiet": living.quiet(conn),
+                "growth": growth.public(conn)}
+
+
+@app.post("/api/living/growth")
+def growth_change(request: Request, payload: dict):
+    _check_token(request)
+    with jobs.turn_lock, db.session() as conn:
+        try:
+            reply = growth.apply(conn, payload.get("id"), payload.get("action"))
+        except ValueError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        chat.remember(conn, reply, keep=False)
+        conn.commit()
+        return {"reply": reply, "growth": growth.public(conn)}
+
+
+@app.post("/api/living/quiet")
+def quiet_change(request: Request, payload: dict):
+    _check_token(request)
+    enabled = payload.get("enabled")
+    if not isinstance(enabled, bool):
+        raise HTTPException(status_code=400, detail="開始か終了を指定してください")
+    with jobs.turn_lock, db.session() as conn:
+        living.set_quiet(conn, enabled)
+    return {"quiet": enabled}
 
 
 @app.post("/api/presence/here")

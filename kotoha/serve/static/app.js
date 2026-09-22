@@ -1209,6 +1209,8 @@ function connectPresence() {
     // 繋がった。いまの居場所は、このあと脳が教えてくる。
     keepTouch();
     setStatus(calling ? "通話中" : "いるよ", calling ? "calling" : "online");
+    loadLiving();
+    reportActivity(false);
   };
   presenceStream.onmessage = event => {
     keepTouch();
@@ -1222,9 +1224,14 @@ function connectPresence() {
     else if (message.type === "away") setEmbodied(false, message.where);
     else if (message.type === "act") showPicture(message.picture);
     else if (message.type === "say") {
+      $("frameBubble").textContent = message.text || "";
       // 本文は履歴から取る。並べ方を1か所にしておく。
       catchUp();
       reactAvatar();
+    }
+    if (message.type === "here" || message.type === "away") {
+      $("frameBubble").textContent = "";
+      loadLiving();
     }
   };
   presenceStream.onerror = loseTouch;
@@ -1587,6 +1594,7 @@ async function send() {
     talking = false;
     elements.sendButton.disabled = false;
     elements.input.focus();
+    loadLiving();
   }
 }
 
@@ -1891,6 +1899,7 @@ for (const row of document.querySelectorAll("[data-open]")) {
     if (name === "machine") loadMachine();
     if (name === "reminders") loadReminders();
     if (name === "diary") loadDiary();
+    if (name === "vessel") loadVessel();
   });
 }
 
@@ -2171,6 +2180,116 @@ window.visualViewport?.addEventListener("resize", syncVisualViewport);
 window.visualViewport?.addEventListener("scroll", syncVisualViewport);
 
 // ===== Initialize =====
+let vesselProfile = null;
+async function livingApi(path, options) {
+  const response = await api(path, options);
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.detail || "保存できませんでした");
+  return data;
+}
+async function loadVessel() {
+  try {
+    vesselProfile = await livingApi(`/api/vessel?vessel=${encodeURIComponent(VESSEL)}`);
+    $("vesselKind").value = vesselProfile.kind;
+    $("vesselLabel").value = vesselProfile.label;
+    $("vesselFrame").checked = vesselProfile.frame;
+    syncFrameChoice();
+  } catch (error) { $("vesselNote").textContent = error.message; }
+}
+function syncFrameChoice() {
+  $("vesselFrame").disabled = $("vesselKind").value !== "tablet";
+  if ($("vesselFrame").disabled) $("vesselFrame").checked = false;
+}
+$("vesselKind").addEventListener("change", syncFrameChoice);
+$("vesselSave").addEventListener("click", async () => {
+  try {
+    vesselProfile = await livingApi("/api/vessel", { method: "POST", body: {
+      vessel: VESSEL, kind: $("vesselKind").value, label: $("vesselLabel").value,
+      frame: $("vesselFrame").checked,
+    } });
+    $("vesselNote").textContent = "保存しました。次の会話から反映されます。";
+    framePaused = false;
+    loadLiving();
+  } catch (error) { $("vesselNote").textContent = error.message; }
+});
+let lastActivitySent = 0;
+function reportActivity(active = false) {
+  if (!token || document.hidden || !presenceStream) return;
+  if (active && Date.now() - lastActivitySent < 15000) return;
+  if (active) lastActivitySent = Date.now();
+  api("/api/presence/activity", { method: "POST", body: { vessel: VESSEL, active } }).catch(() => {});
+}
+document.addEventListener("pointerdown", () => reportActivity(true), { passive: true });
+document.addEventListener("keydown", () => reportActivity(true));
+setInterval(() => { reportActivity(false); if (!document.hidden) loadLiving(); }, 30000);
+
+let framePaused = false;
+let quietNow = false;
+function renderFrame() {
+  const framed = Boolean(vesselProfile?.frame && !framePaused);
+  document.body.classList.toggle("frame-mode", framed);
+  $("framePanel").hidden = !framed;
+  $("frameReturn").hidden = !(vesselProfile?.frame && framePaused);
+  $("frameClock").textContent = new Date().toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" });
+  $("frameChat").textContent = framePaused ? "額縁に戻る" : "話しかける";
+}
+async function loadLiving() {
+  if (!token || document.hidden) return;
+  try {
+    const state = await livingApi(`/api/living?vessel=${encodeURIComponent(VESSEL)}`);
+    vesselProfile = state.profile;
+    quietNow = state.quiet;
+    renderGrowth(state.growth);
+    $("quietValue").textContent = quietNow ? "終了" : "開始";
+    if (!embodied && state.where) elements.awayWhere.textContent = `${state.where}に居る`;
+    $("frameLetter").textContent = state.note ? `${new Date(state.note.at).toLocaleString("ja-JP")} の置き手紙\n${state.note.text}` : "";
+    renderFrame();
+  } catch { /* 接続状態の表示は既存の接続処理に任せる。 */ }
+}
+$("quietToggle").addEventListener("click", async () => {
+  try {
+    await livingApi("/api/living/quiet", { method: "POST", body: { enabled: !quietNow } });
+    await loadLiving();
+  } catch (error) { setStatus(error.message, "offline"); }
+});
+$("frameChat").addEventListener("click", () => {
+  framePaused = !framePaused;
+  renderFrame();
+  if (framePaused) { callHer(); elements.input.focus(); }
+});
+$("frameReturn").addEventListener("click", () => { framePaused = false; elements.input.blur(); renderFrame(); });
+setInterval(renderFrame, 60000);
+
+function renderGrowth(proposal) {
+  $("growthCard").hidden = !proposal;
+  if (!proposal) return;
+  $("growthText").textContent = proposal.text;
+  $("growthEvidence").replaceChildren(...proposal.evidence.map(source => {
+    const line = document.createElement("p");
+    line.textContent = `${new Date(source.at).toLocaleDateString("ja-JP")}「${source.quote}」`;
+    return line;
+  }));
+  const labels = { try: "一週間試す", skip: "見送る", keep: "これからも続ける", undo: "元に戻す", reset: "元に戻す" };
+  $("growthActions").replaceChildren(...proposal.actions.map(action => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "sheet-button";
+    button.textContent = labels[action];
+    button.addEventListener("click", async () => {
+      for (const item of $("growthActions").children) item.disabled = true;
+      try {
+        await livingApi("/api/living/growth", { method: "POST", body: { id: proposal.id, action } });
+        await catchUp();
+        await loadLiving();
+      } catch (error) {
+        $("growthText").textContent = error.message;
+        for (const item of $("growthActions").children) item.disabled = false;
+      }
+    });
+    return button;
+  }));
+}
+
 applyPreferences();
 loadSpriteList();
 // 音声入力に対応しない環境では通話ボタンを出さない。

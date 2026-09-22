@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 
 from .. import config, notify
 from ..memory import consolidate, db, diary, embed, habits, remind, retrieve, review
-from ..talk import chat, coding, garbage, myself, presence, quake, schedule, upkeep, weather
+from ..talk import chat, coding, garbage, living, myself, presence, quake, schedule, upkeep, weather
 from . import hub
 from .announce import announce, can_speak, collecting, flush_held
 
@@ -86,6 +86,7 @@ def run_periodic_jobs(conn, outside=None) -> None:
         notify.log(f"まとめて言えなかった: {error!r}")
     # 時間帯や機嫌で姿が変わる。変わっていなくても送るが、宛先は実体1つだけ。
     hub.refresh(conn)
+    hub.maybe_move(conn)
 
 
 def _wake_embedder() -> None:
@@ -153,7 +154,7 @@ def maybe_reach_out(conn) -> None:
     間が空いていること、時間帯、前回からの間隔。3つとも満たしたときだけ。
     APIを1回使うので、頻繁には出さない。
     """
-    if not (config.REACH_OUT_ENABLED and can_speak()):
+    if living.quiet(conn) or not (config.REACH_OUT_ENABLED and can_speak()):
         return
     if not db.overdue(conn, db.LAST_CONVERSATION_AT, config.REACH_OUT_AFTER_HOURS * 3600):
         return
@@ -164,7 +165,7 @@ def maybe_reach_out(conn) -> None:
         return
     db.set_state(conn, db.LAST_REACH_OUT_AT, db.now_utc())
     conn.commit()
-    announce(conn, chat.REACH_OUT_CLOSING)
+    announce(conn, chat.REACH_OUT_CLOSING, casual=True)
 
 
 def maybe_afterthought(conn) -> None:
@@ -174,7 +175,7 @@ def maybe_afterthought(conn) -> None:
     （近さが床のすぐ下）を想起が1つ預けていて、会話が途切れてしばらくしたら
     口に出す。1日1回。声をかけてよい時間帯は暇なときの声かけと同じ。
     """
-    if not (config.AFTERTHOUGHT_ENABLED and can_speak()):
+    if living.quiet(conn) or not (config.AFTERTHOUGHT_ENABLED and can_speak()):
         return
     if not db.get_state(conn, db.AFTERTHOUGHT_ID):
         return
@@ -193,7 +194,7 @@ def maybe_afterthought(conn) -> None:
     db.mark_today(conn, db.LAST_AFTERTHOUGHT_ON, today)
     db.set_state(conn, db.LAST_AFTERTHOUGHT_ID, row["id"])
     conn.commit()
-    announce(conn, chat.AFTERTHOUGHT_CLOSING.format(memory=chat._mem_line(row)), keep=False)
+    announce(conn, chat.AFTERTHOUGHT_CLOSING.format(memory=chat._mem_line(row)), keep=False, casual=True)
 
 
 def maybe_coding(conn) -> None:
@@ -217,7 +218,7 @@ def maybe_lookout(conn) -> None:
 
     計測はもともと巡回でしている。使っていなかっただけ。
     """
-    if not (config.LOOKOUT_ENABLED and can_speak()):
+    if living.quiet(conn) or not (config.LOOKOUT_ENABLED and can_speak()):
         return
     hour = datetime.now().hour
     # 夜更かし。日付をまたぐので、その晩ごとに一度だけ。
@@ -226,7 +227,7 @@ def maybe_lookout(conn) -> None:
         if not db.done_today(conn, db.LAST_LATE_NIGHT_ON, night):
             db.mark_today(conn, db.LAST_LATE_NIGHT_ON, night)
             announce(conn, f"いま{hour}時。まだ起きて何かしている。"
-                           "寝るように、一行で。責めない。")
+                           "寝るように、一行で。責めない。", casual=True)
             return
     # 根の詰めすぎ。声をかけたら数え直すので、続けても間隔が空く。
     found = presence.streak(conn)
@@ -238,7 +239,7 @@ def maybe_lookout(conn) -> None:
     presence.reset_streak(conn)
     conn.commit()
     announce(conn, f"{app}を{int(hours)}時間ぶっ続けで触っている。"
-                   "休むように、一行で。責めない。")
+                   "休むように、一行で。責めない。", casual=True)
 
 
 def _seen_at_pc() -> str:
