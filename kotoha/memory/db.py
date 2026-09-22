@@ -329,6 +329,9 @@ LAST_REACH_OUT_AT = "last_reach_out_at"
 LAST_BRIEFING_ON = "last_briefing_on"
 LAST_DIARY_ON = "last_diary_on"
 LAST_HABITS_AT = "last_habits_at"
+# 相手への信頼。習慣と同じ振り返りで週に一度動く。叱るかどうかの根拠。
+TRUST = "trust"
+TRUST_WHY = "trust_why"
 LAST_REVIEW_ON = "last_review_on"
 # 思い出しかけて出なかった記憶。会話が途切れたあとに「そういえば」と言う（1日1回）。
 AFTERTHOUGHT_ID = "afterthought_id"
