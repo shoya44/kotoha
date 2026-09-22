@@ -328,6 +328,9 @@ LAST_LINKED_NODE_ID = "last_linked_node_id"
 PENDING_RECONSOLIDATION_IDS = "pending_reconsolidation_ids"
 MOOD = "mood"
 MOOD_AT = "mood_at"
+# さっきまでの話題。返事の [TOPIC:] で動き、TOPIC_KEEP_HOURS で忘れる。
+TOPIC = "topic"
+TOPIC_AT = "topic_at"
 # 機嫌が動いた回数と、数え始めた地点。**測ってから決めるため。**
 # プロンプトは「変わったときだけ」機嫌を出させるが、実際にどれくらいの頻度で
 # 出るのかは残っていなかった（持っているのは今の機嫌だけ）。「今の機嫌: ふつう」が

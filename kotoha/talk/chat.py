@@ -2,7 +2,7 @@ import re
 from datetime import datetime, timezone
 from typing import NamedTuple
 
-from .. import config, notify
+from .. import clock, config, notify
 from ..memory import db, diary, habits, remind, retrieve
 from . import actions, coding, figure, presence, schedule
 from . import llm, router
@@ -26,13 +26,36 @@ MOODS = {
 }
 # 何も分からないときの機嫌。時間帯ぶんの穴埋めは figure.MOOD_PRIOR が持つ。
 DEFAULT_MOOD = "ふつう"
-MOOD_DECAY_SECONDS = 6 * 3600  # これを過ぎた機嫌は引きずらず、時間帯ぶんに戻す。
+# 機嫌の薄れ方。「まだ強い」「薄れてきた」「だいぶ薄れた」の境。これを切ったら時間帯ぶんに戻る。
+MOOD_LEVELS = ((0.7, ""), (0.35, "薄れてきた"), (0.15, "だいぶ薄れた"))
+MOOD_GONE = 0.15
 # きっかけの長さ。ひとことで足りる。長く書かれても、プロンプトを太らせない。
 REASON_CHARS = 40
 
 
+def mood_intensity(conn) -> float:
+    """申告した機嫌の、いまの濃さ（1→0）。黙っているあいだ、半減期で薄れる。
+
+    話しているあいだは時刻が進む（_finish）ので薄れない。6時間で急に消える
+    のではなく、人と同じで、すねていてもそのうち普通に戻る。
+    """
+    hours = db.seconds_since(db.get_state(conn, db.MOOD_AT)) / 3600
+    if hours == float("inf"):
+        return 0.0
+    return 0.5 ** (hours / config.MOOD_HALF_LIFE_HOURS)
+
+
+def mood_note(conn) -> str:
+    """濃さを言葉に。「薄れてきた」「だいぶ薄れた」。まだ強ければ空。"""
+    level = mood_intensity(conn)
+    for floor, note in MOOD_LEVELS:
+        if level >= floor:
+            return note
+    return ""
+
+
 def current_mood(conn, hour: int = None) -> str:
-    """いまの機嫌。**時間が経ったものも、時間帯に合わないものも引きずらない。**
+    """いまの機嫌。**薄れきったものも、時間帯に合わないものも引きずらない。**
 
     申告が無ければ、その時間帯ぶんで埋める（`figure.prior`）。申告があっても、
     起きている時間に「眠い」は残さない（`figure.keeps`）。どちらの表も
@@ -41,11 +64,11 @@ def current_mood(conn, hour: int = None) -> str:
     時刻は引数で受ける。渡さなければ今の時刻を見るが、渡せば時計に関係なく
     戻り値を確かめられる。
     """
-    hour = datetime.now().hour if hour is None else hour
+    hour = clock.now().hour if hour is None else hour
     label = db.get_state(conn, db.MOOD)
     if label not in MOODS:
         return figure.prior(hour)
-    if db.overdue(conn, db.MOOD_AT, MOOD_DECAY_SECONDS):
+    if mood_intensity(conn) < MOOD_GONE:
         return figure.prior(hour)
     if not figure.keeps(hour, label):
         return figure.prior(hour)
@@ -53,19 +76,55 @@ def current_mood(conn, hour: int = None) -> str:
 
 
 def mood_reason(conn, hour: int = None) -> str:
-    """いまの機嫌になったきっかけ。**機嫌が薄れていれば、きっかけも無い。**
+    """いまの機嫌になったきっかけ。**機嫌が薄れきっていれば、きっかけも無い。**
 
     理由の無い機嫌は、3〜4ターンに1回ころころ変わる（実測 36回/126ターン）。
     「返事がなかったから」が付いていれば、次の往復も同じ機嫌でいられるし、
     相手が謝ったら直る道もできる。
     """
-    hour = datetime.now().hour if hour is None else hour
+    hour = clock.now().hour if hour is None else hour
     label = db.get_state(conn, db.MOOD)
     if current_mood(conn, hour) != label:
         return ""
-    if db.overdue(conn, db.MOOD_AT, MOOD_DECAY_SECONDS) or not figure.keeps(hour, label):
-        return ""
     return db.get_state(conn, db.MOOD_WHY) or ""
+
+
+def current_topic(conn):
+    """さっきまでの話題と、いつからか。持ち越す時間を過ぎていれば None。
+
+    往復ごとにプロンプトを組み直しても、話題は続く。直近の窓が切れても、
+    翌日の「昨日の続きだけど」まで届く。
+    """
+    topic = db.get_state(conn, db.TOPIC)
+    if not topic:
+        return None
+    since = db.get_state(conn, db.TOPIC_AT)
+    if db.seconds_since(since) > config.TOPIC_KEEP_HOURS * 3600:
+        return None
+    return topic, since
+
+
+def topic_line(conn) -> str:
+    found = current_topic(conn)
+    if not found:
+        return ""
+    topic, since = found
+    return f"さっきまでの話題: {topic}（{elapsed_phrase(since)}から）"
+
+
+def parse_topic(text: str):
+    """返答から「いま何の話をしているか」を取り出す。(本文, 話題)。
+
+    「なし」は話が終わった印で、空文字として返す（None は「タグが無い」）。
+    """
+    clean, body = _strip_tag(text, "TOPIC")
+    if body is None:
+        return text, None
+    body = " ".join(body.split())[:TOPIC_CHARS]
+    return clean, "" if body in ("なし", "無し", "-", "") else body
+
+
+TOPIC_CHARS = 30
 
 
 def situation(hour: int, now: datetime = None) -> str:
@@ -84,7 +143,7 @@ def elapsed_phrase(last: str) -> str:
         dt = datetime.strptime(last, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
     except ValueError:
         return "不明"
-    seconds = (datetime.now(timezone.utc) - dt).total_seconds()
+    seconds = (clock.utc_now() - dt).total_seconds()
     if seconds < 90:
         return "たった今"
     minutes = seconds / 60
@@ -127,7 +186,7 @@ def unanswered(recent, now: datetime = None) -> str:
     朝のひとことのようにその日限りのもの（extractable=0）は数えない。
     「おはよう」に返事が無いのは、無視ではない。
     """
-    now = now or datetime.now(timezone.utc)
+    now = now or clock.utc_now()
     rows = list(recent)
     turns_with_user = {r["turn_id"] for r in rows if r["role"] == "user"}
     ignored = []
@@ -188,7 +247,7 @@ def _mem_line(r) -> str:
     年も今年なら省く。id は [USED:] で返してもらうため、そのまま残す。
     """
     stamp = (r["occurred_at"] if r["layer"] == "episode" else r["confirmed_at"])[:10]
-    date = stamp[5:] if stamp[:4] == str(datetime.now().year) else stamp
+    date = stamp[5:] if stamp[:4] == str(clock.now().year) else stamp
     return f"- [id:{r['id']}][{date}][{r['kind']}] {r['text']}"
 
 
@@ -210,7 +269,7 @@ def _strip_tag(text: str, name: str):
     return clean, match.group(1).strip()
 
 
-TAG_NAMES = ("USED", "MOOD", "DO", "REMIND", "DROP")
+TAG_NAMES = ("USED", "MOOD", "TOPIC", "DO", "REMIND", "DROP")
 
 
 def strip_tags(text: str) -> str:
@@ -273,7 +332,7 @@ def build_prompt(conn, user_text: str, recent, pinned, related, fast: bool = Fal
                  closing: str = "") -> str:
     fixed = _read("fixed_rules.txt")
     persona = _read("persona.txt")
-    now = datetime.now()
+    now = clock.now()
     mood = current_mood(conn, now.hour)
     why = mood_reason(conn, now.hour)
     lines = [
@@ -282,8 +341,12 @@ def build_prompt(conn, user_text: str, recent, pinned, related, fast: bool = Fal
         schedule.line(schedule.today(now.date())),
         f"前回の会話: {elapsed_phrase(db.get_state(conn, 'last_conversation_at'))}",
         f"今のことは: {situation(now.hour)}",
-        f"今の機嫌: {mood}（{MOODS[mood]}）" + (f"。きっかけ: {why}" if why else ""),
+        f"今の機嫌: {mood}（{MOODS[mood]}）" + (f"。きっかけ: {why}" if why else "")
+        + (f"。{mood_note(conn)}" if why and mood_note(conn) else ""),
     ]
+    topic = topic_line(conn)
+    if topic:
+        lines.append(topic)
     place = where_she_is(conn)
     if place:
         lines.append(place)
@@ -375,7 +438,7 @@ def _fetch_recent(conn, user_text: str):
 
 
 def _finish(conn, turn_id: int, clean: str, ids, mode: str, mood: str = None, kept=(),
-            why: str = "", dropped=()):
+            why: str = "", dropped=(), topic: str = None):
     db.insert_message(conn, turn_id, "assistant", clean)
     db.set_state(conn, db.LAST_CONVERSATION_AT, db.now_utc())
     remind.answered(conn)      # 返事があった。追いかけはここで終わり
@@ -388,9 +451,18 @@ def _finish(conn, turn_id: int, clean: str, ids, mode: str, mood: str = None, ke
     db.set_state(conn, db.MOOD_AT, db.now_utc())
     if mood:
         db.count_mood_change(conn, turn_id)
+    _remember_topic(conn, topic)
     db.update_usage(conn, ids, turn_id)
     conn.commit()
     return Turn(clean, mode, list(kept), list(dropped))
+
+
+def _remember_topic(conn, topic) -> None:
+    """話題は変わったときだけ書かせる。来なければ前のまま続く。「なし」で終わる。"""
+    if topic is None:
+        return
+    db.set_state(conn, db.TOPIC, topic)
+    db.set_state(conn, db.TOPIC_AT, db.now_utc() if topic else "")
 
 
 class Turn(NamedTuple):
@@ -483,6 +555,7 @@ def speak(conn, closing: str, extra: str = "", keep: bool = True, chain: int = N
     raw = llm.chat(prompt)
     clean, ids = parse_used_ids(raw)
     clean, mood, why = parse_mood(clean)
+    clean, topic = parse_topic(clean)
     clean, _ = parse_action(clean)   # 頼まれてもいないのに動かさない
     clean, later = remind.parse(clean)
     if chain is not None:            # 追いかけだけは、自分で入れてよい
@@ -491,11 +564,12 @@ def speak(conn, closing: str, extra: str = "", keep: bool = True, chain: int = N
     clean = strip_tags(clean)
     if not clean:
         return ""
-    remember(conn, clean, ids, mood, keep, why)
+    remember(conn, clean, ids, mood, keep, why, topic)
     return clean
 
 
-def remember(conn, text: str, ids=(), mood: str = "", keep: bool = True, why: str = ""):
+def remember(conn, text: str, ids=(), mood: str = "", keep: bool = True, why: str = "",
+             topic: str = None):
     """ことはの独り言を、会話と同じ場所に残す。開けば並んでいる。
 
     keep=False は、画面には残すが長期記憶には昇格させない。天気のように
@@ -506,6 +580,7 @@ def remember(conn, text: str, ids=(), mood: str = "", keep: bool = True, why: st
         db.set_state(conn, db.MOOD, mood)
         db.set_state(conn, db.MOOD_WHY, why)
         db.set_state(conn, db.MOOD_AT, db.now_utc())
+    _remember_topic(conn, topic)
     db.update_usage(conn, ids, turn_id)
     conn.commit()
 
@@ -559,13 +634,14 @@ def stream_turn(conn, user_text: str):
 
     clean, ids = parse_used_ids(raw)
     clean, mood, why = parse_mood(clean)
+    clean, topic = parse_topic(clean)
     clean, todo = parse_action(clean)
     clean, kept = _keep_reminders(conn, clean)
     clean, dropped = _drop_reminders(conn, clean)
     clean = strip_tags(clean)
     _record_pending(conn, ids)
     trace_recall(pinned, related, ids)
-    done = _finish(conn, turn_id, clean, ids, "slow", mood, kept, why, dropped)
+    done = _finish(conn, turn_id, clean, ids, "slow", mood, kept, why, dropped, topic)
     # まだ声にしていないぶん。食い違ったら黙って足さない（二度言うほうが困る）。
     rest = clean[said:] if clean[:said] == strip_tags(raw)[:said] else ""
     yield {"done": done, "rest": rest}
@@ -592,25 +668,27 @@ def run_turn(conn, user_text: str):
             allowed = {r["id"] for r in pinned}
             clean, ids = parse_used_ids(raw)
             clean, mood, why = parse_mood(clean)
+            clean, topic = parse_topic(clean)
             clean, kept = _keep_reminders(conn, clean)
             clean, dropped = _drop_reminders(conn, clean)
             clean = strip_tags(clean)
             ids = [i for i in ids if i in allowed]
             _record_pending(conn, ids)
-            return _finish(conn, turn_id, clean, ids, mode, mood, kept, why, dropped)
+            return _finish(conn, turn_id, clean, ids, mode, mood, kept, why, dropped, topic)
 
     pinned, related = retrieve.retrieve(conn, user_text, recent_text)
     prompt = build_prompt(conn, user_text, recent, pinned, related)
     raw = llm.chat(prompt)
     clean, ids = parse_used_ids(raw)
     clean, mood, why = parse_mood(clean)
+    clean, topic = parse_topic(clean)
     clean, todo = parse_action(clean)
     clean, kept = _keep_reminders(conn, clean)
     clean, dropped = _drop_reminders(conn, clean)
     clean = strip_tags(clean)
     _record_pending(conn, ids)
     trace_recall(pinned, related, ids)
-    done = _finish(conn, turn_id, clean, ids, mode, mood, kept, why, dropped)
+    done = _finish(conn, turn_id, clean, ids, mode, mood, kept, why, dropped, topic)
     # 頼まれごとは、返答を保存し終えてから。入れ直しならここで落ちる。
     if todo:
         actions.run(todo)

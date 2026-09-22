@@ -178,6 +178,10 @@ SEMANTIC_DAYS = _number("KOTOHA_SEMANTIC_DAYS")
 STRENGTH_FLOOR = _number("KOTOHA_STRENGTH_FLOOR", float, minimum=0.001, maximum=0.99)
 STRENGTH_GAIN = _number("KOTOHA_STRENGTH_GAIN", float, minimum=0)
 STRENGTH_MAX = _number("KOTOHA_STRENGTH_MAX", float, minimum=1)
+# 機嫌が半分に薄れるまでの時間（黙っているあいだ）。話していれば進まない。
+MOOD_HALF_LIFE_HOURS = _number("KOTOHA_MOOD_HALF_LIFE_HOURS", float, minimum=0.1)
+# さっきまでの話題を、何時間まで持ち越すか。
+TOPIC_KEEP_HOURS = _number("KOTOHA_TOPIC_KEEP_HOURS", float, minimum=0.1)
 MAINTENANCE_SECONDS = _number("KOTOHA_MAINTENANCE_SECONDS", float, minimum=0.1)
 TAG_RESET_DAYS = _number("KOTOHA_TAG_RESET_DAYS")
 TAG_CANDIDATE_LIMIT = _number("KOTOHA_TAG_CANDIDATE_LIMIT")
