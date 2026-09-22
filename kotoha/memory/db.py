@@ -368,6 +368,13 @@ DISK_PREFIX = "disk:"
 CODING_PREFIX = "coding:"
 # いまの機嫌になったきっかけ。機嫌と一緒に書き、機嫌が薄れれば読まれない。
 MOOD_WHY = "mood_why"
+# 自分の様子（talk/myself.py）。生きている印は巡回が毎分書き、起きたときに
+# その差が「止まっていた長さ」になる。中身と設定の印は、起きたときに見比べる。
+LAST_ALIVE_AT = "last_alive_at"
+SELF_CODE = "self_code"
+SELF_SETTINGS = "self_settings"
+SELF_NOTE = "self_note"
+SELF_NOTE_AT = "self_note_at"
 
 
 @contextlib.contextmanager

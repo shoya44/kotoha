@@ -7,7 +7,9 @@
 import importlib
 
 from .. import config
+from ..memory import db
 from ..settings import read_env
+from ..talk import myself
 
 # 画面に出す3つ。ここにない名前は受け付けない。
 PROMPTS = {
@@ -159,6 +161,9 @@ def write_settings(values: dict) -> None:
     path.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
 
     reload_config()
+    # 変えられたことに、ことは自身が気づく。言うかどうかは向こうに任せる。
+    with db.session() as conn:
+        myself.settings_changed(conn)
 
 
 def reload_config() -> None:
