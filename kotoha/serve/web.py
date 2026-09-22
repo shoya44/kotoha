@@ -12,7 +12,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from .. import config, notify
-from ..memory import db, remind
+from ..memory import db, diary, habits, remind
 from ..talk import chat, llm, presence
 from . import admin, hub, jobs, voice
 
@@ -178,8 +178,11 @@ async def api_chat_stream(request: Request, payload: dict):
                             "rest": part["rest"],
                             "last_id": conn.execute(
                                 "SELECT MAX(id) AS id FROM messages").fetchone()["id"],
-                            "kept": [{"due_at": when.strftime(remind.STAMP), "text": what}
-                                     for when, what, _ in turn.kept],
+                            "kept": [{"due_at": when.strftime(remind.STAMP), "text": what,
+                                      "repeat": repeat}
+                                     for when, what, repeat in turn.kept],
+                            "dropped": [{"id": i, "text": what, "repeat": repeat}
+                                        for i, what, repeat in turn.dropped],
                         }})
                     else:
                         hand(part)
@@ -227,8 +230,12 @@ def api_chat(request: Request, payload: dict):
     answer = {"reply": turn.reply, "mode": turn.mode, "last_id": last_id}
     if turn.kept:
         # 預かったことを画面にも出す。ことはの言葉は変えず、印だけ足す。
-        answer["kept"] = [{"due_at": when.strftime(remind.STAMP), "text": what}
-                          for when, what, _ in turn.kept]
+        answer["kept"] = [{"due_at": when.strftime(remind.STAMP), "text": what,
+                           "repeat": repeat}
+                          for when, what, repeat in turn.kept]
+    if turn.dropped:
+        answer["dropped"] = [{"id": i, "text": what, "repeat": repeat}
+                             for i, what, repeat in turn.dropped]
     return answer
 
 
@@ -350,6 +357,7 @@ MEMORY_LISTS = {
 }
 MEMORY_LIST_LIMIT = 40
 # 預かりは滅多に溜まらない。溜まっていたら、それ自体が知らせるべきこと。
+DIARY_LIST_LIMIT = 60
 REMINDER_LIST_LIMIT = 50
 
 
@@ -452,6 +460,16 @@ def reminders_list(request: Request):
     with db.session() as conn:
         rows = remind.pending(conn, REMINDER_LIST_LIMIT)
         return {"reminders": [dict(r) for r in rows]}
+
+
+@app.get("/api/diary")
+def diary_list(request: Request):
+    """ことはの日記。新しい順に。見るだけで、ここからは書かない。"""
+    _check_token(request)
+    with db.session() as conn:
+        rows = diary.recent(conn, DIARY_LIST_LIMIT)
+        return {"diary": [dict(r) for r in rows],
+                "habits": [dict(r) for r in habits.alive(conn)]}
 
 
 @app.delete("/api/reminders/{reminder_id}")

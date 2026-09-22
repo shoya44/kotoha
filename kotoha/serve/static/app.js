@@ -33,6 +33,9 @@ const elements = {
   promptRevert: $("promptRevert"),
   reminderList: $("reminderList"),
   reminderNote: $("reminderNote"),
+  diaryList: $("diaryList"),
+  habitList: $("habitList"),
+  diaryNote: $("diaryNote"),
   machineList: $("machineList"),
   machineNote: $("machineNote"),
   settingsList: $("settingsList"),
@@ -358,12 +361,59 @@ async function handleSnoozeLink() {
 function showKept(item) {
   const chip = document.createElement("div");
   chip.className = "kept-chip";
-  chip.textContent = `Rm. ${reminderWhen(item.due_at)} ${item.text}`;
+  chip.textContent = `Rm. ${reminderWhen(item.due_at)} ${item.text}${repeatMark(item)}`;
   elements.log.appendChild(chip);
   chip.scrollIntoView({ block: "nearest" });
 }
 
+// 取り消した印。会話の中でことはが判断して消したものも、目で確かめられる。
+function showDropped(item) {
+  const chip = document.createElement("div");
+  chip.className = "kept-chip";
+  chip.textContent = `Rm. 取り消し ${item.text}${repeatMark(item)}`;
+  elements.log.appendChild(chip);
+  chip.scrollIntoView({ block: "nearest" });
+}
+
+// ===== 日記 =====
+function diaryDay(day) {
+  // "2026-09-21" → "9/21（月）"。年は今年なら省く。
+  const [year, month, date] = day.split("-").map(Number);
+  const weekday = "日月火水木金土"[new Date(year, month - 1, date).getDay()];
+  const head = year === new Date().getFullYear() ? "" : `${year}/`;
+  return `${head}${month}/${date}（${weekday}）`;
+}
+
+async function loadDiary() {
+  const data = await fetchPanel(elements.diaryNote, "/api/diary");
+  if (!data) return;
+  const habits = data.habits || [];
+  elements.habitList.replaceChildren(...(habits.length ? [
+    Object.assign(document.createElement("div"), { className: "when", textContent: "何となく覚えていること" }),
+    ...habits.map(h => Object.assign(document.createElement("div"), { className: "habit", textContent: h.text })),
+  ] : []));
+  const items = data.diary;
+  elements.diaryList.replaceChildren(...items.map(item => {
+    const row = document.createElement("article");
+    row.className = "diary-item";
+    const when = document.createElement("div");
+    when.className = "when";
+    when.textContent = diaryDay(item.day);
+    const body = document.createElement("p");
+    body.className = "body";
+    body.textContent = item.text;
+    row.append(when, body);
+    return row;
+  }));
+  setNote(elements.diaryNote, items.length ? "" : "まだ日記はありません。日付が変わったあとに1日ぶんを書きます。");
+}
+
 // ===== 預かっているもの =====
+// 繰り返し（毎日・平日）は、そう見えないと「一度きり」と区別がつかない。
+function repeatMark(item) {
+  return item.repeat ? `（${item.repeat}）` : "";
+}
+
 function reminderWhen(due) {
   // "2026-09-18 09:00" → "9/18 09:00"。今年の予定に年は要らない。
   const [date, time] = due.split(" ");
@@ -386,7 +436,7 @@ async function loadReminders() {
 
     const body = document.createElement("span");
     body.className = "body";
-    body.textContent = item.text;
+    body.textContent = item.text + repeatMark(item);
 
     // 取り消しは2度押し。押し間違いで預けたものが消えるほうが困る。
     const drop = document.createElement("button");
@@ -1527,6 +1577,7 @@ async function send() {
     const spoken = calling ? Promise.resolve(data.reply) : speak(data.reply);
     await shown;
     (data.kept || []).forEach(showKept);
+    (data.dropped || []).forEach(showDropped);
     return spoken;
   } catch {
     typingRow?.remove();
@@ -1618,6 +1669,7 @@ async function sendStream(text, onFirst) {
     if (done.last_id) lastMessageId = done.last_id;
     addMessage("assistant", done.reply);
     (done.kept || []).forEach(showKept);
+    (done.dropped || []).forEach(showDropped);
     reactAvatar();
     elements.mode.textContent = done.mode || "";
     setStatus(calling ? "通話中" : "いるよ", calling ? "calling" : "online");
@@ -1838,6 +1890,7 @@ for (const row of document.querySelectorAll("[data-open]")) {
     if (name === "memories") loadMemories();
     if (name === "machine") loadMachine();
     if (name === "reminders") loadReminders();
+    if (name === "diary") loadDiary();
   });
 }
 

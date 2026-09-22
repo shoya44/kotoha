@@ -10,7 +10,7 @@ import time
 from datetime import datetime, timedelta
 
 from .. import config, notify
-from ..memory import consolidate, db, embed, remind
+from ..memory import consolidate, db, diary, embed, habits, remind
 from ..talk import chat, coding, garbage, presence, quake, schedule, upkeep, weather
 from . import hub
 from .announce import announce, can_speak, collecting, flush_held
@@ -58,6 +58,12 @@ def run_periodic_jobs(conn, outside=None) -> None:
             notify.log(f"バックアップで失敗: {error!r}")
     if db.overdue(conn, db.LAST_FORGET_AT, config.MAINTENANCE_SECONDS):
         db.run_maintenance(conn)
+    maybe_diary(conn)
+    if habits.due(conn):
+        try:
+            habits.reflect(conn)
+        except Exception as error:
+            notify.log(f"習慣の振り返りで失敗: {error!r}")
     # 朝の一言、頼まれごと、見守り、暇なときの声かけ。どれも滅多に鳴らない。
     # この巡回のあいだは鳴らさずに預かる。朝の一言と頼まれごとが同じ分に
     # 重なることがあり、2通に分けると同じ人から立て続けに届く。
@@ -239,6 +245,34 @@ def maybe_reminders(conn) -> None:
             conn.commit()
 
 
+def maybe_diary(conn) -> None:
+    """日付が変わったら、前の日の日記を1件。寝ていた日は起きてから順に。
+
+    1日に1度だけ見る（印は先に付ける）。何日も寝ていたぶんは、1回の巡回に
+    1日ずつ書く。まとめて書くと、起きた朝にAPIを何度も続けて叩く。
+    """
+    if not config.DIARY_ENABLED:
+        return
+    now = datetime.now()
+    if now.hour < config.DIARY_HOUR:
+        return
+    today = now.strftime("%Y-%m-%d")
+    if db.done_today(conn, db.LAST_DIARY_ON, today):
+        return
+    days = diary.missing_days(conn, now.date())
+    if not days:
+        db.mark_today(conn, db.LAST_DIARY_ON, today)
+        return
+    try:
+        diary.write(conn, days[0])
+    except Exception as error:
+        db.mark_today(conn, db.LAST_DIARY_ON, today)   # 今日はもう試さない
+        notify.log(f"日記が書けなかった（{days[0]}）: {error!r}")
+        return
+    if len(days) == 1:
+        db.mark_today(conn, db.LAST_DIARY_ON, today)
+
+
 def briefing_due(conn) -> bool:
     """朝のひとことを、これから言いそうか。**DBを読むだけ。**
 
@@ -295,6 +329,7 @@ def maybe_briefing(conn, outside=None) -> None:
         weather.block(sky),
         garbage.block(garbage.today()),
         remind.morning_block(remind.today(conn)),
+        diary.morning_block(conn),
         schedule.block(schedule.today()),
         quake.block(shake),
         upkeep.block(upkeep.stale()),

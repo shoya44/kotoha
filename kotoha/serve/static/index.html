@@ -164,6 +164,10 @@
           <span>預かっているもの</span>
           <span aria-hidden="true">›</span>
         </button>
+        <button class="sheet-row" data-open="diary" type="button">
+          <span>日記を読む</span>
+          <span aria-hidden="true">›</span>
+        </button>
         <button class="sheet-row" data-open="machine" type="button">
           <span>PCの様子</span>
           <span aria-hidden="true">›</span>
@@ -260,6 +264,21 @@
         </div>
         <div id="reminderList"></div>
         <p class="sheet-note" id="reminderNote"></p>
+      </section>
+
+      <section class="sheet-page" data-page="diary" aria-label="日記">
+        <div class="sheet-nav">
+          <button class="sheet-back" data-back type="button">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path d="M15 5l-7 7 7 7"></path>
+            </svg>
+            <span>戻る</span>
+          </button>
+          <span class="sheet-nav-title">日記</span>
+        </div>
+        <div id="habitList" class="habit-list"></div>
+        <div id="diaryList"></div>
+        <p class="sheet-note" id="diaryNote"></p>
       </section>
 
       <section class="sheet-page" data-page="machine" aria-label="PCの様子">
