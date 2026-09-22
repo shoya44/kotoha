@@ -220,7 +220,8 @@ def start_turn(conn, role: str, text: str, extractable: int = 1) -> int:
 
 def fetch_recent(conn, turns: int, char_limit: int):
     rows = conn.execute(
-        "SELECT turn_id, role, text, created_at FROM messages ORDER BY turn_id DESC, id DESC LIMIT ?",
+        "SELECT turn_id, role, text, created_at, extractable FROM messages "
+        "ORDER BY turn_id DESC, id DESC LIMIT ?",
         (turns * 2,),
     ).fetchall()
     rows = list(reversed(rows))

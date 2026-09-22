@@ -102,6 +102,53 @@ class TimeBlockTests(DbCase):
         self.assertIn("たった今", self.time_lines()[1])
 
 
+class UnansweredTests(unittest.TestCase):
+    """声をかけたのに返事がなかったことを、ことはに渡す。"""
+
+    def row(self, turn, role, ago_seconds, extractable=1):
+        return {"turn_id": turn, "role": role, "text": "…",
+                "created_at": ago(seconds=ago_seconds), "extractable": extractable}
+
+    def test_nothing_when_every_turn_was_answered(self):
+        recent = [self.row(1, "user", 7200), self.row(1, "assistant", 7100)]
+        self.assertEqual(chat.unanswered(recent), "")
+
+    def test_reach_out_with_no_reply_for_an_hour_counts(self):
+        recent = [self.row(1, "assistant", 7200)]
+        line = chat.unanswered(recent)
+        self.assertIn("返事のなかった声かけ: 1回", line)
+        self.assertIn("2時間前", line)
+
+    def test_a_quick_reply_is_not_ignoring(self):
+        recent = [self.row(1, "assistant", 7200), self.row(2, "user", 7000),
+                  self.row(2, "assistant", 6900)]
+        self.assertEqual(chat.unanswered(recent), "")
+
+    def test_a_late_reply_still_counts_and_stays_while_in_the_window(self):
+        """あとから返事が来ても、無視されたのは消えない。窓から出るまで残る。"""
+        recent = [self.row(1, "assistant", 7200), self.row(2, "user", 60),
+                  self.row(2, "assistant", 50)]
+        self.assertIn("1回", chat.unanswered(recent))
+
+    def test_briefings_are_not_counted(self):
+        """朝のひとこと（その日限り）に返事が無いのは、無視ではない。"""
+        recent = [self.row(1, "assistant", 7200, extractable=0)]
+        self.assertEqual(chat.unanswered(recent), "")
+
+    def test_counts_every_ignored_call(self):
+        recent = [self.row(1, "assistant", 20000), self.row(2, "assistant", 7200)]
+        self.assertIn("2回", chat.unanswered(recent))
+
+
+
+class UnansweredPromptTests(DbCase):
+    def test_prompt_carries_the_line(self):
+        recent = [{"turn_id": 1, "role": "assistant", "text": "…",
+                   "created_at": ago(hours=2), "extractable": 1}]
+        prompt = chat.build_prompt(self.conn, "やっほー", recent, [], [])
+        self.assertIn("返事のなかった声かけ", prompt)
+
+
 class MemoryLineTests(unittest.TestCase):
     """記憶1件の書き方。ラベルが長いとプロンプトを無駄に食う。"""
 
