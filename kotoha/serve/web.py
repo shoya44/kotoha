@@ -12,8 +12,8 @@ from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from .. import config, notify
-from ..memory import db, diary, habits, remind, strength, vessels, growth
-from ..talk import chat, llm, presence, living
+from ..memory import db, diary, growth, habits, remind, strength, vessels
+from ..talk import chat, living, llm, myself, presence
 from . import admin, hub, jobs, voice
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -34,6 +34,8 @@ async def lifespan(app):
     このプロセスだけ。
     """
     hub.wake()               # 上がったばかりの脳には、まだどの器も繋がっていない
+    with db.session() as conn:
+        myself.wake(conn)    # どれだけ止まっていたか、中身や設定が変わったか
     jobs.start_background()  # 60秒ごとの時計は、ここから回り始める
     yield
 

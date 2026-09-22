@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 
 from .. import config, notify
 from ..memory import consolidate, db, diary, embed, habits, remind, retrieve, review
-from ..talk import chat, coding, garbage, presence, quake, schedule, upkeep, weather, living
+from ..talk import chat, coding, garbage, living, myself, presence, quake, schedule, upkeep, weather
 from . import hub
 from .announce import announce, can_speak, collecting, flush_held
 
@@ -38,6 +38,7 @@ def run_periodic_jobs(conn, outside=None) -> None:
     順番に意味がある。バックアップは忘却より先に取らないと、
     消えた直後の状態しか残らない。前段の失敗で後段を止めない。
     """
+    myself.heartbeat(conn)   # 生きている印。止まれば、次に起きたとき長さが分かる
     presence.sample(conn)
     unprocessed = _unprocessed_turns(conn)
     idle = db.overdue(conn, db.LAST_CONVERSATION_AT, config.IDLE_SECONDS)
