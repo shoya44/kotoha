@@ -91,6 +91,12 @@ CREATE TABLE IF NOT EXISTS memory_vectors (
   vector BLOB NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS diary_vectors (
+  diary_id INTEGER PRIMARY KEY REFERENCES diary(id) ON DELETE CASCADE,
+  model TEXT NOT NULL,
+  vector BLOB NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS app_state (
   key TEXT PRIMARY KEY,
   value TEXT

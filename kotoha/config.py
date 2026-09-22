@@ -105,6 +105,8 @@ EMBED_RETRY_SECONDS = _number("KOTOHA_EMBED_RETRY_SECONDS", float, minimum=0)
 EMBED_MERGE_FLOOR = _number("KOTOHA_EMBED_MERGE_FLOOR", float, minimum=0, maximum=1)
 EMBED_LINK_FLOOR = _number("KOTOHA_EMBED_LINK_FLOOR", float, minimum=0, maximum=1)
 EMBED_LINK_LIMIT = _number("KOTOHA_EMBED_LINK_LIMIT", minimum=0)
+# 会話に添える「思い当たる日記」の件数。0でやめられる。
+DIARY_RECALL_LIMIT = _number("KOTOHA_DIARY_RECALL_LIMIT", minimum=0)
 OLLAMA_AUTO_START = _boolean("KOTOHA_OLLAMA_AUTO_START")
 _ollama_path = _text("KOTOHA_OLLAMA_DIR", allow_empty=True)
 if _ollama_path:
