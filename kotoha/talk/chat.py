@@ -4,7 +4,7 @@ from typing import NamedTuple
 
 from .. import clock, config, notify
 from ..memory import db, diary, habits, remind, retrieve
-from . import actions, coding, figure, presence, schedule
+from . import actions, coding, figure, myself, presence, schedule
 from . import llm, router
 
 FAST_NOTICE = (
@@ -404,6 +404,10 @@ def build_prompt(conn, user_text: str, recent, pinned, related, fast: bool = Fal
     ignored = unanswered(recent)
     if ignored:
         lines.append(ignored)
+    # 止まっていた・中身や設定が変わった。渡すだけで、触れるかは人格に任せる。
+    myself_note, myself_at = myself.note(conn)
+    if myself_note:
+        lines.append(f"自分の様子（{elapsed_phrase(myself_at)}）: {myself_note}")
     # 自分がどれだけ覚えているかを、自分で言えるようにしておく。
     if not fast:
         lines.append(
