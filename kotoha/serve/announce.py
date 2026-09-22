@@ -108,11 +108,17 @@ def _say(conn, items) -> str:
     # （keep=False）が頼まれごとと同じ預かりでまとまった日だけ、その日限りの
     # ものが長期記憶に紛れ込んでいた。
     keep = all(i.get("keep", True) for i in items)
+    # 頼まれごとの回だけ、自分で「もう一度」を入れてよい。まとまった中に
+    # 頼まれごとが1つでもあれば、その段数で許す。
+    chains = [i["chain"] for i in items if i.get("chain") is not None]
     text = ""
     # 配り直すだけの回では、ことはに何も言わせない。言葉はもうできている。
     if items:
         try:
-            text = chat.speak(conn, closing, extra, keep)
+            if chains:
+                text = chat.speak(conn, closing, extra, keep, chain=max(chains))
+            else:
+                text = chat.speak(conn, closing, extra, keep)
         except Exception as error:
             notify.log(f"言えなかった: {error!r}")
         if not text:
@@ -193,7 +199,7 @@ def can_speak() -> bool:
 
 
 def announce(conn, closing: str, plain: str = "", extra: str = "",
-             keep: bool = True, remind_ids=(), remind_texts=()) -> str:
+             keep: bool = True, remind_ids=(), remind_texts=(), chain: int = None) -> str:
     """ことはのほうから何か言う。言ったことが、そのまま通知になる。
 
     通知はすべてここを通す。言わずに鳴らすことはしない。開いても何も
@@ -206,23 +212,30 @@ def announce(conn, closing: str, plain: str = "", extra: str = "",
     plain は、文を作れなかったときに代わりに言わせる一言。見張りのように
     「黙るくらいなら定型でも伝えたい」用がある。声かけのように、言えない
     なら黙っていればよいものは空のままでよい。
+
+    chain が None でなければ頼まれごと。**頼まれごとは、間が空くのを待たない。**
+    「7時に起こして」を7時10分に言っても仕方がない。立て続けになるのは、
+    本人がそう頼んだからで、こちらの気遣いで遅らせる理由がない。巡回の
+    あいだ預かるのは同じ（同じ分の朝の一言と1通にまとめる）だが、その預かりは
+    巡回の終わりに、間を待たずに出る（flush_held）。
     """
     if not can_speak():
         return ""
-    if _collecting or _too_soon(conn):
+    if _collecting or (chain is None and _too_soon(conn)):
         items = _held(conn)
         if len(items) >= HELD_LIMIT:
             notify.log(f"預かりきれないので古いぶんを捨てた: {items[0].get('plain') or ''}"[:120])
             _give_back(conn, items[:1])
             items = items[1:]
         items.append({"closing": closing, "plain": plain, "extra": extra, "keep": keep,
-                      "remind_ids": list(remind_ids), "remind_texts": list(remind_texts)})
+                      "remind_ids": list(remind_ids), "remind_texts": list(remind_texts),
+                      "chain": chain})
         _put_held(conn, items)
         conn.commit()
         return HELD
     return _say(conn, [{"closing": closing, "plain": plain, "extra": extra, "keep": keep,
                         "remind_ids": list(remind_ids),
-                        "remind_texts": list(remind_texts)}])
+                        "remind_texts": list(remind_texts), "chain": chain}])
 
 
 def _give_back(conn, items) -> None:
@@ -255,7 +268,10 @@ def flush_held(conn) -> str:
     if not can_speak():
         return ""
     items = _held(conn)
-    if not items or _too_soon(conn):
+    if not items:
+        return ""
+    # 頼まれごとが混ざっていれば、間を待たない（announce の chain と同じ理由）。
+    if _too_soon(conn) and all(i.get("chain") is None for i in items):
         return ""
     spoken = _say(conn, items)
     if spoken:

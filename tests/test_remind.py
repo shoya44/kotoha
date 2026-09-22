@@ -57,6 +57,20 @@ class TagTests(unittest.TestCase):
         clean, _ = remind.parse("うん。[REMIND: でたらめ|なにか]")
         self.assertNotIn("REMIND", clean)
 
+    def test_a_repeat_rides_in_the_third_slot(self):
+        clean, found = remind.parse("わかった。[REMIND: 2026-09-18 22:00|薬を飲んだか聞く|毎日]")
+        self.assertEqual(clean, "わかった。")
+        self.assertEqual(found[0][1:], ("薬を飲んだか聞く", "毎日"))
+
+    def test_no_repeat_means_once(self):
+        _, found = remind.parse("うん。[REMIND: 2026-09-18 09:00|歯医者]")
+        self.assertIsNone(found[0][2])
+
+    def test_a_repeat_it_does_not_know_means_once(self):
+        """知らない言葉で妙な繰り返しを抱え込まない。用件は預かる。"""
+        _, found = remind.parse("うん。[REMIND: 2026-09-18 09:00|歯医者|隔週]")
+        self.assertEqual(found[0][1:], ("歯医者", None))
+
 
 class KeepingTests(DbCase):
     def setUp(self):
@@ -99,6 +113,97 @@ class KeepingTests(DbCase):
 
     def test_holding_nothing_adds_nothing_to_the_prompt(self):
         self.assertEqual(remind.block(self.conn), "")
+
+
+class RepeatTests(DbCase):
+    """毎日・平日。言い終わるたびに、次の日のぶんを入れ直す。"""
+
+    def test_every_day_comes_back_tomorrow(self):
+        due = datetime.now().replace(second=0, microsecond=0) + timedelta(hours=1)
+        remind.add(self.conn, due, "薬", "毎日")
+        self.conn.commit()
+        remind.done(self.conn, remind.pending(self.conn)[0]["id"])
+        self.conn.commit()
+        held = remind.pending(self.conn)
+        self.assertEqual([(r["due_at"], r["repeat"]) for r in held],
+                         [((due + timedelta(days=1)).strftime(remind.STAMP), "毎日")])
+
+    def test_weekdays_skip_the_weekend(self):
+        """金曜の次は月曜。祝日も飛ばす（2026-09-21〜23 は敬老の日・休日・秋分の日）。"""
+        self.assertEqual(remind.next_due(datetime(2026, 9, 18, 7, 30), "平日",
+                                         now=datetime(2026, 9, 18, 8, 0)),
+                         datetime(2026, 9, 24, 7, 30))
+
+    def test_next_time_is_never_in_the_past(self):
+        """3日寝ていても、次は明日。1日ずつ畳み直さない。"""
+        now = datetime(2026, 9, 21, 23, 0)
+        self.assertEqual(remind.next_due(datetime(2026, 9, 18, 22, 0), "毎日", now),
+                         datetime(2026, 9, 22, 22, 0))
+
+    def test_once_stays_once(self):
+        remind.add(self.conn, datetime(2026, 9, 18, 9, 0), "歯医者")
+        self.conn.commit()
+        remind.done(self.conn, remind.pending(self.conn)[0]["id"])
+        self.conn.commit()
+        self.assertEqual(remind.pending(self.conn), [])
+
+    def test_folding_what_went_by_still_keeps_tomorrow(self):
+        """寝ていて過ぎた日も、明日はまた来る。"""
+        remind.add(self.conn, datetime.now() - timedelta(days=3), "薬", "毎日")
+        self.conn.commit()
+        remind.due(self.conn)                      # ここで畳まれる
+        held = remind.pending(self.conn)
+        self.assertEqual(len(held), 1)
+        self.assertGreater(held[0]["due_at"], datetime.now().strftime(remind.STAMP))
+
+    def test_taking_it_back_ends_the_repeat(self):
+        remind.add(self.conn, datetime(2026, 9, 18, 22, 0), "薬", "毎日")
+        self.conn.commit()
+        remind.drop(self.conn, remind.pending(self.conn)[0]["id"])
+        self.assertEqual(remind.pending(self.conn), [])
+
+
+class FollowUpTests(DbCase):
+    """自分で入れる「もう一度」。返事が来たら終わり。上限で手を引く。"""
+
+    def setUp(self):
+        super().setUp()
+        self.addCleanup(setattr, notify, "log", notify.log)
+        notify.log = lambda text: None
+
+    def test_she_can_put_in_another_one(self):
+        self.assertTrue(remind.follow_up(self.conn, 0, datetime(2026, 9, 18, 7, 5), "起こす"))
+        row = remind.pending(self.conn)[0]
+        self.assertEqual((row["text"], row["chain"]), ("起こす", 1))
+
+    def test_an_answer_ends_the_chase_but_not_the_errand(self):
+        remind.add(self.conn, datetime(2026, 9, 18, 9, 0), "歯医者")
+        remind.follow_up(self.conn, 0, datetime(2026, 9, 18, 7, 5), "起こす")
+        self.conn.commit()
+        self.assertEqual(remind.answered(self.conn), 1)
+        self.assertEqual([r["text"] for r in remind.pending(self.conn)], ["歯医者"])
+
+    def test_it_stops_at_the_limit(self):
+        self.assertFalse(remind.follow_up(self.conn, remind.CHAIN_LIMIT,
+                                          datetime(2026, 9, 18, 7, 5), "起こす"))
+        self.assertEqual(remind.pending(self.conn), [])
+
+    def test_later_counts_as_an_answer(self):
+        """通知の「あとで」を押したなら、聞こえている。"""
+        remind.add(self.conn, datetime.now() - timedelta(minutes=1), "歯医者")
+        self.conn.commit()
+        first = remind.due(self.conn)[0]["id"]
+        remind.done(self.conn, first)
+        remind.follow_up(self.conn, 0, datetime.now() + timedelta(minutes=5), "歯医者、まだ？")
+        self.conn.commit()
+        remind.snooze(self.conn, [first], 30)
+        self.assertEqual([r["chain"] for r in remind.pending(self.conn)], [0])
+
+    def test_the_morning_does_not_list_her_own_chases(self):
+        due = datetime.now().replace(hour=23, minute=59)
+        remind.follow_up(self.conn, 0, due, "起こす")
+        self.conn.commit()
+        self.assertEqual(remind.today(self.conn), [])
 
 
 class SnoozeTests(DbCase):
@@ -152,7 +257,7 @@ class FiringTests(DbCase):
         notify.log = lambda text: None
         self.pushed = []
         notify.push = lambda title, body, *a, **k: self.pushed.append(body) or True
-        chat.speak = lambda conn, closing, extra="", keep=True: "歯医者の時間だよー"
+        chat.speak = lambda conn, closing, extra="", keep=True, chain=None: "歯医者の時間だよー"
 
     def test_it_tells_you_at_the_time(self):
         remind.add(self.conn, datetime.now() - timedelta(minutes=1), "歯医者")
@@ -167,9 +272,43 @@ class FiringTests(DbCase):
         jobs.maybe_reminders(self.conn)
         self.assertEqual(len(self.pushed), 1)
 
+    def test_a_chase_is_said_as_a_chase(self):
+        heard = []
+        chat.speak = lambda conn, closing, extra="", keep=True, chain=None: (
+            heard.append((closing, chain)) or "ねえ、起きてる？")
+        remind.follow_up(self.conn, 1, datetime.now() - timedelta(minutes=1), "起こす")
+        self.conn.commit()
+        jobs.maybe_reminders(self.conn)
+        self.assertEqual(self.pushed, ["ねえ、起きてる？"])
+        self.assertIn("2回目", heard[0][0])
+        self.assertEqual(heard[0][1], 2)
+        self.assertEqual(remind.pending(self.conn), [])
+
+    def test_a_chase_it_could_not_say_is_folded_quietly(self):
+        """追いかけを定型で言っても仕方がない。毎分やり直す道でもない。"""
+        def mute(conn, closing, extra="", keep=True, chain=None):
+            raise RuntimeError("だめ")
+
+        chat.speak = mute
+        remind.follow_up(self.conn, 0, datetime.now() - timedelta(minutes=1), "起こす")
+        self.conn.commit()
+        jobs.maybe_reminders(self.conn)
+        self.assertEqual(self.pushed, [])
+        self.assertEqual(remind.pending(self.conn), [])
+
+    def test_an_errand_does_not_wait_for_the_gap(self):
+        """「7時に起こして」を7時10分に言っても仕方がない。"""
+        self.addCleanup(setattr, config, "NOTIFY_GAP_MINUTES", config.NOTIFY_GAP_MINUTES)
+        config.NOTIFY_GAP_MINUTES = 10
+        db.set_state(self.conn, db.LAST_NOTIFY_AT, db.now_utc())
+        remind.add(self.conn, datetime.now() - timedelta(minutes=1), "起こす")
+        self.conn.commit()
+        jobs.maybe_reminders(self.conn)
+        self.assertEqual(self.pushed, ["歯医者の時間だよー"])
+
     def test_it_is_still_owed_when_it_could_not_speak(self):
         """言えなかったものを、済んだことにしない。"""
-        def mute(conn, closing, extra="", keep=True):
+        def mute(conn, closing, extra="", keep=True, chain=None):
             raise RuntimeError("だめ")
 
         chat.speak = mute
@@ -197,7 +336,7 @@ class LookoutTests(DbCase):
         self.pushed = []
         notify.push = lambda title, body, *a, **k: self.pushed.append(body) or True
         self.told = []
-        chat.speak = lambda conn, closing, extra="", keep=True: (
+        chat.speak = lambda conn, closing, extra="", keep=True, chain=None: (
             self.told.append(closing) or "ちょっと休みなよー")
         presence.streak = lambda conn: None
 
@@ -378,6 +517,43 @@ class KeptAnswerTests(DbCase):
         """読めない時刻は預からない。画面にも出さない。"""
         self.reply_with("うん。[REMIND: あした|歯医者]")
         self.assertNotIn("kept", self.send())
+        self.assertEqual(remind.pending(self.conn), [])
+
+
+class OwnFollowUpTests(DbCase):
+    """頼まれごとを言う回だけ、自分で「もう一度」を入れてよい。"""
+
+    def setUp(self):
+        super().setUp()
+        self.addCleanup(setattr, chat.llm, "chat", chat.llm.chat)
+        self.addCleanup(setattr, notify, "log", notify.log)
+        notify.log = lambda text: None
+        chat.llm.chat = lambda prompt, max_tokens=None: (
+            "起きてー。[REMIND: 2026-09-18 07:05|起こす、2回目]")
+
+    def test_while_reminding_she_may_chase(self):
+        said = chat.speak(self.conn, "起こす時刻になった。", chain=0)
+        self.assertEqual(said, "起きてー。")
+        row = remind.pending(self.conn)[0]
+        self.assertEqual((row["due_at"], row["chain"]), ("2026-09-18 07:05", 1))
+
+    def test_the_chase_wording_is_in_the_prompt(self):
+        seen = []
+        chat.llm.chat = lambda prompt, max_tokens=None: seen.append(prompt) or "起きてー。"
+        chat.speak(self.conn, "起こす時刻になった。", chain=0)
+        self.assertIn("もう一度言う時刻", seen[0])
+        chat.speak(self.conn, "ひまだから声をかける。")
+        self.assertNotIn("もう一度言う時刻", seen[1])
+
+    def test_otherwise_she_makes_no_plans_for_herself(self):
+        chat.speak(self.conn, "ひまだから声をかける。")
+        self.assertEqual(remind.pending(self.conn), [])
+
+    def test_a_reply_from_the_person_ends_the_chase(self):
+        remind.follow_up(self.conn, 0, datetime(2026, 9, 18, 7, 5), "起こす")
+        self.conn.commit()
+        chat.llm.chat = lambda prompt, max_tokens=None: "おはよ。"
+        chat.run_turn(self.conn, "起きたよ")
         self.assertEqual(remind.pending(self.conn), [])
 
 

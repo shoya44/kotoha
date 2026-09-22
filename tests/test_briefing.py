@@ -103,7 +103,7 @@ class BriefingTests(DbCase):
         self.pushed = []
         notify.push = lambda title, body, *a, **k: self.pushed.append(body) or True
         self.given = []
-        chat.speak = lambda conn, closing, extra="", keep=True: (
+        chat.speak = lambda conn, closing, extra="", keep=True, chain=None: (
             self.given.append(extra) or "おはよ。傘いるよ。")
         jobs.weather = FakeSky()
         self.quiet_day()
@@ -191,7 +191,7 @@ class BriefingTests(DbCase):
 
     def speaks_for_real(self):
         """文だけ替えて、残すところは本物に通す。"""
-        def speak(conn, closing, extra="", keep=True):
+        def speak(conn, closing, extra="", keep=True, chain=None):
             chat.remember(conn, "おはよ", keep=keep)
             return "おはよ"
 
@@ -217,13 +217,13 @@ class BriefingTests(DbCase):
 
     def test_a_failure_does_not_repeat_all_morning(self):
         """文を作れなくても、毎分やり直さない。APIを空回りさせない。"""
-        def explode(conn, closing, extra="", keep=True):
+        def explode(conn, closing, extra="", keep=True, chain=None):
             raise RuntimeError("だめ")
 
         chat.speak = explode
         self.at(8)
         jobs.maybe_briefing(self.conn)
-        chat.speak = lambda conn, closing, extra="", keep=True: "おはよ"
+        chat.speak = lambda conn, closing, extra="", keep=True, chain=None: "おはよ"
         jobs.maybe_briefing(self.conn)
         self.assertEqual(self.pushed, [])
 
@@ -246,7 +246,7 @@ class AnnounceTests(DbCase):
                 self.conn.execute("SELECT text FROM messages WHERE role = 'assistant'")]
 
     def test_what_it_says_is_what_it_sends(self):
-        chat.speak = lambda conn, closing, extra="", keep=True: "ねえ、聞いてる？"
+        chat.speak = lambda conn, closing, extra="", keep=True, chain=None: "ねえ、聞いてる？"
         announce_mod.announce(self.conn, "何か言う")
         self.assertEqual(self.pushed, ["ねえ、聞いてる？"])
 
@@ -259,7 +259,7 @@ class AnnounceTests(DbCase):
 
     def test_it_falls_back_to_plain_words(self):
         """文を作れなくても、伝えたいことは伝える。"""
-        def explode(conn, closing, extra="", keep=True):
+        def explode(conn, closing, extra="", keep=True, chain=None):
             raise RuntimeError("だめ")
 
         chat.speak = explode
@@ -268,7 +268,7 @@ class AnnounceTests(DbCase):
         self.assertEqual(self.said(), ["音声エンジンが止まったみたい"])
 
     def test_without_plain_words_it_stays_silent(self):
-        def explode(conn, closing, extra="", keep=True):
+        def explode(conn, closing, extra="", keep=True, chain=None):
             raise RuntimeError("だめ")
 
         chat.speak = explode
@@ -278,7 +278,7 @@ class AnnounceTests(DbCase):
 
     def test_it_does_nothing_when_push_is_not_set_up(self):
         notify.ready = lambda: False
-        chat.speak = lambda conn, closing, extra="", keep=True: "おーい"
+        chat.speak = lambda conn, closing, extra="", keep=True, chain=None: "おーい"
         announce_mod.announce(self.conn, "何か言う")
         self.assertEqual(self.pushed, [])
         self.assertEqual(self.said(), [])
@@ -357,7 +357,7 @@ class MorningMaterialTests(DbCase):
 
         self.addCleanup(setattr, chat, "speak", chat.speak)
         self.asked = []
-        chat.speak = lambda conn, closing, extra="", keep=True: (
+        chat.speak = lambda conn, closing, extra="", keep=True, chain=None: (
             self.asked.append((closing, extra, keep)) or "おはよー")
 
     def test_the_three_go_out_together(self):

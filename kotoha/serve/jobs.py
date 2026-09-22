@@ -199,16 +199,42 @@ def maybe_lookout(conn) -> None:
                    "休むように、一行で。責めない。")
 
 
+def _seen_at_pc() -> str:
+    """相手がいまPCの前に居るか。見えていることを聞かないための1行。
+
+    「起きてる？」と聞く前に、PCが動いていれば起きている。分からなければ
+    何も言わない（分からないことを、あるように渡さない）。
+    """
+    idle = presence.idle_seconds()
+    if idle is None:
+        return ""
+    if idle < 5 * 60:
+        return "PCはいま動いている（相手は席に居る）。"
+    return f"PCは{int(idle // 60)}分前から触られていない。"
+
+
 def maybe_reminders(conn) -> None:
-    """預かっていた頼まれごとを、時刻が来たら口に出す。"""
+    """預かっていた頼まれごとを、時刻が来たら口に出す。
+
+    本人に頼まれたもの（chain=0）は、言えなければ定型でも伝えて畳む。
+    自分で入れた追いかけ（chain>0）は、言えなければ黙って畳む。追いかけを
+    定型で「の時間だよ」と言っても仕方がないし、毎分やり直す道でもない。
+    """
     if not can_speak():
         return
     for row in remind.due(conn):
-        spoken = announce(conn, f"前に「{row['text']}」を思い出させてほしいと頼まれていた。"
-                                "その時刻になった。一行で伝える。",
-                          plain=f"{row['text']}の時間だよ", remind_ids=[row["id"]],
-                          remind_texts=[row["text"]])
-        if spoken:
+        chain = row["chain"] or 0
+        if chain:
+            closing = (f"「{row['text']}」。前に自分で決めた、もう一度言う時刻になった"
+                       f"（追いかけの{chain}回目）。まだ返事がない。{_seen_at_pc()}"
+                       "一行で。")
+        else:
+            closing = (f"前に「{row['text']}」を思い出させてほしいと頼まれていた。"
+                       f"その時刻になった。{_seen_at_pc()}一行で伝える。")
+        spoken = announce(conn, closing,
+                          plain="" if chain else f"{row['text']}の時間だよ",
+                          remind_ids=[row["id"]], remind_texts=[row["text"]], chain=chain)
+        if spoken or chain:
             remind.done(conn, row["id"])
             conn.commit()
 
