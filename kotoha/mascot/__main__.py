@@ -84,12 +84,17 @@ class Mascot:
     # --- 居場所 ---
 
     def first_place(self, width: int, height: int):
-        """前に置いた場所。無ければ右下。**画面の外には出さない。**"""
+        """前に置いた場所。無ければ主画面の右下。**画面の外には出さない。**
+
+        収める画面は、**置いた場所のある画面**で見る。主画面で見ると、
+        サブディスプレイに置いたぶんが起動のたびに主画面へ戻される。
+        """
         left, top, right, bottom = window.work_area()
         x, y = right - width - MARGIN_RIGHT, bottom - height - MARGIN_BOTTOM
         try:
             saved = json.loads(PLACE_PATH.read_text(encoding="utf-8"))
             x, y = int(saved["x"]), int(saved["y"])
+            left, top, right, bottom = window.work_area_at(x + width // 2, y + height // 2)
         except (OSError, ValueError, KeyError, TypeError):
             pass
         x = max(left, min(x, right - width))

@@ -63,6 +63,25 @@ class TagOrderTests(DbCase):
         self.assertEqual(pinned, [])
         self.assertEqual(related, [])  # episode でも open_topic でもないので拾わない
 
+    def test_open_topics_are_not_crowded_out_by_episodes(self):
+        """続きのある話は、出来事が続いた週でも押し出されない。"""
+        self.addCleanup(setattr, config, "RETRIEVE_RECENT_LIMIT", config.RETRIEVE_RECENT_LIMIT)
+        config.RETRIEVE_RECENT_LIMIT = 2
+        self.conn.execute(
+            NODE_SQL, ("semantic", "open_topic", "引っ越し先を探している", "2026-08-01",
+                       "2026-08-01T00:00:00Z", "2026-08-01T00:00:00Z",
+                       "2099-01-01T00:00:00Z", 0, "topic"))
+        for day in range(2, 6):
+            stamp = f"2026-09-0{day}T00:00:00Z"
+            self.conn.execute(
+                NODE_SQL, ("episode", "event", f"出来事{day}", stamp[:10], stamp, stamp,
+                           "2099-01-01T00:00:00Z", 0, f"event{day}"))
+        self.conn.commit()
+        _pinned, related = retrieve.retrieve(self.conn, "まったく別の話題")
+        kinds = [r["kind"] for r in related]
+        self.assertIn("open_topic", kinds)
+        self.assertEqual(kinds.count("event"), 2)
+
 
 def blob(text):
     """比べるためだけのベクトル。本文そのものを入れ、長さだけ4の倍数に揃える。"""

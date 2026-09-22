@@ -17,15 +17,42 @@ from datetime import datetime
 from .. import config
 
 # 時間帯ごとの、様子と立ち姿の候補。区切りは group() が持つ。
-# 候補が複数ある時間帯は、その日ぶんを日付で1枚に決める（sprite を参照）。
+# 候補が複数ある時間帯は、その日ぶんを日付で1つに決める（situation / sprite を参照）。
+# 様子は毎日同じだと「14時は必ずおやつ」になり、生活ではなく時刻表に見える。
+# 人格（persona.txt）の範囲で数個ずつ置き、その日はそれで通す。
 # **絵の名前は sprites.json のものと揃えること**（tests/test_sprites.py が見張っている）。
 GROUPS = {
-    "morning": ("起きたばかりで、頭がぼーっとしている", ("wave", "daydream")),
-    "day": ("家でダラダラしている", ("laptop", "write")),
-    "afternoon": ("昼寝やおやつでだらけている", ("snack", "bored")),
-    "evening": ("風呂や夕食をすませたあと", ("book", "think")),
-    "night": ("夜更かし中で、ゲームかスマホを触っている", ("cards", "laugh")),
-    "sleep": ("本当はもう寝ている時間", ("sleep",)),
+    "morning": ((
+        "起きたばかりで、頭がぼーっとしている",
+        "コーヒーだけ飲んで、二度寝しようか迷っている",
+        "布団から出たくなくて、スマホをだらだら見ている",
+        "起きてはいるが、まだ何もしていない",
+    ), ("wave", "daydream")),
+    "day": ((
+        "家でダラダラしている",
+        "洗い物をあとでやろうと思って、先延ばしにしている",
+        "昼ごはんを何にするか、まだ決めていない",
+        "ノートPCを開いたまま、特に何もしていない",
+    ), ("laptop", "write")),
+    "afternoon": ((
+        "昼寝やおやつでだらけている",
+        "プリンをいま食べるか、夕飯のあとに取っておくか迷っている",
+        "昼寝から起きたばかりで、まだ半分寝ている",
+        "床に寝転がって、天井を見ている",
+    ), ("snack", "bored")),
+    "evening": ((
+        "風呂や夕食をすませたあと",
+        "夕飯は食べたが、お風呂はまだ入っていない",
+        "洗濯物を畳まないまま、山にしてある",
+        "夕飯のあとで、甘いものが食べたくなっている",
+    ), ("book", "think")),
+    "night": ((
+        "夜更かし中で、ゲームかスマホを触っている",
+        "寝ようと思いつつ、スマホを見続けている",
+        "ゲームがきりのいいところまで行かなくて、やめられない",
+        "明日こそ早く起きようと思っている",
+    ), ("cards", "laugh")),
+    "sleep": (("本当はもう寝ている時間",), ("sleep",)),
 }
 
 # いまの振る舞い。上から順に、最初に当てはまったものを返す（act を参照）。
@@ -74,9 +101,24 @@ def group(hour: int) -> str:
     return "sleep"
 
 
-def situation(hour: int) -> str:
-    """その時間のことはの様子。プロンプトに入れる言葉。"""
-    return GROUPS[group(hour)][0]
+def _pick(name: str, choices, now: datetime):
+    """その日ぶんを1つに決める。**その日のあいだは変わらない。**
+
+    見るたびに変わると、同じ時間帯なのに様子や姿が入れ替わって落ち着かない。
+    日付と時間帯から決める。様子と絵は同じ式で選ぶので、揃って変わる。
+    """
+    return choices[(now.day + len(name)) % len(choices)]
+
+
+def situation(hour: int, now: datetime = None) -> str:
+    """その時間のことはの様子。プロンプトに入れる言葉。
+
+    時刻は引数で受ける（時計に関係なく確かめられるように）。日付は now で
+    渡し、渡さなければ今日。同じ日・同じ時間帯なら、何度呼んでも同じ。
+    """
+    now = now or datetime.now()
+    name = group(hour)
+    return _pick(name, GROUPS[name][0], now)
 
 
 def prior(hour: int) -> str:
@@ -111,8 +153,7 @@ def sprite(now: datetime = None) -> str:
     """
     now = now or datetime.now()
     name = group(now.hour)
-    choices = GROUPS[name][1]
-    return choices[(now.day + len(name)) % len(choices)]
+    return _pick(name, GROUPS[name][1], now)
 
 
 def act(hour: int, mood: str = "", said_ago: float = None,

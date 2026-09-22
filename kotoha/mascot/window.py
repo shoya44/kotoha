@@ -109,8 +109,36 @@ _signature(gdi32.DeleteObject, w.BOOL, w.HGDIOBJ)
 _signature(gdi32.DeleteDC, w.BOOL, w.HDC)
 
 
+MONITOR_DEFAULTTONEAREST = 2
+
+
+class MONITORINFO(ctypes.Structure):
+    _fields_ = [("cbSize", w.DWORD), ("rcMonitor", w.RECT), ("rcWork", w.RECT),
+                ("dwFlags", w.DWORD)]
+
+
+_signature(user32.MonitorFromPoint, w.HANDLE, w.POINT, w.DWORD)
+_signature(user32.GetMonitorInfoW, w.BOOL, w.HANDLE, ctypes.POINTER(MONITORINFO))
+
+
+def work_area_at(x: int, y: int):
+    """その座標がある画面の、タスクバーを除いた広さ。
+
+    `work_area()` は**主画面しか見ない**。姿をサブディスプレイへ運ぶと、
+    ふきだしは主画面の中へ押し戻され、姿の上には出なかった。姿のいる画面で
+    測れば、どの画面でも同じ置き方になる。画面が分からなければ主画面。
+    """
+    monitor = user32.MonitorFromPoint(w.POINT(int(x), int(y)), MONITOR_DEFAULTTONEAREST)
+    info = MONITORINFO()
+    info.cbSize = ctypes.sizeof(MONITORINFO)
+    if monitor and user32.GetMonitorInfoW(monitor, ctypes.byref(info)):
+        area = info.rcWork
+        return area.left, area.top, area.right, area.bottom
+    return work_area()
+
+
 def work_area():
-    """タスクバーを除いた画面の広さ。ドットはこの中に立つ。"""
+    """タスクバーを除いた**主画面**の広さ。姿の最初の置き場に使う。"""
     rect = w.RECT()
     user32.SystemParametersInfoW(SPI_GETWORKAREA, 0, ctypes.byref(rect), 0)
     return rect.left, rect.top, rect.right, rect.bottom

@@ -50,12 +50,12 @@ def current_mood(conn, hour: int = None) -> str:
     return label
 
 
-def situation(hour: int) -> str:
+def situation(hour: int, now: datetime = None) -> str:
     """その時間のことはの様子。画面のアバターと言うことを一致させる。
 
     区切りと文言は figure.py が持っている。**絵と言葉で二重に持たない。**
     """
-    return figure.situation(hour)
+    return figure.situation(hour, now)
 
 
 def elapsed_phrase(last: str) -> str:
@@ -296,9 +296,19 @@ def build_prompt(conn, user_text: str, recent, pinned, related, fast: bool = Fal
     if pinned:
         basic_block = "基本情報:\n" + "\n".join(_mem_line(r) for r in pinned)
 
+    # 続きのある話は、それと分かる形で渡す。「関連記憶」に混ぜると、モデルには
+    # 済んだ話と区別がつかず、人格にある「そういえばあれ、どうなった？」が出ない。
+    topics = [r for r in related if r["kind"] == "open_topic"][:retrieve.OPEN_TOPIC_LIMIT]
+    topic_ids = {r["id"] for r in topics}
+    topic_block = ""
+    if topics:
+        topic_block = ("気になっていること（続きを聞いてもいい。毎回は聞かない）:\n"
+                       + "\n".join(_mem_line(r) for r in topics))
+
     related_block = ""
-    if related:
-        related_block = "関連記憶:\n" + "\n".join(_mem_line(r) for r in related)
+    rest = [r for r in related if r["id"] not in topic_ids]
+    if rest:
+        related_block = "関連記憶:\n" + "\n".join(_mem_line(r) for r in rest)
 
     recent_block = ""
     if recent:
@@ -314,6 +324,7 @@ def build_prompt(conn, user_text: str, recent, pinned, related, fast: bool = Fal
         machine_block,
         remind_block,
         basic_block,
+        topic_block,
         related_block,
         recent_block,
         closing or f"今回の発言:\nユーザー: {user_text}",

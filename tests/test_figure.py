@@ -48,6 +48,34 @@ class SpriteTests(unittest.TestCase):
         self.assertGreater(len(days), 1)
 
 
+class SituationTests(unittest.TestCase):
+    """様子も日替わり。毎日14時に必ずおやつでは、生活ではなく時刻表に見える。"""
+
+    def test_situation_is_a_listed_one(self):
+        for hour in range(24):
+            now = datetime(2026, 9, 19, hour)
+            with self.subTest(hour=hour):
+                self.assertIn(figure.situation(hour, now), figure.GROUPS[figure.group(hour)][0])
+
+    def test_same_day_and_group_gives_the_same_situation(self):
+        """同じ日のあいだに様子が入れ替わると、さっき言ったことと食い違う。"""
+        first = figure.situation(14, datetime(2026, 9, 19, 14, 5))
+        later = figure.situation(16, datetime(2026, 9, 19, 16, 50))
+        self.assertEqual(first, later)
+
+    def test_the_situation_can_differ_by_day(self):
+        days = {figure.situation(14, datetime(2026, 9, day, 14)) for day in range(1, 8)}
+        self.assertGreater(len(days), 1)
+
+    def test_every_group_but_sleep_has_variety(self):
+        for name, (situations, _pictures) in figure.GROUPS.items():
+            with self.subTest(group=name):
+                if name == "sleep":
+                    self.assertEqual(len(situations), 1)
+                else:
+                    self.assertGreater(len(situations), 1)
+
+
 class ActTests(unittest.TestCase):
     def setUp(self):
         self.addCleanup(setattr, config, "LOOKOUT_SIT_HOURS", config.LOOKOUT_SIT_HOURS)
