@@ -87,6 +87,55 @@ def elapsed_phrase(last: str) -> str:
     return "1年以上前"
 
 
+# 声をかけてから、これだけ返事が無ければ「無視された」と数える。
+UNANSWERED_SECONDS = 3600
+
+
+def _utc(value: str):
+    try:
+        return datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+    except (TypeError, ValueError):
+        return None
+
+
+def unanswered(recent, now: datetime = None) -> str:
+    """声をかけたのに返事がなかったこと。**ことは自身に言わせるための1行。**
+
+    人は、話しかけて無視されたのを覚えている。次に会ったとき水に流すか
+    根に持つかは人格に任せるが、**あったことは渡す**。渡さなければ、
+    向こうは何も無かった顔で始めるしかない。
+
+    見るのは直近の会話だけなので、話しているうちに窓から出て自然に薄れる。
+    朝のひとことのようにその日限りのもの（extractable=0）は数えない。
+    「おはよう」に返事が無いのは、無視ではない。
+    """
+    now = now or datetime.now(timezone.utc)
+    rows = list(recent)
+    turns_with_user = {r["turn_id"] for r in rows if r["role"] == "user"}
+    ignored = []
+    for i, row in enumerate(rows):
+        if row["role"] != "assistant" or row["turn_id"] in turns_with_user:
+            continue
+        if not row["extractable"]:
+            continue
+        said = _utc(row["created_at"])
+        if said is None:
+            continue
+        answered = next((_utc(r["created_at"]) for r in rows[i + 1:] if r["role"] == "user"), None)
+        gap = ((answered or now) - said).total_seconds()
+        if gap >= UNANSWERED_SECONDS:
+            ignored.append(row)
+    if not ignored:
+        return ""
+    last = ignored[-1]
+    times = f"{len(ignored)}回" if len(ignored) > 1 else "1回"
+    return (
+        f"返事のなかった声かけ: {times}（最後は{elapsed_phrase(last['created_at'])}）。"
+        "ことはのほうから話しかけたのに、返事はなかった。"
+        "そのことは、まだ気にしていていい。すぐ水に流さなくていい"
+    )
+
+
 def where_she_is(conn) -> str:
     """いま姿を出している場所。**ことは自身に言わせるための1行。**
 
@@ -212,6 +261,9 @@ def build_prompt(conn, user_text: str, recent, pinned, related, fast: bool = Fal
     place = where_she_is(conn)
     if place:
         lines.append(place)
+    ignored = unanswered(recent)
+    if ignored:
+        lines.append(ignored)
     # 自分がどれだけ覚えているかを、自分で言えるようにしておく。
     if not fast:
         lines.append(
