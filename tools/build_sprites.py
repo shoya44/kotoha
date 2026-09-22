@@ -19,7 +19,8 @@
     python -m tools.build_sprites
 
 出るもの:
-    kotoha/serve/static/sprite/full/*.png      ドットと会話画面のアバター
+    kotoha/serve/static/sprite/full/*.png      デスクトップの姿
+    kotoha/serve/static/sprite/web/*.png       会話画面の姿（iPhoneぶん大きい）
     kotoha/serve/static/sprite/face.png        会話の行やヘッダーに出る顔
     kotoha/serve/static/sprite/sprites.json    対応表。器はこれだけを見る
     kotoha/serve/static/icons/icon-*.png       ホーム画面のアイコン
