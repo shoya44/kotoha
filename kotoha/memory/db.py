@@ -1,10 +1,10 @@
 import contextlib
 import shutil
 import sqlite3
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from .. import config, notify
+from .. import clock, config, notify
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS messages (
@@ -110,7 +110,7 @@ INSERT OR IGNORE INTO app_state (key, value) VALUES
 
 
 def now_utc() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return clock.utc()
 
 
 def seconds_since(value) -> float:
@@ -121,7 +121,7 @@ def seconds_since(value) -> float:
         dt = datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
     except ValueError:
         return float("inf")
-    return (datetime.now(timezone.utc) - dt).total_seconds()
+    return (clock.utc_now() - dt).total_seconds()
 
 
 def connect() -> sqlite3.Connection:
@@ -374,23 +374,28 @@ def set_state(conn, key: str, value) -> None:
 
 # --- 記憶の利用実績・メンテナンス ---
 
-# 比較は now_utc() と同じ形式で行う。datetime('now') はスペース区切りのため
-# 文字列比較がずれ、同日中に切れた期限を取りこぼす。列に関数を当てないので
-# expires_at のインデックスもそのまま効く。
-NOW_SQL = "strftime('%Y-%m-%dT%H:%M:%SZ', 'now')"
-NOW_SQL_OFFSET = "strftime('%Y-%m-%dT%H:%M:%SZ', 'now', ?)"
+# 「今」は SQLite の 'now' ではなく、Python の時計（clock.py）を束縛して渡す。
+# 二つの時計が別々に刻むと、時間を進めたテストで片方だけが動く。列に関数を
+# 当てないので expires_at のインデックスもそのまま効く。
+def alive_sql(column: str = "expires_at") -> str:
+    """生きている記憶の条件。`?` が1つ増えるので、引数に now_utc() を足す。"""
+    return f"({column} IS NULL OR {column} > ?)"
+
+
+def shifted(days: float) -> str:
+    """今から days 日後（負なら前）の、DBに書く形。"""
+    return (clock.utc_now() + timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 # 想起・再確認された記憶は期限を延ばす。触れられない記憶だけが自然に薄れる。
 EXTEND_EXPIRES = (
     "expires_at = CASE WHEN expires_at IS NULL THEN NULL ELSE MAX(expires_at, "
-    "strftime('%Y-%m-%dT%H:%M:%SZ', 'now', "
-    "CASE layer WHEN 'episode' THEN ? ELSE ? END)) END"
+    "CASE layer WHEN 'episode' THEN ? ELSE ? END) END"
 )
 
 
 def extend_args() -> tuple:
-    return (f"+{config.EPISODE_DAYS} days", f"+{config.SEMANTIC_DAYS} days")
+    return (shifted(config.EPISODE_DAYS), shifted(config.SEMANTIC_DAYS))
 
 
 def update_usage(conn, node_ids: list, turn_id: int) -> None:
@@ -412,12 +417,12 @@ def update_usage(conn, node_ids: list, turn_id: int) -> None:
 def run_maintenance(conn) -> int:
     cur = conn.execute(
         "DELETE FROM memory_nodes WHERE pinned = 0 "
-        f"AND expires_at IS NOT NULL AND expires_at < {NOW_SQL}"
+        "AND expires_at IS NOT NULL AND expires_at < ?", (now_utc(),)
     )
     conn.execute(
         "UPDATE memory_tags SET use_count = 0 "
-        f"WHERE last_used_at IS NOT NULL AND last_used_at < {NOW_SQL_OFFSET}",
-        (f"-{config.TAG_RESET_DAYS} days",),
+        "WHERE last_used_at IS NOT NULL AND last_used_at < ?",
+        (shifted(-config.TAG_RESET_DAYS),),
     )
     set_state(conn, LAST_FORGET_AT, now_utc())
     conn.commit()

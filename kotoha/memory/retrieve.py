@@ -1,7 +1,7 @@
 from .. import config, notify
 from . import db, embed
 
-_ALIVE = f"(expires_at IS NULL OR expires_at > {db.NOW_SQL})"
+_ALIVE = db.alive_sql()          # `?` が1つ。引数には db.now_utc() を渡す
 _COLS = "id, layer, kind, text, occurred_at, confirmed_at, pinned"
 
 # 続きのある話を、毎回これだけは渡す。最近のエピソードと同じ枠に入れていると、
@@ -22,7 +22,7 @@ def pinned_only(conn):
     return conn.execute(
         f"SELECT {_COLS} FROM memory_nodes WHERE pinned = 1 AND {_ALIVE} "
         f"ORDER BY confirmed_at DESC LIMIT ?",
-        (config.PINNED_LIMIT,),
+        (db.now_utc(), config.PINNED_LIMIT),
     ).fetchall()
 
 
@@ -66,7 +66,7 @@ def _by_meaning(conn, query_text: str, known):
     ids = [node_id for _, node_id in scored[: config.EMBED_RESERVE]]
     ph = ",".join("?" * len(ids))
     found = conn.execute(
-        f"SELECT {_COLS} FROM memory_nodes WHERE id IN ({ph}) AND {_ALIVE}", ids
+        f"SELECT {_COLS} FROM memory_nodes WHERE id IN ({ph}) AND {_ALIVE}", (*ids, db.now_utc())
     ).fetchall()
     order = {node_id: i for i, node_id in enumerate(ids)}
     return sorted(found, key=lambda r: order[r["id"]])
@@ -98,7 +98,7 @@ def retrieve(conn, user_text: str, recent_text: str = ""):
                 # よく想起されたタグ・最近使った記憶を先に返す。use_count は0〜3で
                 # 頭打ちになり未使用なら日数で戻るので、古い記憶が居座り続けない。
                 f"ORDER BY t.use_count DESC, n.last_used_at DESC, n.confirmed_at DESC LIMIT ?",
-                (*hits, config.TAG_CANDIDATE_LIMIT),
+                (*hits, db.now_utc(), config.TAG_CANDIDATE_LIMIT),
             ).fetchall()
         )
 
@@ -119,7 +119,7 @@ def retrieve(conn, user_text: str, recent_text: str = ""):
             add(
                 conn.execute(
                     f"SELECT {_COLS} FROM memory_nodes WHERE id IN ({ph2}) AND {_ALIVE} LIMIT ?",
-                    (*nids, config.HOP_LIMIT),
+                    (*nids, db.now_utc(), config.HOP_LIMIT),
                 ).fetchall()
             )
 
@@ -127,7 +127,7 @@ def retrieve(conn, user_text: str, recent_text: str = ""):
         conn.execute(
             f"SELECT {_COLS} FROM memory_nodes WHERE {_ALIVE} AND kind = 'open_topic' "
             f"ORDER BY confirmed_at DESC LIMIT ?",
-            (OPEN_TOPIC_LIMIT,),
+            (db.now_utc(), OPEN_TOPIC_LIMIT),
         ).fetchall()
     )
 
@@ -136,7 +136,7 @@ def retrieve(conn, user_text: str, recent_text: str = ""):
             f"SELECT {_COLS} FROM memory_nodes WHERE {_ALIVE} "
             f"AND (layer = 'episode' OR kind = 'open_topic') "
             f"ORDER BY confirmed_at DESC LIMIT ?",
-            (config.RETRIEVE_RECENT_LIMIT,),
+            (db.now_utc(), config.RETRIEVE_RECENT_LIMIT),
         ).fetchall()
     )
 

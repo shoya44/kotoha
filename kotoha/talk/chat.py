@@ -265,8 +265,7 @@ def parse_mood(text: str):
 
 def _memory_count(conn) -> int:
     return conn.execute(
-        "SELECT COUNT(*) FROM memory_nodes WHERE expires_at IS NULL OR expires_at > "
-        + db.NOW_SQL
+        f"SELECT COUNT(*) FROM memory_nodes WHERE {db.alive_sql()}", (db.now_utc(),)
     ).fetchone()[0]
 
 
