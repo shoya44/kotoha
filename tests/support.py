@@ -14,7 +14,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from kotoha import config
+from datetime import datetime, timedelta
+
+from kotoha import clock, config
 from kotoha.memory import db
 
 
@@ -38,3 +40,31 @@ class DbCase(unittest.TestCase):
         self.conn = db.connect()
         self.addCleanup(self.conn.close)
         db.init(self.conn)
+
+
+class Clock:
+    """時計を止めて、進める。DBの 'now' も Python の now も、同じ時刻を見る。
+
+        with Clock(datetime(2026, 9, 22, 12, 0)) as clock:
+            ...
+            clock.advance(days=3)
+
+    naive な時刻はローカルとして受け、UTCに直して止める。
+    """
+
+    def __init__(self, moment: datetime):
+        if moment.tzinfo is None:
+            moment = moment.astimezone()
+        self.moment = moment
+
+    def __enter__(self):
+        clock.freeze(self.moment)
+        return self
+
+    def __exit__(self, *exc):
+        clock.freeze(None)
+
+    def advance(self, **delta) -> datetime:
+        self.moment += timedelta(**delta)
+        clock.freeze(self.moment)
+        return self.moment
