@@ -48,9 +48,7 @@ def main(top: int = 25) -> int:
     for seconds, test_id in sorted(result.times, reverse=True)[:top]:
         print(f"{seconds:6.2f}  {test_id.removeprefix('tests.')}")
     for test, trace in result.errors + result.failures:
-        print(f"
----- {test.id()}
-{trace.strip()}")
+        print(f"\n---- {test.id()}\n{trace.strip()}")
     return 0 if result.wasSuccessful() else 1
 
 
