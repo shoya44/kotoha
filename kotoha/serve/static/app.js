@@ -1112,8 +1112,15 @@ let presenceStream = null;
 let blinkTimer = null;
 let embodied = false;
 let currentPicture = "";
+// 脳が最後に伝えてきた振る舞い（idle / talk / sleep …）。暇なときだけ、所作を挟む。
+let currentAct = "idle";
 // まばたきのある絵の一覧。無い絵は、まばたきしないだけ。
 let blinkable = new Set();
+// 手持ちぶさたの所作（fidget_* の絵）。暇なときに数秒だけ出して戻す。トレイと同じ癖。
+let fidgets = [];
+let fidgetTimer = null;
+// 脳が出せと言っている絵。所作から戻る先。
+let brainPicture = "";
 
 async function loadSpriteList() {
   try {
@@ -1121,6 +1128,7 @@ async function loadSpriteList() {
     const manifest = await response.json();
     blinkable = new Set(
       Object.entries(manifest.sprites).filter(([, s]) => s.blink).map(([name]) => name));
+    fidgets = Object.keys(manifest.sprites).filter(name => name.startsWith("fidget_"));
   } catch {
     // 読めなくても絵は出る。まばたきしないだけ。
   }
@@ -1154,6 +1162,39 @@ async function showPicture(name) {
   scheduleBlink();
 }
 
+// 脳からの姿。所作の途中なら、それをやめて従う。
+function showBrainPicture(name, act) {
+  brainPicture = name || brainPicture;
+  const wasAct = currentAct;
+  currentAct = act || "idle";
+  clearTimeout(fidgetTimer);
+  fidgetTimer = null;
+  showPicture(brainPicture);
+  if (currentAct === "happy" && wasAct !== "happy") reactAvatar("avatar-hop");
+  scheduleFidget();
+}
+
+// 暇なとき、数秒だけ所作を出して戻る。間はまばたきよりずっと長い。
+const FIDGET_MIN_MS = 30000, FIDGET_MAX_MS = 90000, FIDGET_MS = 3200;
+
+function scheduleFidget() {
+  clearTimeout(fidgetTimer);
+  fidgetTimer = null;
+  if (!fidgets.length || !embodied || document.hidden) return;
+  if (currentAct !== "idle" && currentAct !== "happy") return;
+  fidgetTimer = setTimeout(async () => {
+    fidgetTimer = null;
+    if (currentAct !== "idle" && currentAct !== "happy") return;
+    const name = fidgets[Math.floor(Math.random() * fidgets.length)];
+    await showPicture(name);
+    fidgetTimer = setTimeout(() => {
+      fidgetTimer = null;
+      showPicture(brainPicture);
+      scheduleFidget();
+    }, FIDGET_MS);
+  }, FIDGET_MIN_MS + Math.random() * (FIDGET_MAX_MS - FIDGET_MIN_MS));
+}
+
 // HTMLに書いてある最初の1枚だけは、上の道を通らずに読み込まれる。そこが
 // 読めなかったときのために、**壊れた絵は隠す。** 何も無い地の色のほうが、
 // 壊れた絵の印よりはましなため。繋がれば脳が姿を押し出してくるので戻る。
@@ -1173,7 +1214,11 @@ function setEmbodied(here, where = "") {
   elements.awayWhere.textContent = where === "desktop" ? "デスクトップに居る" : "外出中";
   if (!here) {
     clearTimeout(blinkTimer);
+    clearTimeout(fidgetTimer);
+    fidgetTimer = null;
     currentPicture = "";
+  } else {
+    scheduleFidget();
   }
 }
 
@@ -1222,7 +1267,7 @@ function connectPresence() {
     }
     if (message.type === "here") setEmbodied(true);
     else if (message.type === "away") setEmbodied(false, message.where);
-    else if (message.type === "act") showPicture(message.picture);
+    else if (message.type === "act") showBrainPicture(message.picture, message.act);
     else if (message.type === "say") {
       $("frameBubble").textContent = message.text || "";
       // 本文は履歴から取る。並べ方を1か所にしておく。

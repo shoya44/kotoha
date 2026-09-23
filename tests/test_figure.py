@@ -109,6 +109,7 @@ class ActTests(unittest.TestCase):
             figure.act(3),
             figure.act(12, streak_hours=99),
             figure.act(12, mood="すねている"),
+            figure.act(12, mood="機嫌がいい"),
         }
         self.assertEqual(seen, set(figure.ACTS))
 

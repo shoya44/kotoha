@@ -28,10 +28,11 @@ SEAM = 0.72
 class Frame:
     """1枚ぶん。転送用の並びと、当たり判定用の不透明さ。"""
 
-    __slots__ = ("width", "height", "bgra", "alpha", "_squashed")
+    __slots__ = ("width", "height", "bgra", "alpha", "_squashed", "_mirrored")
 
     def __init__(self, image: png.Image):
         self._squashed = None
+        self._mirrored = None
         self.width = image.width
         self.height = image.height
         self.bgra = bytearray(len(image.px))
@@ -91,6 +92,26 @@ class Frame:
         self._squashed._squashed = self._squashed
         return self._squashed
 
+    def mirrored(self) -> "Frame":
+        """左右を返した同じ絵。歩く向きに合わせるのに使う。一度作ったら持っておく。"""
+        if self._mirrored is not None:
+            return self._mirrored
+        width, height = self.width, self.height
+        bgra = bytearray(width * height * 4)
+        alpha = bytearray(width * height)
+        for y in range(height):
+            row = self.bgra[y * width * 4:(y + 1) * width * 4]
+            flipped = bytearray(width * 4)
+            for x in range(width):
+                flipped[x * 4:(x + 1) * 4] = row[(width - 1 - x) * 4:(width - x) * 4]
+            bgra[y * width * 4:(y + 1) * width * 4] = flipped
+            alpha[y * width:(y + 1) * width] = self.alpha[y * width:(y + 1) * width][::-1]
+        self._mirrored = Frame.__new__(Frame)
+        self._mirrored.width, self._mirrored.height = width, height
+        self._mirrored.bgra, self._mirrored.alpha = bgra, alpha
+        self._mirrored._squashed, self._mirrored._mirrored = None, self
+        return self._mirrored
+
     def opaque_at(self, x: int, y: int) -> bool:
         if not (0 <= x < self.width and 0 <= y < self.height):
             return False
@@ -108,6 +129,8 @@ class Sheet:
         self.folder = folder or SPRITE_DIR
         self.frames = {}
         self.blinks = {}
+        # 動きのコマ。{名前: {タグ: Frame}}。歩きの足など。
+        self.motions = {}
         self.size = (0, 0)
 
     def load(self) -> "Sheet":
@@ -119,13 +142,29 @@ class Sheet:
             if info.get("blink"):
                 self.blinks[name] = Frame(
                     png.load(self.folder / SIZE / f"{name}{BLINK_SUFFIX}.png"))
+            for tag in info.get("frames", ()):
+                self.motions.setdefault(name, {})[tag] = Frame(
+                    png.load(self.folder / SIZE / f"{name}-{tag}.png"))
         return self
 
-    def frame(self, name: str, blinking: bool = False):
-        """その絵。知らない名前なら None（器は前の絵のままでいる）。"""
+    def frame(self, name: str, blinking: bool = False, tag: str = None):
+        """その絵。知らない名前なら None（器は前の絵のままでいる）。
+
+        tag はコマ（歩きの足など）。無ければ本体のまま。
+        """
+        if tag and tag in self.motions.get(name, {}):
+            return self.motions[name][tag]
         if blinking and name in self.blinks:
             return self.blinks[name]
         return self.frames.get(name)
+
+    def tags(self, name: str):
+        """その絵のコマの並び。無ければ空。"""
+        return list(self.motions.get(name, {}))
+
+    def fidgets(self):
+        """手持ちぶさたの所作。名前が fidget_ で始まる絵。"""
+        return [n for n in self.frames if n.startswith("fidget_")]
 
     def can_blink(self, name: str) -> bool:
         return name in self.blinks

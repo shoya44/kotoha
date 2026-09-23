@@ -27,6 +27,7 @@
 """
 
 import json
+import re
 import pathlib
 import sys
 from datetime import date
@@ -64,6 +65,9 @@ ICON_BG = (0x17, 0x18, 0x1B)
 ICON_PADDING = 0.12
 
 BLINK_SUFFIX = "-blink"
+# 動きのコマ。`<名前>-f1.png`, `-f2.png` … を、その名前のコマとして一緒に焼く。
+# 置き方はまばたきと同じ（横は中心、下は床）。
+FRAME_PATTERN = re.compile(r"^(.+)-(f\d+)$")
 # 並べるときの余白。呼吸で詰めるぶんと、影のぶん（基準の絵の中での値）。
 MARGIN_X, MARGIN_TOP, MARGIN_BOTTOM = 18, 18, 12
 
@@ -74,10 +78,22 @@ def _sources():
     名前を間違えて置かれた差分は、黙って無視すると気づけない。返して知らせる。
     """
     files = {p.stem: p for p in SOURCE_DIR.glob("*.png")}
-    names = sorted(n for n in files if not n.endswith(BLINK_SUFFIX))
-    orphans = sorted(n for n in files
-                     if n.endswith(BLINK_SUFFIX) and n[:-len(BLINK_SUFFIX)] not in files)
-    return [(n, files[n], files.get(n + BLINK_SUFFIX)) for n in names], orphans
+
+    def parent(stem):
+        if stem.endswith(BLINK_SUFFIX):
+            return stem[:-len(BLINK_SUFFIX)]
+        found = FRAME_PATTERN.match(stem)
+        return found.group(1) if found else None
+
+    names = sorted(n for n in files if parent(n) is None)
+    orphans = sorted(n for n in files if parent(n) is not None and parent(n) not in files)
+    frames = {n: {} for n in names}
+    for stem, path in files.items():
+        found = FRAME_PATTERN.match(stem)
+        if found and found.group(1) in frames:
+            frames[found.group(1)][found.group(2)] = path
+    return [(n, files[n], files.get(n + BLINK_SUFFIX), dict(sorted(frames[n].items())))
+            for n in names], orphans
 
 
 def _paste(canvas, image, dx: int, dy: int):
@@ -318,38 +334,40 @@ def main(check: bool = False) -> int:
     pairs, orphans = _sources()
     for name in orphans:
         # 絵文字はコンソールの文字集合（cp932）で出せない。
-        print(f"注意: {name}.png は相手がいないので使われない"
-              f"（{name[:-len(BLINK_SUFFIX)]}.png が無い）")
+        print(f"注意: {name}.png は相手がいないので使われない（本体の絵が無い）")
 
     print(f"読む: {SOURCE_DIR}")
     loaded = []
-    for name, path, blink_path in pairs:
+    for name, path, blink_path, frame_paths in pairs:
         image = png.load(path)
         bounds = png.bounds(image)
         if bounds is None:
             print(f"  {name}: 中身が無い。飛ばす")
             continue
-        loaded.append((name, image, bounds, png.load(blink_path) if blink_path else None))
+        loaded.append((name, image, bounds, png.load(blink_path) if blink_path else None,
+                       {tag: png.load(p) for tag, p in frame_paths.items()}))
 
     if not loaded:
         print("読めるものが無い")
         return 1
 
     # **いちばん大きい絵を基準にする。** 混ざったまま並べると、そこだけ大きく出る。
-    reference = max(max(i.width, b.width if b else 0) for _, i, _, b in loaded)
+    reference = max(max(i.width, b.width if b else 0) for _, i, _, b, _ in loaded)
     sprites, plan = {}, {}
-    for name, image, bounds, blink in loaded:
+    for name, image, bounds, blink, frames in loaded:
         scale = reference / image.width
         box = tuple(round(v * scale) for v in bounds)
-        plan[name] = (image, scale, box, blink)
+        plan[name] = (image, scale, box, blink, frames)
         marks = "+まばたき" if blink is not None else ""
+        if frames:
+            marks += " +コマ" + ",".join(frames)
         if scale != 1 or (blink is not None and blink.width != reference):
             marks += " 縮尺を換算"
         size = f"{bounds[2] - bounds[0] + 1}x{bounds[3] - bounds[1] + 1}"
         print(f"  {name:12} {image.width}x{image.height} 中身={size} {marks}")
 
-    canvas_w = max(b[2] - b[0] + 1 for _, _, b, _ in plan.values()) + MARGIN_X * 2
-    canvas_h = max(b[3] - b[1] + 1 for _, _, b, _ in plan.values()) + MARGIN_TOP + MARGIN_BOTTOM
+    canvas_w = max(b[2] - b[0] + 1 for _, _, b, _, _ in plan.values()) + MARGIN_X * 2
+    canvas_h = max(b[3] - b[1] + 1 for _, _, b, _, _ in plan.values()) + MARGIN_TOP + MARGIN_BOTTOM
     print(f"並べる広さ: {canvas_w}x{canvas_h}（基準 {reference}px。横は中央、下は床）")
 
     for folder in HEIGHTS:
@@ -381,7 +399,7 @@ def main(check: bool = False) -> int:
                 (canvas_h - MARGIN_BOTTOM) - (bottom + 1))
 
     checks = []
-    for name, (image, scale, box, blink) in plan.items():
+    for name, (image, scale, box, blink, frames) in plan.items():
         place = placement(box)
         blink_place = place
         if blink is not None:
@@ -408,7 +426,16 @@ def main(check: bool = False) -> int:
                 png.save(OUT_DIR / folder / f"{name}{BLINK_SUFFIX}.png", fitted)
                 if folder == "full":
                     checks.append((name, base, fitted, window))
+            for tag, frame in frames.items():
+                # コマは、まばたきと同じ決め方で置く（横は中心、下は床）。窓合わせはしない。
+                # 足を描き直したコマは中身の幅が変わるので、ずれ探しをすると体ごと動く。
+                frame_scale = reference / frame.width
+                frame_box = tuple(round(v * frame_scale) for v in png.bounds(frame))
+                png.save(OUT_DIR / folder / f"{name}-{tag}.png",
+                         render(frame, frame_scale, placement(frame_box), out_w, out_h, ratio))
         sprites[name] = {"blink": blink is not None}
+        if frames:
+            sprites[name]["frames"] = list(frames)
         note = f"（まばたきあり。ずれ {found[0]:+d},{found[1]:+d} を吸収）" if blink is not None else ""
         print(f"  書いた: {name}{note}")
 

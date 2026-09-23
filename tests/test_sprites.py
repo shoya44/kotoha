@@ -46,6 +46,8 @@ class ManifestTests(unittest.TestCase):
                     self.assertTrue((SPRITE_DIR / size / f"{name}.png").exists())
                     if info["blink"]:
                         self.assertTrue((SPRITE_DIR / size / f"{name}-blink.png").exists())
+                    for tag in info.get("frames", ()):
+                        self.assertTrue((SPRITE_DIR / size / f"{name}-{tag}.png").exists())
 
     def test_sizes_are_listed(self):
         for size in ("full", "web", "face"):

@@ -217,8 +217,29 @@ class Dot:
 
     def place(self, x: int, y: int) -> None:
         self.x, self.y = int(x), int(y)
+        self._lifted = 0
         user32.SetWindowPos(self.hwnd, HWND_TOPMOST, self.x, self.y, 0, 0,
                             SWP_NOSIZE | SWP_NOACTIVATE)
+
+    def lift(self, pixels: int) -> None:
+        """足元から pixels ドット浮かせて見せる。置き場所（self.y）は変えない。"""
+        if getattr(self, "_lifted", 0) == pixels:
+            return
+        self._lifted = pixels
+        user32.SetWindowPos(self.hwnd, HWND_TOPMOST, self.x, self.y - pixels, 0, 0,
+                            SWP_NOSIZE | SWP_NOACTIVATE)
+
+    def walk(self, dx: int) -> bool:
+        """横に dx ドット歩く。画面の外に出るなら動かず False。"""
+        left, _, right, _ = work_area_at(self.x + self.width // 2, self.y + self.height // 2)
+        x = self.x + dx
+        if x < left or x + self.width > right:
+            return False
+        self.place(x, self.y)
+        return True
+
+    def dragging(self) -> bool:
+        return bool(getattr(self, "_dragging", False))
 
     def visible(self, shown: bool) -> None:
         user32.ShowWindow(self.hwnd, SW_SHOWNOACTIVATE if shown else SW_HIDE)

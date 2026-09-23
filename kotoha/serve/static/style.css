@@ -167,6 +167,27 @@ body.typing .mini-avatar { height: 0; }
   object-position: center bottom;
   transform-origin: center bottom;
   transition: opacity var(--duration) ease;
+  /* 呼吸。足元を留めて、胸から上がわずかに縮む（トレイの1ドットと同じ量感）。 */
+  animation: avatar-breathe 3.4s ease-in-out infinite;
+}
+
+@keyframes avatar-breathe {
+  0%, 100% { transform: scaleY(1); }
+  50%      { transform: scaleY(.994); }
+}
+
+/* 跳ね。話したとき・機嫌がよくなったとき、足元から少し浮いて戻る。 */
+.mini-avatar img.avatar-hop {
+  animation: avatar-hop .36s ease-out 2;
+}
+
+@keyframes avatar-hop {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-4%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mini-avatar img, .mini-avatar img.avatar-hop { animation: none; }
 }
 
 /* 姿がこちらに無いあいだ。絵を隠して、立て札だけを出す。 */
