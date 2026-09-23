@@ -75,6 +75,22 @@ class SituationTests(unittest.TestCase):
                 else:
                     self.assertGreater(len(situations), 1)
 
+    def test_pictures_line_up_with_situations(self):
+        """様子と絵は同じ式で選ぶ。数がずれると、言っていることと違う絵が出る日ができる。"""
+        for name, (situations, pictures) in figure.GROUPS.items():
+            with self.subTest(group=name):
+                self.assertEqual(len(situations), len(pictures))
+
+    def test_the_picture_matches_what_she_says(self):
+        """同じ日・同じ時刻なら、i 番目の様子のときは i 番目の絵。"""
+        for day in range(1, 8):
+            for hour in range(24):
+                now = datetime(2026, 9, day, hour)
+                situations, pictures = figure.GROUPS[figure.group(hour)]
+                with self.subTest(day=day, hour=hour):
+                    said = situations.index(figure.situation(hour, now))
+                    self.assertEqual(figure.sprite(now), pictures[said])
+
 
 class ActTests(unittest.TestCase):
     def setUp(self):

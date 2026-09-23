@@ -5,7 +5,7 @@
     python -m tools.sprite_gen --variants 4     # Seed を 4 つずらして候補を出す（選ぶ用）
     python -m tools.sprite_gen --accept a,b     # 出来のよい絵を台帳（accepted.json）に載せる
     python -m tools.sprite_gen --retry a,b      # だめな絵だけ Seed をずらして作り直す（台帳から外す）
-    python -m tools.sprite_gen --apply          # 台帳にある絵を img/dot/ に置く
+    python -m tools.sprite_gen --apply          # 台帳にある絵を img/dot/ に置く（旧絵は img/dot/old/ へ）
     python -m tools.sprite_gen --sheet          # out/ の見比べ1枚を out/sheet.png に書く
 
 生成・白抜きは全部 ComfyUI 側（tools/sprite_gen/workflow_restyle.json）。ここでやるのは、
@@ -14,7 +14,7 @@
 流れ（poses.py の source を参照）:
   self:  img/dot/<name>.png → 白キャンバス → 筆致そろえ(Denoise 0.6, pixel art) → 白抜き
   他:    描き直し済みの <source>（out/<source>/final_*_raw.png、無ければ img/dot/<source>.png）
-         → ポーズ起こし(0.8, pixel art) → 白抜き。**1段だけ。** 元がドット絵なら筆致は残る
+         → ポーズ起こし(poses.POSE_DENOISE。LoRA ありは 1.0, pixel art) → 白抜き。**1段だけ。**
 コマ（frames）は、本体を元に窓の中だけ描き直した1枚ずつ（まばたきと同じ作り）。
 まばたきは、出来た本体を元に目の窓だけ塗り直した1枚（窓の外は本体そのもの）。
 """

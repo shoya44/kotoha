@@ -3,8 +3,9 @@
 name:   img/dot/<name>.png の名前。figure.py と sprites.json で使う名前と同じ
 pose:   正プロンプトの {pose}。姿勢と表情だけ書く（髪や服は共通部分にある）
 source: 元にする絵。"self" なら img/dot/<name>.png（既存の絵を同じ筆致に描き直す）。
-        それ以外は「新しいポーズ」で、その名前の**描き直し済みのドット絵**を元に、
-        Denoise 0.8 で1回だけ回す。姿勢の近いものを選ぶ（立ち→talk、座り→snack、寝→bored）
+        それ以外は「新しいポーズ」で、その名前の**描き直し済みのドット絵**を元に1回だけ回す。
+        LoRA ありでは Denoise 1.0（実質 t2i）なので、元絵は大きさと位置の手がかりにしかならない。
+        姿勢の近いものを選ぶ（立ち→talk、座り→snack、寝→bored）
 blink:  まばたき差分を作るか。寝ている絵は要らない
 frames: 動きのコマ。{タグ: 足す言葉} で、本体を元に frame_window の中だけ塗り直す。
         `<name>-<タグ>.png` になり、器がコマ送りに使う（歩きの足など）
@@ -71,17 +72,15 @@ POSES = {
     "sleep":    dict(pose="lying down asleep on a pillow, eyes closed, peaceful", source="self", blink=False),
     "worry":    dict(pose="standing, hands clasped in front, worried expression, sweat drop", source="self"),
     "sulk":     dict(pose="standing, arms crossed, cheeks puffed, pouting, looking away", source="self"),
-    # 機嫌ぶん（新規）
+    # 機嫌ぶん（新規）。tired は 2026-09-23 に不採用（「疲れ気味」は絵を持たず、時間帯の立ち姿のまま）
     "happy":    dict(pose="big smile, eyes closed in joy, both hands raised slightly, bouncing on toes", source="wave"),
-    "tired":    dict(pose="slouching, half-closed eyes, small sigh, arms hanging down, tired expression", source="think"),
-    # 様子ぶん（新規）
+    # 様子ぶん（新規）。laundry は 2026-09-23 に不採用（洗濯物の様子は phone の絵で出す）
     "coffee":   dict(pose="holding a white mug with both hands, sleepy half-closed eyes, small yawn", source="talk"),
     "phone":    dict(pose="lying on stomach on the floor, holding a smartphone, bored expression, feet up", source="daydream", denoise=0.65, eye_window=LOW_EYE_WINDOW),
     "dishes":   dict(pose="looking sideways at a small stack of dishes, awkward smile, one hand scratching cheek", source="think"),
     "nap":      dict(pose="sitting on the floor, rubbing one eye, messy hair, half asleep", source="snack"),
     "floor":    dict(pose="lying on back on the floor, arms spread, looking up, blank expression", source="daydream", denoise=0.65, eye_window=LOW_EYE_WINDOW),
-    "laundry":  dict(pose="sitting next to a small pile of folded laundry, looking away, whistling", source="sulk"),
-    # 動き（器が自分の都合で使う。脳の表には載せない）
+    # 動き（器が自分の都合で使う。脳の表には載せない）。1周目の LoRA では横向きが出ず未採用
     "walk":     dict(pose="walking to the right, side view, mid step, arms relaxed, calm", source="talk",
                      frames={"f1": "left foot forward, right foot back",
                              "f2": "both feet together, mid stride",
