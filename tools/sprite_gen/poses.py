@@ -30,6 +30,12 @@ LORA_STRENGTH = 1.0
 # LoRA のトリガー語。プロンプトの先頭に置く。
 TRIGGER = "kotoha, "
 
+# 新しいポーズに足す頭身の指定。**LoRA だけだと元の絵より頭が小さく、背が高く出る**
+# （頭が全身の 35% 前後。talk は 45% 前後）。2026-09-23 の surprised / doze から。
+PROPORTION = ", (chibi:1.3), (big head:1.2), 2 heads tall, short body, short legs"
+# 色味の基準。新しいポーズは髪と肌をこの絵の明るさに寄せる（tone.py）。空文字で切る。
+TONE_REF = "talk"
+
 # 全体で1つの Seed。**変えると全部の絵の筆致が変わる**ので、変えるなら全部作り直す。
 SEED = 20260923
 
@@ -74,6 +80,16 @@ POSES = {
     "sulk":     dict(pose="standing, arms crossed, cheeks puffed, pouting, looking away", source="self"),
     # 機嫌ぶん（新規）。tired は 2026-09-23 に不採用（「疲れ気味」は絵を持たず、時間帯の立ち姿のまま）
     "happy":    dict(pose="big smile, eyes closed in joy, both hands raised slightly, bouncing on toes", source="wave"),
+    # 返事の顔ぶん（figure.FACES）。話した直後だけ出る
+    # 頭を大きくしたので目が 32〜41% に下がる。既定の目の窓（20〜40%）では片目が閉じきらない
+    "surprised": dict(pose="surprised, wide open eyes, small open mouth, both hands raised near chest, leaning back slightly", source="talk",
+                      eye_window=(0.25, 0.75, 0.26, 0.44)),
+    # 夜に「眠い」とき。布団の sleep とは別の、起きているがうとうとしている絵
+    # 毛布は出なかった（床にぺたんと座る）。座りで目が 40〜48% にあるので目の窓を下げる。
+    # Denoise 0.9 は元絵（snack）の配置を少し残したほうが頭身が締まったため。
+    # まばたきは pose から「drowsy half-closed eyes」を外して作った（残すと閉じない）
+    "doze":     dict(pose="sitting on the floor wrapped in a lavender blanket, nodding off, head drooping, drowsy half-closed eyes", source="snack",
+                     denoise=0.9, eye_window=(0.25, 0.75, 0.33, 0.52)),
     # 様子ぶん（新規）。laundry は 2026-09-23 に不採用（洗濯物の様子は phone の絵で出す）
     "coffee":   dict(pose="holding a white mug with both hands, sleepy half-closed eyes, small yawn", source="talk"),
     "phone":    dict(pose="lying on stomach on the floor, holding a smartphone, bored expression, feet up", source="daydream", denoise=0.65, eye_window=LOW_EYE_WINDOW),

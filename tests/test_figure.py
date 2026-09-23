@@ -156,9 +156,11 @@ class ActTests(unittest.TestCase):
     def test_talk_wins_over_everything(self):
         self.assertEqual(figure.act(3, mood="眠い", said_ago=1, streak_hours=9), "talk")
 
-    def test_sleep_by_hour_or_by_mood(self):
+    def test_sleep_by_hour_doze_by_mood(self):
+        """寝ている時間は布団。起きている時間に「眠い」なら、うとうと。"""
         self.assertEqual(figure.act(3), "sleep")
-        self.assertEqual(figure.act(12, mood="眠い"), "sleep")
+        self.assertEqual(figure.act(3, mood="眠い"), "sleep")
+        self.assertEqual(figure.act(22, mood="眠い"), "doze")
 
     def test_worry_needs_a_long_streak(self):
         self.assertEqual(figure.act(12, streak_hours=2.9), "idle")
@@ -176,6 +178,7 @@ class ActTests(unittest.TestCase):
             figure.act(12),
             figure.act(12, said_ago=0),
             figure.act(3),
+            figure.act(22, mood="眠い"),
             figure.act(12, streak_hours=99),
             figure.act(12, mood="すねている"),
             figure.act(12, mood="機嫌がいい"),

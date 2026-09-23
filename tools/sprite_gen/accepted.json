@@ -40,6 +40,9 @@
  "dishes": {
   "seed": 20260923
  },
+ "doze": {
+  "seed": 20260926
+ },
  "fidget_cold": {
   "seed": 20260923
  },
@@ -123,5 +126,8 @@
  },
  "phone": {
   "seed": 20260923
+ },
+ "surprised": {
+  "seed": 20260926
  }
 }
