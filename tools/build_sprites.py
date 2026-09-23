@@ -65,6 +65,9 @@ ICON_BG = (0x17, 0x18, 0x1B)
 ICON_PADDING = 0.12
 
 BLINK_SUFFIX = "-blink"
+# 口を開けた差分。声を出しているあいだ会話画面が本体と交互に出す。置き方も窓合わせも、まばたきと同じ。
+MOUTH_SUFFIX = "-mouth"
+DIFF_SUFFIXES = (BLINK_SUFFIX, MOUTH_SUFFIX)
 # 動きのコマ。`<名前>-f1.png`, `-f2.png` … を、その名前のコマとして一緒に焼く。
 # 置き方はまばたきと同じ（横は中心、下は床）。
 FRAME_PATTERN = re.compile(r"^(.+)-(f\d+)$")
@@ -80,8 +83,9 @@ def _sources():
     files = {p.stem: p for p in SOURCE_DIR.glob("*.png")}
 
     def parent(stem):
-        if stem.endswith(BLINK_SUFFIX):
-            return stem[:-len(BLINK_SUFFIX)]
+        for suffix in DIFF_SUFFIXES:
+            if stem.endswith(suffix):
+                return stem[:-len(suffix)]
         found = FRAME_PATTERN.match(stem)
         return found.group(1) if found else None
 
@@ -92,7 +96,8 @@ def _sources():
         found = FRAME_PATTERN.match(stem)
         if found and found.group(1) in frames:
             frames[found.group(1)][found.group(2)] = path
-    return [(n, files[n], files.get(n + BLINK_SUFFIX), dict(sorted(frames[n].items())))
+    return [(n, files[n], {s: files[n + s] for s in DIFF_SUFFIXES if n + s in files},
+             dict(sorted(frames[n].items())))
             for n in names], orphans
 
 
@@ -175,6 +180,12 @@ EYE_WINDOW = (0.10, 0.90, 0.12, 0.50)
 EYE_WINDOWS = {
     "bored": (0.10, 0.90, 0.42, 0.80),
 }
+# 口の差分を合わせるときの窓。目と口のあいだから顎まで。目の窓と同じく割合で、絵ごとに下げられる。
+# 生成の窓（poses.MOUTH_WINDOW 32〜68%・36〜52%）より少し広いだけにする。上に広げると目の下端まで差分から取ってしまう。
+MOUTH_WINDOW = (0.30, 0.70, 0.36, 0.54)
+MOUTH_WINDOWS = {}
+# 差分ごとの窓（既定と、絵ごとの上書き）。
+DIFF_WINDOWS = {BLINK_SUFFIX: (EYE_WINDOW, EYE_WINDOWS), MOUTH_SUFFIX: (MOUTH_WINDOW, MOUTH_WINDOWS)}
 # ずれを探す幅（出す大きさでのドット）。実測でいちばん大きかったずれは 7 ドット。
 BLINK_SEARCH = 8
 # 窓の縁をなじませる幅（ドット）。切れ目が線になって見えないように。
@@ -338,13 +349,13 @@ def main(check: bool = False) -> int:
 
     print(f"読む: {SOURCE_DIR}")
     loaded = []
-    for name, path, blink_path, frame_paths in pairs:
+    for name, path, diff_paths, frame_paths in pairs:
         image = png.load(path)
         bounds = png.bounds(image)
         if bounds is None:
             print(f"  {name}: 中身が無い。飛ばす")
             continue
-        loaded.append((name, image, bounds, png.load(blink_path) if blink_path else None,
+        loaded.append((name, image, bounds, {s: png.load(p) for s, p in diff_paths.items()},
                        {tag: png.load(p) for tag, p in frame_paths.items()}))
 
     if not loaded:
@@ -352,16 +363,16 @@ def main(check: bool = False) -> int:
         return 1
 
     # **いちばん大きい絵を基準にする。** 混ざったまま並べると、そこだけ大きく出る。
-    reference = max(max(i.width, b.width if b else 0) for _, i, _, b, _ in loaded)
+    reference = max(max([i.width] + [d.width for d in ds.values()]) for _, i, _, ds, _ in loaded)
     sprites, plan = {}, {}
-    for name, image, bounds, blink, frames in loaded:
+    for name, image, bounds, diffs, frames in loaded:
         scale = reference / image.width
         box = tuple(round(v * scale) for v in bounds)
-        plan[name] = (image, scale, box, blink, frames)
-        marks = "+まばたき" if blink is not None else ""
+        plan[name] = (image, scale, box, diffs, frames)
+        marks = ("+まばたき" if BLINK_SUFFIX in diffs else "") + (" +口" if MOUTH_SUFFIX in diffs else "")
         if frames:
             marks += " +コマ" + ",".join(frames)
-        if scale != 1 or (blink is not None and blink.width != reference):
+        if scale != 1 or any(d.width != reference for d in diffs.values()):
             marks += " 縮尺を換算"
         size = f"{bounds[2] - bounds[0] + 1}x{bounds[3] - bounds[1] + 1}"
         print(f"  {name:12} {image.width}x{image.height} 中身={size} {marks}")
@@ -399,33 +410,37 @@ def main(check: bool = False) -> int:
                 (canvas_h - MARGIN_BOTTOM) - (bottom + 1))
 
     checks = []
-    for name, (image, scale, box, blink, frames) in plan.items():
+    for name, (image, scale, box, diffs, frames) in plan.items():
         place = placement(box)
-        blink_place = place
-        if blink is not None:
-            blink_scale = reference / blink.width
-            blink_box = tuple(round(v * blink_scale) for v in png.bounds(blink))
-            blink_place = placement(blink_box)
-        found, last_ratio = (0, 0), None
+        # 差分（まばたき・口）は本体と同じ決め方で置き、それぞれの窓の中だけ本体に重ねる。
+        diff_plan = {}
+        for suffix, diff in diffs.items():
+            diff_scale = reference / diff.width
+            diff_box = tuple(round(v * diff_scale) for v in png.bounds(diff))
+            diff_plan[suffix] = (diff, diff_scale, placement(diff_box))
+        found = {s: (0, 0) for s in diffs}
+        last_ratio = None
         for folder in HEIGHTS:
             out_w, out_h = sizes[folder]
             ratio = out_h / canvas_h
             base = render(image, scale, place, out_w, out_h, ratio)
             png.save(OUT_DIR / folder / f"{name}.png", base)
-            if blink is not None:
-                drawn = render(blink, blink_scale, blink_place, out_w, out_h, ratio)
+            for suffix, (diff, diff_scale, diff_place) in diff_plan.items():
+                drawn = render(diff, diff_scale, diff_place, out_w, out_h, ratio)
                 # 前の大きさで見つけたずれを起点に、細かく探し直す（総当たりは重い）。
                 if last_ratio is None:
                     guess, search = (0, 0), BLINK_SEARCH
                 else:
-                    guess = tuple(round(v * ratio / last_ratio) for v in found)
+                    guess = tuple(round(v * ratio / last_ratio) for v in found[suffix])
                     search = 2
-                window = _eye_window(box, place, ratio, EYE_WINDOWS.get(name, EYE_WINDOW))
-                fitted, found = _fit_blink(base, drawn, window, guess, search)
-                last_ratio = ratio
-                png.save(OUT_DIR / folder / f"{name}{BLINK_SUFFIX}.png", fitted)
+                default, overrides = DIFF_WINDOWS[suffix]
+                window = _eye_window(box, place, ratio, overrides.get(name, default))
+                fitted, found[suffix] = _fit_blink(base, drawn, window, guess, search)
+                png.save(OUT_DIR / folder / f"{name}{suffix}.png", fitted)
                 if folder == "full":
-                    checks.append((name, base, fitted, window))
+                    checks.append((name + suffix, base, fitted, window))
+            if diff_plan:
+                last_ratio = ratio
             for tag, frame in frames.items():
                 # コマは、まばたきと同じ決め方で置く（横は中心、下は床）。窓合わせはしない。
                 # 足を描き直したコマは中身の幅が変わるので、ずれ探しをすると体ごと動く。
@@ -433,10 +448,12 @@ def main(check: bool = False) -> int:
                 frame_box = tuple(round(v * frame_scale) for v in png.bounds(frame))
                 png.save(OUT_DIR / folder / f"{name}-{tag}.png",
                          render(frame, frame_scale, placement(frame_box), out_w, out_h, ratio))
-        sprites[name] = {"blink": blink is not None}
+        sprites[name] = {"blink": BLINK_SUFFIX in diffs}
+        if MOUTH_SUFFIX in diffs:
+            sprites[name]["mouth"] = True
         if frames:
             sprites[name]["frames"] = list(frames)
-        note = f"（まばたきあり。ずれ {found[0]:+d},{found[1]:+d} を吸収）" if blink is not None else ""
+        note = "".join(f"（{s[1:]}: ずれ {dx:+d},{dy:+d} を吸収）" for s, (dx, dy) in found.items())
         print(f"  書いた: {name}{note}")
 
     face_name = FACE_FROM if FACE_FROM in plan else next(iter(plan))

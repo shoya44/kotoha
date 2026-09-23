@@ -52,6 +52,8 @@ WALK_FACES_RIGHT = True
 FIDGET_MIN, FIDGET_MAX, FIDGET_SECONDS = 30.0, 90.0, 3.2
 # 跳ね。足元から HOP_HEIGHT ドット浮いて戻る。
 HOP_SECONDS, HOP_HEIGHT = 0.36, 6
+# 押されたときの顔。この絵があれば、一瞬だけ出して元の姿に戻る（暇でなくても出す）。
+REACT_NAME, REACT_SECONDS = "surprised", 0.9
 # 脳の姿が「暇」のときだけ動く。話している・寝ている・すねているときは動かない。
 IDLE_ACTS = ("idle", "happy")
 
@@ -97,6 +99,7 @@ class Mascot:
         self.step_at = 0.0
         self.step = 0
         self.hops = []                        # 跳ねの始まり（time）の並び
+        self.react_until = 0.0                # 押されて驚いている終わり（time）
         self.fidgets_off = set()              # 脳が「いまは合わない」と言った所作
         self.reloaded_for = set()             # 読み直しても無かった絵の名前（何度も読み直さない）
         now = time.time()
@@ -152,7 +155,9 @@ class Mascot:
         breathing_out = (now % BREATH_SECONDS) < BREATH_SECONDS / 2
         opacity = 255 if self.online else DIM
         name, tag, mirror = self.picture, None, False
-        if self.motion and self.motion[0] == "stroll":
+        if now < self.react_until and REACT_NAME in self.sheet.frames:
+            name = REACT_NAME
+        elif self.motion and self.motion[0] == "stroll":
             name = "walk"
             tags = self.sheet.tags(name)
             tag = tags[self.step % len(tags)] if tags else None
@@ -344,6 +349,10 @@ class Mascot:
         if self.bubble.asking:
             self.bubble.hide()
             return
+        # 触られたら一瞬だけ驚いた顔。動きの途中ならやめる。
+        self.react_until = time.time() + REACT_SECONDS
+        if self.motion:
+            self._stop_motion()
         self.say("", asking=True)
         self.bubble.focus_input()
 
