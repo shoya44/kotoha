@@ -90,3 +90,50 @@ class SheetTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CatchUpTests(unittest.TestCase):
+    """知らない絵が来たら、素材を読み直す。起こし直さないと一日じゅう talk だった。"""
+
+    def setUp(self):
+        import types
+        from unittest import mock
+        from kotoha.mascot import __main__ as mascot
+        if not (sheet.SPRITE_DIR / "sprites.json").exists():
+            self.skipTest("素材がまだ作られていない（python -m tools.build_sprites）")
+        self.mascot = mascot
+        self.logged = []
+        patcher = mock.patch.object(mascot, "log", self.logged.append)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        old = sheet.Sheet()
+        old.frames = {"talk": object()}           # 起動したときの古い素材
+        self.me = types.SimpleNamespace(sheet=old, reloaded_for=set(), last_drawn="古い")
+
+    def catch_up(self, name):
+        self.mascot.Mascot._catch_up(self.me, name)
+
+    def test_an_unknown_picture_reloads_the_sheet(self):
+        self.catch_up("dishes")
+        self.assertIn("dishes", self.me.sheet.frames)
+        self.assertIsNone(self.me.last_drawn)
+
+    def test_a_known_picture_does_not_reload(self):
+        before = self.me.sheet
+        self.catch_up("talk")
+        self.assertIs(self.me.sheet, before)
+
+    def test_a_name_that_is_nowhere_is_tried_once(self):
+        self.catch_up("まだ焼いていない絵")
+        reloaded = self.me.sheet
+        self.catch_up("まだ焼いていない絵")
+        self.assertIs(self.me.sheet, reloaded)
+        self.assertEqual(len(self.logged), 1)
+
+    def test_a_broken_sheet_keeps_the_old_one(self):
+        from unittest import mock
+        before = self.me.sheet
+        with mock.patch.object(sheet.Sheet, "load", side_effect=OSError("書きかけ")):
+            self.catch_up("dishes")
+        self.assertIs(self.me.sheet, before)
+        self.assertNotIn("dishes", self.me.reloaded_for)
