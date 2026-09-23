@@ -30,6 +30,9 @@ LOG_PATH = config.BASE_DIR / "data" / "tray.log"
 MUTEX_NAME = "kotoha-tray-single-instance"
 # 落ちたときに上げ直すまでの間。すぐ上げ直すと、壊れていたとき暴れ続ける。
 RESPAWN_WAIT = 5.0
+# 前の常駐が終わりかけのとき、印が消えるのを待つ長さ（秒）。終わるときは本体と姿を
+# 止めて待つので数秒かかる。終えた直後に上げ直すと、黙って引き下がっていた。
+PREVIOUS_WAIT = 10.0
 # 自分で上げていないことはを見守るときの、様子見の間隔。
 WATCH_WAIT = 5.0
 
@@ -100,6 +103,7 @@ _signature(user32.RegisterWindowMessageW, w.UINT, w.LPCWSTR)
 _signature(user32.GetMessageW, w.BOOL, ctypes.POINTER(w.MSG), w.HWND, w.UINT, w.UINT)
 _signature(kernel32.GetModuleHandleW, w.HMODULE, w.LPCWSTR)
 _signature(kernel32.CreateMutexW, w.HANDLE, w.LPVOID, w.BOOL, w.LPCWSTR)
+_signature(kernel32.CloseHandle, w.BOOL, w.HANDLE)
 _signature(shell32.Shell_NotifyIconW, w.BOOL, w.DWORD, ctypes.POINTER(NOTIFYICONDATA))
 
 
@@ -468,17 +472,33 @@ class Tray:
             user32.DispatchMessageW(ctypes.byref(message))
 
 
-def already_running() -> bool:
+def already_running(wait: float = PREVIOUS_WAIT) -> bool:
     """二重常駐を防ぐ。掴んだ印はプロセスが終わるまで持ったままにする。
 
     同時に立ち上がると印の取り合いになるので、窓の有無も見る。どちらかが
-    見つかれば、もう1つは黙って引き下がる。
+    見つかれば、もう1つは引き下がる。
+
+    **ただし少し待ってから決める。** 前の常駐は「終えた」と書いてから本当に
+    消えるまで数秒かかる。そのあいだに上げると印が残っていて、何も出ないまま
+    終わっていた（2026-09-23、終えた3秒後のダブルクリック）。
     """
+    deadline = time.monotonic() + wait
+    while _taken():
+        if time.monotonic() >= deadline:
+            return True
+        time.sleep(0.5)
+    return False
+
+
+def _taken() -> bool:
+    """いま印か窓があるか。無ければ印を掴んだまま False を返す。"""
     global _mutex
     _mutex = kernel32.CreateMutexW(None, False, MUTEX_NAME)
-    if ctypes.get_last_error() == 183:  # ERROR_ALREADY_EXISTS
+    if ctypes.get_last_error() == 183 or user32.FindWindowW("KotohaTray", None):  # ERROR_ALREADY_EXISTS
+        kernel32.CloseHandle(_mutex)
+        _mutex = None
         return True
-    return bool(user32.FindWindowW("KotohaTray", None))
+    return False
 
 
 _mutex = None
