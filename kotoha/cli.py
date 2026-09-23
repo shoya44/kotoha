@@ -176,16 +176,32 @@ def _tray() -> None:
     process = subprocess.Popen([str(runner), str(autostart.TRAY)],
                                cwd=str(config.BASE_DIR),
                                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-    # 窓が出るまで少し待つ。出ずに終わったなら、理由は tray.log にある。
-    deadline = time.monotonic() + 10
+    # 常駐は画面なしで上がるので、上がったかは窓で確かめる。黙って引き下がると
+    # ダブルクリックしても何も起きないように見える。前の常駐の終わり待ち（最大10秒）ぶん待つ。
+    # 窓が出ずに終わったなら、理由は tray.log にある。
+    if _wait_for_tray(TRAY_WAIT, process):
+        print(f"タスクトレイに常駐しました。会話画面は起き次第ひらきます: {url}")
+        return
+    raise SystemExit(f"常駐を確かめられませんでした。{tray.LOG_PATH} を見てください。")
+
+
+# 常駐の窓が出るまで待つ長さ（秒）。tray.PREVIOUS_WAIT より長くする。
+TRAY_WAIT = 20.0
+
+
+def _wait_for_tray(wait: float, process=None) -> bool:
+    import time
+
+    from . import tray
+
+    deadline = time.monotonic() + wait
     while time.monotonic() < deadline:
         if tray.resident():
-            print(f"タスクトレイに常駐しました。会話画面は起き次第ひらきます: {url}")
-            return
-        if process.poll() is not None:
-            break
-        time.sleep(0.2)
-    raise SystemExit(f"常駐できませんでした。{tray.LOG_PATH} を確認してください。")
+            return True
+        if process is not None and process.poll() is not None:
+            return False
+        time.sleep(0.5)
+    return False
 
 
 def _start() -> None:

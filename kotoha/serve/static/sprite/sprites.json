@@ -35,6 +35,9 @@
     "dishes": {
       "blink": false
     },
+    "doze": {
+      "blink": true
+    },
     "fidget_cold": {
       "blink": false
     },
@@ -132,6 +135,9 @@
       "blink": true
     },
     "sulk": {
+      "blink": true
+    },
+    "surprised": {
       "blink": true
     },
     "talk": {

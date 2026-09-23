@@ -59,10 +59,10 @@ GROUPS = {
 }
 
 # いまの振る舞い。上から順に、最初に当てはまったものを返す（act を参照）。
-ACTS = ("talk", "sleep", "worry", "sulk", "happy", "idle")
+ACTS = ("talk", "sleep", "doze", "worry", "sulk", "happy", "idle")
 
 # 振る舞いに専用の絵があるもの。無いもの（idle）は、その時間帯の立ち姿のまま。
-ACT_SPRITES = {"talk": "talk", "sleep": "sleep", "worry": "worry", "sulk": "sulk", "happy": "happy"}
+ACT_SPRITES = {"talk": "talk", "sleep": "sleep", "doze": "doze", "worry": "worry", "sulk": "sulk", "happy": "happy"}
 
 # 言い終わってから、こちらを向いている時間。
 TALK_SECONDS = 30
@@ -77,7 +77,7 @@ FACES = {
     "考える": "think",
     "困る": "worry",
     "むっとする": "sulk",
-    "驚く": "talk",
+    "驚く": "surprised",
 }
 
 # 所作（fidget_*）の出しどころ。**載っていない所作は、いつ出してもよい。**
@@ -200,8 +200,11 @@ def act(hour: int, mood: str = "", said_ago: float = None,
     """
     if said_ago is not None and said_ago < TALK_SECONDS:
         return "talk"
-    if group(hour) == "sleep" or mood == SLEEPY_MOOD:
+    if group(hour) == "sleep":
         return "sleep"
+    # 「眠い」は布団ではなく、起きたままうとうと。寝ている時間帯（上）とは分ける
+    if mood == SLEEPY_MOOD:
+        return "doze"
     if streak_hours is not None and streak_hours >= config.LOOKOUT_SIT_HOURS:
         return "worry"
     if mood == SULKY_MOOD:

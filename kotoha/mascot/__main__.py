@@ -98,6 +98,7 @@ class Mascot:
         self.step = 0
         self.hops = []                        # 跳ねの始まり（time）の並び
         self.fidgets_off = set()              # 脳が「いまは合わない」と言った所作
+        self.reloaded_for = set()             # 読み直しても無かった絵の名前（何度も読み直さない）
         now = time.time()
         self.next_stroll = now + random.uniform(STROLL_MIN, STROLL_MAX)
         self.next_fidget = now + random.uniform(FIDGET_MIN, FIDGET_MAX)
@@ -193,6 +194,26 @@ class Mascot:
         return (self.embodied and self.online and not self.busy and self.act in IDLE_ACTS
                 and not self.bubble_until and not self.bubble.asking and not self.dot.dragging())
 
+    def _catch_up(self, name: str) -> None:
+        """脳が知らない絵を言ってきたら、素材を読み直す。
+
+        素材は起動時に読み切るので、絵を足して焼いたあとは起こし直すまで古いまま
+        だった。知らない名前は talk で描かれ、**一日じゅう talk のまま**になった
+        （2026-09-23）。名前ごとに一度だけ読み直す。焼いている途中で読めなければ
+        今の素材のまま続け、次に同じ名前が来たときにまた試す。
+        """
+        if not name or name in self.sheet.frames or name in self.reloaded_for:
+            return
+        try:
+            fresh = sheet.Sheet().load()
+        except Exception as error:            # 書きかけの素材。器は落とさない
+            log(f"素材を読み直せなかった（{name}）: {error!r}")
+            return
+        self.sheet = fresh
+        self.reloaded_for.add(name)
+        self.last_drawn = None
+        log(f"知らない絵「{name}」が来たので素材を読み直した（{len(fresh.frames)}種類）")
+
     def _fidgets(self):
         """出してよい所作。持っている絵から、脳が「いまは合わない」と言ったものを除く。"""
         return [n for n in self.sheet.fidgets() if n not in self.fidgets_off]
@@ -278,6 +299,7 @@ class Mascot:
                 self.wave_goodbye()
             elif kind == "act":
                 self.picture = event.get("picture") or self.picture
+                self._catch_up(self.picture)
                 act = event.get("act") or "idle"
                 self.fidgets_off = set(event.get("fidgets_off") or ())
                 if act != self.act and act == "happy":

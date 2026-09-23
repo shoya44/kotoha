@@ -31,6 +31,7 @@ import urllib.request
 from PIL import Image
 
 from . import poses as P
+from . import tone
 
 HOST = "http://127.0.0.1:8188"
 HERE = pathlib.Path(__file__).resolve().parent
@@ -252,6 +253,8 @@ def _restyled(name: str, work: pathlib.Path) -> pathlib.Path:
 
 def make(name: str, spec: dict, seed: int, only_blink: bool = False) -> None:
     pose, source = spec["pose"], spec["source"]
+    if source != "self":
+        pose += P.PROPORTION
     work = OUT_DIR / name / "work"
     done = sorted((OUT_DIR / name).glob("final_*_raw.png"))
     if only_blink and done:
@@ -264,12 +267,18 @@ def make(name: str, spec: dict, seed: int, only_blink: bool = False) -> None:
         final, final_raw = _stage(name, pose, _restyled(source, work), seed,
                                   spec.get("denoise", P.POSE_DENOISE), P.PIXEL_STYLE, "final")
     shutil.copy(final, OUT_DIR / name / f"{name}.png")
+    # 色味は白抜き前ではなく出来た絵で測り、本体・まばたき・コマに同じ値を使う（tone.py）
+    toned = tone.measure(final, DOT_DIR / f"{P.TONE_REF}.png") if P.TONE_REF and source != "self" else None
+    if toned:
+        tone.apply(OUT_DIR / name / f"{name}.png", toned)
     if spec.get("blink", True):
         # 出来た本体を元に、目の窓だけ塗り直す。窓の外は本体そのもの。
         mask = _eye_mask(final, work / "eye_mask.png", spec.get("eye_window", P.EYE_WINDOW))
         blink, _ = _stage(name, f"{pose}, {P.BLINK}", final_raw, seed, P.BLINK_DENOISE, P.PIXEL_STYLE, "blink",
                           mask_png=mask, drop=P.BLINK_DROP)
         shutil.copy(blink, OUT_DIR / name / f"{name}-blink.png")
+        if toned:
+            tone.apply(OUT_DIR / name / f"{name}-blink.png", toned)
     if only_blink:
         return
     for tag, words in spec.get("frames", {}).items():
@@ -278,6 +287,8 @@ def make(name: str, spec: dict, seed: int, only_blink: bool = False) -> None:
         frame, _ = _stage(name, f"{pose}, {words}", final_raw, seed, P.FRAME_DENOISE, P.PIXEL_STYLE, tag,
                           mask_png=mask)
         shutil.copy(frame, OUT_DIR / name / f"{name}-{tag}.png")
+        if toned:
+            tone.apply(OUT_DIR / name / f"{name}-{tag}.png", toned)
 
 
 # ---- まとめ ------------------------------------------------------------------
