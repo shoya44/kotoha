@@ -1,7 +1,7 @@
 """out/ の見比べ用。名前ごとに 本体・まばたき・コマ を1行に並べ、rows 行ずつの画像に分ける。
     python -m tools.sprite_gen.review [--only a,b] [--rows 11] [--cell 200]
 """
-import argparse, pathlib
+import argparse
 from PIL import Image, ImageDraw
 from . import poses as P
 from .__main__ import OUT_DIR
