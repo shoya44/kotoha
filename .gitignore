@@ -18,3 +18,5 @@ tools/sprite_gen/lora/dataset/
 tools/sprite_gen/lora/logs/
 tools/sprite_gen/lora/compare_work/
 tools/sprite_gen/lora/compare.png
+# 学習のログなど、もう使わないもの（手元にだけ残す）
+tools/sprite_gen/lora/old/
