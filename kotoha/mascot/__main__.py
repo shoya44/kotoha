@@ -7,8 +7,8 @@
 まばたきの差分があるものは時々差し替える。止まっている絵は、止まって見える。
 
 暇なときの動き（脳は関わらない。まばたきと同じ「器の癖」）:
-- 散歩: `walk` の絵で、机の端を少し歩いて止まる。コマ（f1, f2）を足で交互に出し、
-  左へ行くときは絵を返す。歩いた先は置き場所として覚える
+- 散歩: `walk` の絵で、机の端を少し歩いて止まる。コマ（f1, f2）があれば足で交互に出し、
+  無ければ一歩おきに 1 ドット浮かせる。左へ行くときは絵を返す。歩いた先は置き場所として覚える
 - 所作: `fidget_*` の絵を数秒だけ出して、元の姿に戻る
 - 跳ね: 話したとき・機嫌がいいとき、足元から少し跳ねる
 脳から姿が届いたら、動きは途中でもやめてそれに従う。
@@ -47,6 +47,7 @@ STROLL_MIN, STROLL_MAX = 150.0, 420.0
 STROLL_PX_MIN, STROLL_PX_MAX = 60, 220       # 一度に歩く距離
 STROLL_SPEED = 1                             # 1ティックに進むドット（40msなので 25px/s）
 STROLL_STEP_SECONDS = 0.26                   # 足のコマを替える間
+STROLL_BOB = 1                               # 歩くとき一歩おきに浮くドット（コマが無くても歩いて見せる）
 # 歩きの絵が向いている側。左へ行くときは返す。
 WALK_FACES_RIGHT = True
 FIDGET_MIN, FIDGET_MAX, FIDGET_SECONDS = 30.0, 90.0, 3.2
@@ -166,6 +167,9 @@ class Mascot:
         elif self.motion and self.motion[0] == "fidget":
             name = self.motion[1]
         hop = self._hop(now)
+        if self.motion and self.motion[0] == "stroll" and self.step % 2:
+            # 一歩おきに 1 ドット浮く。脚のコマが無い絵でも、横に動くだけよりは歩いて見える
+            hop += STROLL_BOB
         state = (name, tag, mirror, self.blinking, breathing_out, opacity, hop)
         if state == self.last_drawn and not force:
             return

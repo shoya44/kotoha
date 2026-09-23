@@ -34,6 +34,15 @@
   "tired": 1,
   "walk": 1
  },
+ "bath": {
+  "seed": 20260924
+ },
+ "brush": {
+  "seed": 20260926
+ },
+ "chin": {
+  "seed": 20260923
+ },
  "coffee": {
   "seed": 20260923
  },
@@ -97,6 +106,9 @@
  "fidget_shy": {
   "seed": 20260923
  },
+ "fidget_sigh": {
+  "seed": 20260926
+ },
  "fidget_sit": {
   "seed": 20260923
  },
@@ -129,5 +141,8 @@
  },
  "surprised": {
   "seed": 20260926
+ },
+ "walk": {
+  "seed": 20260928
  }
 }

@@ -103,16 +103,18 @@ POSES = {
     "floor":    dict(pose="lying on back on the floor, arms spread, looking up, blank expression", source="daydream", denoise=0.65, eye_window=LOW_EYE_WINDOW),
     # 動き（器が自分の都合で使う。脳の表には載せない）。1周目の LoRA では横向きが出ず未採用
     # 2周目の試み: 真横ではなく斜め前向き（three-quarter）で歩かせる。トレイの 120 ドットなら横に動けば歩いて見える
-    "walk":     dict(pose="walking, three-quarter view, body turned to the right, facing slightly right, mid step, arms swinging, calm", source="talk",
-                     frames={"f1": "left foot forward, right foot back",
-                             "f2": "both feet together, mid stride",
-                             "f3": "right foot forward, left foot back",
-                             "f4": "both feet together, mid stride, slight bounce"},
-                     frame_window=LEGS_WINDOW),
+    # 2026-09-23 に斜め前向きの本体（Seed 20260928）を採用。**脚のコマは作らない**: 脚の窓の塗り直しは
+    # Denoise 0.75 でも 0.95 でも本体とほぼ同じ足にしかならなかった。歩きの動きはトレイが一歩おきに
+    # 1 ドット浮かせて出す（mascot.STROLL_BOB）。コマを試すなら frames={"f1": ...} を戻す
+    "walk":     dict(pose="walking, three-quarter view, body turned to the right, facing slightly right, mid step, arms relaxed at sides, calm", source="talk"),
     # 2026-09-23 の2周目。様子ぶん（表に足す）と所作
-    "chin":     dict(pose="sitting at a low table, chin resting on one hand, elbow on the table, bored half-closed eyes, idle", source="write"),
+    # 座りで目が 30〜45% にあるので目の窓を下げる（既定では半目にしかならなかった）
+    "chin":     dict(pose="sitting at a low table, chin resting on one hand, elbow on the table, bored half-closed eyes, idle", source="write",
+                     eye_window=(0.25, 0.75, 0.30, 0.48)),
     "brush":    dict(pose="standing, brushing teeth with a toothbrush in one hand, sleepy half-closed eyes, blank face", source="talk"),
-    "bath":     dict(pose="standing, white towel draped around neck, damp hair, relaxed content smile, holding a glass of water", source="talk"),
+    # 1回目（首にタオル）はタオルが出ず「水を飲んでいるだけ」になったので、頭に被せる言い方にした
+    "bath":     dict(pose="standing, (white towel on head:1.3), towel draped over hair, after bath, damp hair, relaxed content smile, holding a glass of water", source="talk"),
+    # proud（ドヤ顔）と fidget_tilt（首かしげ）は 2026-09-23 に候補4つずつ出したが、ドヤにも傾きにも見えず不採用
     "proud":    dict(mouth=True, pose="smug proud face, chest out, one hand on hip, other hand on chest, confident closed-eye grin", source="wave"),
     "fidget_sigh": dict(pose="sighing, eyes closed, shoulders dropped, small exhale, one hand on hip, tired", source="worry"),
     "fidget_tilt": dict(pose="head tilted to one side, curious expression, hands clasped behind back, small smile", source="talk"),

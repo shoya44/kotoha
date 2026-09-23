@@ -17,13 +17,22 @@
   },
   "face": "talk",
   "sprites": {
+    "bath": {
+      "blink": true
+    },
     "book": {
       "blink": true
     },
     "bored": {
       "blink": true
     },
+    "brush": {
+      "blink": true
+    },
     "cards": {
+      "blink": true
+    },
+    "chin": {
       "blink": true
     },
     "coffee": {
@@ -93,6 +102,9 @@
       "blink": true,
       "mouth": true
     },
+    "fidget_sigh": {
+      "blink": false
+    },
     "fidget_sit": {
       "blink": false
     },
@@ -151,6 +163,9 @@
     "think": {
       "blink": true,
       "mouth": true
+    },
+    "walk": {
+      "blink": true
     },
     "wave": {
       "blink": true
