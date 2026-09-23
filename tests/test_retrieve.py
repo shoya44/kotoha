@@ -1,6 +1,7 @@
 """タグ想起の並び順の検証。一時DBだけを使い、LLMは呼ばない。"""
 
 import unittest
+from pathlib import Path
 
 from kotoha import config
 from tests.support import DbCase, use_temp_db
@@ -17,6 +18,15 @@ NODE_SQL = (
 
 def tearDownModule():
     _TMP.cleanup()
+
+
+def use_persona(case, text: str) -> None:
+    """人格をこの文にする。本物の data/prompts を読ませない（名前が違えば落ちる）。"""
+    folder = Path(_TMP.name) / "prompts"
+    folder.mkdir(exist_ok=True)
+    (folder / "persona.txt").write_text(text, encoding="utf-8")
+    case.addCleanup(setattr, config, "PERSONAL_PROMPTS_DIR", config.PERSONAL_PROMPTS_DIR)
+    config.PERSONAL_PROMPTS_DIR = folder
 
 
 class TagOrderTests(DbCase):
@@ -76,6 +86,21 @@ class TagOrderTests(DbCase):
         self.add("あ", "仕事", 0, "2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z")
         self.add("い", "仕事", 0, "2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z")
         self.assertEqual(retrieve.load_tag_dict(self.conn), ["仕事"])
+
+    def test_names_are_not_tags(self):
+        """名前はどの発言にも出る。タグにすると毎回当たり、同じ記憶が居座る。"""
+        use_persona(self, "## ことは\n- 名前はことは。\n- ユーザーを「たろう」と呼ぶ。以下の「相手」はユーザーのこと。\n")
+        self.assertEqual(retrieve.persona_names(), {"ことは", "たろう"})
+        self.add("たろうと話すと機嫌がいい", "たろう", 3, "2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z")
+        self.add("ことはは甘いものが好き", "ことは", 3, "2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z")
+        self.add("通院は木曜", "通院", 0, "2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z")
+        self.assertEqual(retrieve.load_tag_dict(self.conn), ["通院"])
+        pinned, related = retrieve.retrieve(self.conn, "たろうだよ、ことは元気？")
+        self.assertEqual(related, [])
+
+    def test_a_persona_without_names_skips_nothing(self):
+        use_persona(self, "## ことは\n- ものぐさ。\n")
+        self.assertEqual(retrieve.persona_names(), set())
 
     def test_no_tag_hit_falls_back_to_recent(self):
         self.add("関係ない話", "料理", 0, "2026-09-01T00:00:00Z", "2026-09-01T00:00:00Z")

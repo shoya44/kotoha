@@ -240,3 +240,43 @@ class GiveUpTests(DbCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class HonestMemoryTests(DbCase):
+    """作り話を記憶にしない。名前をタグにしない。
+
+    ことはの発言から「ことはが朝ごはんを作った」を出来事にすると、作り話が
+    記憶になり、次の返事の根拠になる循環ができる（実際に起きた: スープパスタ）。
+    名前は全往復で命中するので、タグにすると同じ記憶が想起の枠に居座る。
+    """
+
+    def setUp(self):
+        super().setUp()
+        from pathlib import Path
+        folder = Path(_TMP.name) / "prompts"
+        folder.mkdir(exist_ok=True)
+        (folder / "persona.txt").write_text(
+            "## ことは\n- 名前はことは。\n- ユーザーを「たろう」と呼ぶ。\n", encoding="utf-8")
+        self.addCleanup(setattr, config, "PERSONAL_PROMPTS_DIR", config.PERSONAL_PROMPTS_DIR)
+        config.PERSONAL_PROMPTS_DIR = folder
+        db.insert_message(self.conn, 1, "user", "朝ごはん食べたよ")
+        self.conn.commit()
+        self.messages = self.conn.execute("SELECT id, text, created_at FROM messages").fetchall()
+
+    def tags(self):
+        return sorted(r[0] for r in self.conn.execute("SELECT tag FROM memory_tags"))
+
+    def test_names_are_dropped_from_tags(self):
+        consolidate._validate_and_save(self.conn, {"new_nodes": [{
+            "layer": "episode", "text": "たろうは朝ごはんを食べた。",
+            "tags": ["たろう", "ことは", "朝ごはん"],
+            "source_message_ids": [self.messages[0]["id"]],
+        }]}, self.messages)
+        self.assertEqual(self.tags(), ["朝ごはん"])
+
+    def test_the_rules_are_written_down(self):
+        """ルール文は Gemini にしか読めない。消えたら気づけないので、ここで見張る。"""
+        from kotoha.talk import chat
+        rules = chat._read("consolidation_system.txt")
+        self.assertIn("人名", rules)
+        self.assertIn("ことはが主語の出来事", rules)

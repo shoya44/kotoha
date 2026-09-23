@@ -1,3 +1,5 @@
+import re
+
 from .. import config, notify
 from . import db, diary, embed, strength
 
@@ -8,10 +10,30 @@ _COLS = "id, layer, kind, text, occurred_at, confirmed_at, pinned, strength, str
 # 出来事が続いた週は押し出されて、続きを聞く機会が来ない。
 OPEN_TOPIC_LIMIT = 2
 
+# 人格に書いてある名前の見つけ方。ひな形（prompts/persona.txt）の書き方に合わせる:
+# 「名前はことは。」「ユーザーを「あなた」と呼ぶ。」
+_NAME_PATTERNS = (re.compile(r"名前は(.+?)[。、\s]"), re.compile(r"「(.+?)」と呼"))
+
+
+def persona_names() -> set:
+    """人格に書いてある名前（ことは自身と、相手の呼び名）。
+
+    **名前はタグにしない。** どの発言にも出てくるので、タグにすると毎回当たり、
+    同じ記憶が想起の枠に居座る（実測: 名前2つが全往復で命中し、同じ6件が
+    固定で渡っていた）。整理で付けさせず、すでに付いているぶんは辞書から外す。
+    """
+    from ..talk import chat            # 人格を同じ場所から読む（循環を避けて遅らせる）
+    text = chat._read("persona.txt")
+    found = set()
+    for pattern in _NAME_PATTERNS:
+        found.update(name.strip() for name in pattern.findall(text))
+    return {name for name in found if name}
+
 
 def load_tag_dict(conn):
+    skip = persona_names()
     rows = conn.execute("SELECT DISTINCT tag FROM memory_tags").fetchall()
-    return [r["tag"] for r in rows]
+    return [r["tag"] for r in rows if r["tag"] not in skip]
 
 
 def match_tags(text: str, tags):
