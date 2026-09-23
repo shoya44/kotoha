@@ -97,6 +97,7 @@ class Mascot:
         self.step_at = 0.0
         self.step = 0
         self.hops = []                        # 跳ねの始まり（time）の並び
+        self.fidgets_off = set()              # 脳が「いまは合わない」と言った所作
         now = time.time()
         self.next_stroll = now + random.uniform(STROLL_MIN, STROLL_MAX)
         self.next_fidget = now + random.uniform(FIDGET_MIN, FIDGET_MAX)
@@ -192,6 +193,10 @@ class Mascot:
         return (self.embodied and self.online and not self.busy and self.act in IDLE_ACTS
                 and not self.bubble_until and not self.bubble.asking and not self.dot.dragging())
 
+    def _fidgets(self):
+        """出してよい所作。持っている絵から、脳が「いまは合わない」と言ったものを除く。"""
+        return [n for n in self.sheet.fidgets() if n not in self.fidgets_off]
+
     def _move(self, now: float) -> None:
         if self.motion is None:
             if not self._idle():
@@ -200,8 +205,8 @@ class Mascot:
                 direction = random.choice((-1, 1))
                 self.motion = ("stroll", direction, random.randint(STROLL_PX_MIN, STROLL_PX_MAX))
                 self.step_at, self.step = now, 0
-            elif now >= self.next_fidget and self.sheet.fidgets():
-                self.motion = ("fidget", random.choice(self.sheet.fidgets()), now + FIDGET_SECONDS)
+            elif now >= self.next_fidget and self._fidgets():
+                self.motion = ("fidget", random.choice(self._fidgets()), now + FIDGET_SECONDS)
             return
         kind = self.motion[0]
         if kind == "stroll":
@@ -274,6 +279,7 @@ class Mascot:
             elif kind == "act":
                 self.picture = event.get("picture") or self.picture
                 act = event.get("act") or "idle"
+                self.fidgets_off = set(event.get("fidgets_off") or ())
                 if act != self.act and act == "happy":
                     self.hop(2)
                 self.act = act

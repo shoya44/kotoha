@@ -38,6 +38,16 @@ class ManifestTests(unittest.TestCase):
         for act, choice in figure.ACT_SPRITES.items():
             with self.subTest(act=act):
                 self.assertIn(choice, names)
+        for face, choice in figure.FACES.items():
+            with self.subTest(face=face):
+                self.assertIn(choice, names)
+
+    def test_fidget_table_names_real_fidgets(self):
+        """表の名前を打ち間違えると、絞ったつもりで何も絞れていない。"""
+        names = set(self.manifest["sprites"])
+        for name in figure.FIDGET_FIT:
+            with self.subTest(fidget=name):
+                self.assertIn(name, names)
 
     def test_files_exist_in_every_size(self):
         for size in ("full", "web"):

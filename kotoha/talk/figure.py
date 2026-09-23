@@ -67,6 +67,37 @@ ACT_SPRITES = {"talk": "talk", "sleep": "sleep", "worry": "worry", "sulk": "sulk
 # 言い終わってから、こちらを向いている時間。
 TALK_SECONDS = 30
 
+# 返事のときの顔。返答の [FACE:] のラベルと、その絵。**効くのは話した直後（talk）だけ。**
+# 顔が来なければ talk のまま。絵がまだ無い顔も talk に置いておき、絵ができたら右を書き換える。
+# ラベルを変えるときは fixed_rules.txt の一覧も揃えること（tests/test_figure.py が見張っている）。
+FACES = {
+    "笑う": "laugh",
+    "嬉しい": "happy",
+    "照れる": "fidget_shy",
+    "考える": "think",
+    "困る": "worry",
+    "むっとする": "sulk",
+    "驚く": "talk",
+}
+
+# 所作（fidget_*）の出しどころ。**載っていない所作は、いつ出してもよい。**
+# 書いた条件だけで絞る。when は時間帯（group の名前）、months は月、moods は機嫌のラベル。
+# 出すかどうかと間は器が決める。脳は「いまは合わないもの」を渡すだけ（fidgets_off）。
+_CHEERFUL = ("ふつう", "機嫌がいい")
+FIDGET_FIT = {
+    "fidget_yawn":    dict(when=("morning", "afternoon", "night")),
+    "fidget_stretch": dict(when=("morning", "afternoon")),
+    "fidget_pillow":  dict(when=("afternoon", "night")),
+    "fidget_hungry":  dict(when=("day", "evening")),
+    "fidget_cold":    dict(months=(11, 12, 1, 2, 3)),
+    "fidget_fan":     dict(months=(6, 7, 8, 9)),
+    # はしゃぐ所作は、疲れているときには出さない
+    "fidget_spin":    dict(moods=_CHEERFUL),
+    "fidget_giggle":  dict(moods=_CHEERFUL),
+    "fidget_hum":     dict(moods=_CHEERFUL),
+    "fidget_kick":    dict(moods=_CHEERFUL),
+}
+
 # 絵が変わる機嫌。**chat.MOODS のラベルと同じ文字でなければ効かない**
 # （tests/test_figure.py で見張っている）。
 SLEEPY_MOOD = "眠い"
@@ -180,10 +211,29 @@ def act(hour: int, mood: str = "", said_ago: float = None,
     return "idle"
 
 
-def look(hour: int, now: datetime = None, **mood_and_so_on):
+def look(hour: int, now: datetime = None, face: str = "", **mood_and_so_on):
     """いまの姿。(描く1枚, 振る舞い) を返す。
 
     器はこれを受け取って描くだけ。**どちらを出すかの判断を器に持たせない。**
+    face は直前の返事の顔（FACES のラベル）。話した直後のあいだだけ、talk の代わりに出す。
     """
     name = act(hour, **mood_and_so_on)
+    if name == "talk" and FACES.get(face):
+        return FACES[face], name
     return ACT_SPRITES.get(name) or sprite(now), name
+
+
+def fidgets_off(now: datetime = None, mood: str = "") -> list:
+    """いまは合わない所作の名前。器はこれを除いた中から選ぶ。
+
+    「合うもの」ではなく「合わないもの」を渡すのは、所作の一覧を持っているのが
+    器（sprites.json）だから。表に無い所作は、足せばそのまま出る。
+    """
+    now = now or datetime.now()
+    off = []
+    for name, fit in FIDGET_FIT.items():
+        if (group(now.hour) not in fit.get("when", (group(now.hour),))
+                or now.month not in fit.get("months", (now.month,))
+                or mood not in fit.get("moods", (mood,))):
+            off.append(name)
+    return off

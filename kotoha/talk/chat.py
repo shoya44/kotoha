@@ -320,7 +320,7 @@ def _strip_tag(text: str, name: str):
     return clean, match.group(1).strip()
 
 
-TAG_NAMES = ("USED", "MOOD", "TOPIC", "DO", "REMIND", "DROP")
+TAG_NAMES = ("USED", "MOOD", "TOPIC", "FACE", "DO", "REMIND", "DROP")
 
 
 def strip_tags(text: str) -> str:
@@ -355,6 +355,28 @@ def parse_action(text: str):
     if body is None:
         return text, None
     return clean, body if body in actions.ACTIONS else None
+
+
+def parse_face(text: str):
+    """返答から、そのときの顔を取り出す。(本文, 顔)。知らないラベルは捨てる（talk のまま）。"""
+    clean, body = _strip_tag(text, "FACE")
+    if body is None:
+        return text, None
+    label = body.strip()
+    return clean, label if label in figure.FACES else None
+
+
+def current_face(conn) -> str:
+    """直前の返事の顔。**話した直後だけ。** 時間が経てば空（絵は talk から元に戻っている）。"""
+    if db.seconds_since(db.get_state(conn, db.FACE_AT)) >= figure.TALK_SECONDS:
+        return ""
+    return db.get_state(conn, db.FACE) or ""
+
+
+def _remember_face(conn, face) -> None:
+    """顔は返事ごとに書き直す。来なければ空（前の返事の顔を引きずらない）。"""
+    db.set_state(conn, db.FACE, face or "")
+    db.set_state(conn, db.FACE_AT, db.now_utc())
 
 
 def parse_mood(text: str):
@@ -505,7 +527,7 @@ def _fetch_recent(conn, user_text: str):
 
 
 def _finish(conn, turn_id: int, clean: str, ids, mode: str, mood: str = None, kept=(),
-            why: str = "", dropped=(), topic: str = None):
+            why: str = "", dropped=(), topic: str = None, face: str = None):
     clean, offered = growth.offer(conn, clean)
     db.insert_message(conn, turn_id, "assistant", clean)
     if offered:
@@ -523,6 +545,7 @@ def _finish(conn, turn_id: int, clean: str, ids, mode: str, mood: str = None, ke
     if mood:
         db.count_mood_change(conn, turn_id)
     _remember_topic(conn, topic)
+    _remember_face(conn, face)
     db.update_usage(conn, ids, turn_id)
     conn.commit()
     return Turn(clean, mode, list(kept), list(dropped))
@@ -634,6 +657,7 @@ def speak(conn, closing: str, extra: str = "", keep: bool = True, chain: int = N
     clean, ids = parse_used_ids(raw)
     clean, mood, why = parse_mood(clean)
     clean, topic = parse_topic(clean)
+    clean, face = parse_face(clean)
     clean, _ = parse_action(clean)   # 頼まれてもいないのに動かさない
     clean, later = remind.parse(clean)
     if chain is not None:            # 追いかけだけは、自分で入れてよい
@@ -642,12 +666,12 @@ def speak(conn, closing: str, extra: str = "", keep: bool = True, chain: int = N
     clean = strip_tags(clean)
     if not clean:
         return ""
-    remember(conn, clean, ids, mood, keep, why, topic)
+    remember(conn, clean, ids, mood, keep, why, topic, face)
     return clean
 
 
 def remember(conn, text: str, ids=(), mood: str = "", keep: bool = True, why: str = "",
-             topic: str = None):
+             topic: str = None, face: str = None):
     """ことはの独り言を、会話と同じ場所に残す。開けば並んでいる。
 
     keep=False は、画面には残すが長期記憶には昇格させない。天気のように
@@ -659,6 +683,7 @@ def remember(conn, text: str, ids=(), mood: str = "", keep: bool = True, why: st
         db.set_state(conn, db.MOOD_WHY, why)
         db.set_state(conn, db.MOOD_AT, db.now_utc())
     _remember_topic(conn, topic)
+    _remember_face(conn, face)
     db.update_usage(conn, ids, turn_id)
     conn.commit()
 
@@ -719,13 +744,14 @@ def stream_turn(conn, user_text: str):
     clean, ids = parse_used_ids(raw)
     clean, mood, why = parse_mood(clean)
     clean, topic = parse_topic(clean)
+    clean, face = parse_face(clean)
     clean, todo = parse_action(clean)
     clean, kept = _keep_reminders(conn, clean)
     clean, dropped = _drop_reminders(conn, clean)
     clean = strip_tags(clean)
     _record_pending(conn, ids)
     trace_recall(pinned, related, ids)
-    done = _finish(conn, turn_id, clean, ids, "slow", mood, kept, why, dropped, topic)
+    done = _finish(conn, turn_id, clean, ids, "slow", mood, kept, why, dropped, topic, face)
     # まだ声にしていないぶん。食い違ったら黙って足さない（二度言うほうが困る）。
     rest = clean[said:] if clean[:said] == strip_tags(raw)[:said] else ""
     rest += done.reply[len(clean):]
@@ -758,12 +784,13 @@ def run_turn(conn, user_text: str):
             clean, ids = parse_used_ids(raw)
             clean, mood, why = parse_mood(clean)
             clean, topic = parse_topic(clean)
+            clean, face = parse_face(clean)
             clean, kept = _keep_reminders(conn, clean)
             clean, dropped = _drop_reminders(conn, clean)
             clean = strip_tags(clean)
             ids = [i for i in ids if i in allowed]
             _record_pending(conn, ids)
-            return _finish(conn, turn_id, clean, ids, mode, mood, kept, why, dropped, topic)
+            return _finish(conn, turn_id, clean, ids, mode, mood, kept, why, dropped, topic, face)
 
     pinned, related, diaries = retrieve.retrieve_all(conn, user_text, recent_text)
     prompt = build_prompt(conn, user_text, recent, pinned, related, diaries=diaries)
@@ -771,13 +798,14 @@ def run_turn(conn, user_text: str):
     clean, ids = parse_used_ids(raw)
     clean, mood, why = parse_mood(clean)
     clean, topic = parse_topic(clean)
+    clean, face = parse_face(clean)
     clean, todo = parse_action(clean)
     clean, kept = _keep_reminders(conn, clean)
     clean, dropped = _drop_reminders(conn, clean)
     clean = strip_tags(clean)
     _record_pending(conn, ids)
     trace_recall(pinned, related, ids)
-    done = _finish(conn, turn_id, clean, ids, mode, mood, kept, why, dropped, topic)
+    done = _finish(conn, turn_id, clean, ids, mode, mood, kept, why, dropped, topic, face)
     # 頼まれごとは、返答を保存し終えてから。入れ直しならここで落ちる。
     if todo:
         actions.run(todo)
