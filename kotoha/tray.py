@@ -10,12 +10,14 @@
 
 import ctypes
 import ctypes.wintypes as w
+import json
 import os
 import pathlib
 import subprocess
 import sys
 import threading
 import time
+import urllib.request
 import webbrowser
 
 from . import autostart, config, single
@@ -407,11 +409,41 @@ class Tray:
         webbrowser.open(url)
 
     def show_figure(self):
-        """右下の姿を出す。しまってあれば出し直し、出ていれば何もしない。"""
+        """右下の姿を出す。しまってあれば出し直し、出ているなら**こっちに呼ぶ**。
+
+        姿の窓が生きていても、実体が iPhone に居るあいだは「外出中」の立て札
+        だけで本人は見えない。そのときトレイを押しても何も起きなかった
+        （2026-09-24）。窓を出し直す代わりに、脳へ「こっちに呼ぶ」を頼む。
+        """
         if self.figure is None:
             return
         if self.figure.show():
             log("姿を出した")
+        elif self.figure.alive():
+            self.call_figure()
+
+    def call_figure(self):
+        """実体を PC の姿へ。姿の右クリックの「こっちに呼ぶ」と同じ道。
+
+        窓の糸を止めない（脳が応じなければ 5 秒待たされる）ので、別の糸で頼む。
+        """
+        threading.Thread(target=self._call_figure, daemon=True).start()
+
+    def _call_figure(self):
+        from .launcher import local_url
+
+        url, _ = local_url(config.WEB_HOST, config.WEB_PORT)
+        request = urllib.request.Request(
+            url + "/api/presence/here",
+            data=json.dumps({"vessel": "desktop", "reason": "トレイを押した"}).encode("utf-8"),
+            headers={"X-Kotoha-Token": config.WEB_TOKEN, "Content-Type": "application/json"},
+            method="POST")
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        try:
+            with opener.open(request, timeout=5):
+                pass
+        except Exception as error:      # noqa: BLE001 - 脳が寝ているだけ
+            log(f"姿を呼べなかった: {error!r}")
 
     # ---- クリック ----
     # シングルは姿、ダブルは会話画面。Windows はダブルクリックの前にも
