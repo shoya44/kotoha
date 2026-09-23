@@ -18,10 +18,11 @@ from datetime import timedelta
 
 from .. import clock, config, notify
 from ..talk import llm
-from . import consolidate, db, diary, embed, strength
+from . import db, diary, embed, strength
 
 DAYS = 7
 LIMIT_EACH = 4
+TEXT_LIMIT = 200
 
 
 def due(conn) -> bool:
@@ -97,10 +98,7 @@ def merge(conn, keep: int, drop) -> int:
 
 def fix(conn, node_id: int, text: str) -> bool:
     """本文を日記に合わせて直す。整理の updates と同じ道。"""
-    row = conn.execute("SELECT layer FROM memory_nodes WHERE id = ?", (node_id,)).fetchone()
-    if row is None:
-        return False
-    text = " ".join(text.split())[:consolidate.text_limit(row["layer"])]
+    text = " ".join(text.split())[:TEXT_LIMIT]
     if not text:
         return False
     strength.reinforce(conn, node_id)
@@ -114,11 +112,11 @@ def fix(conn, node_id: int, text: str) -> bool:
 
 def close(conn, node_id: int, text: str = "") -> bool:
     """続きのある話を閉じる。事実（fact）に変え、書き直しがあれば本文も。"""
-    row = conn.execute("SELECT kind, text, layer FROM memory_nodes WHERE id = ? AND pinned = 0",
+    row = conn.execute("SELECT kind, text FROM memory_nodes WHERE id = ? AND pinned = 0",
                        (node_id,)).fetchone()
     if not row or row["kind"] != "open_topic":
         return False
-    text = " ".join((text or row["text"]).split())[:consolidate.text_limit(row["layer"])] or row["text"]
+    text = " ".join((text or row["text"]).split())[:TEXT_LIMIT] or row["text"]
     conn.execute("UPDATE memory_nodes SET kind = 'fact', text = ?, confirmed_at = ? WHERE id = ?",
                  (text, db.now_utc(), node_id))
     if text != row["text"]:

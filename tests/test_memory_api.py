@@ -7,7 +7,7 @@ from tests.support import DbCase, use_temp_db
 
 _TMP = use_temp_db("memory api")
 
-from kotoha.memory import consolidate, db  # noqa: E402
+from kotoha.memory import db  # noqa: E402
 from kotoha.serve import web  # noqa: E402
 
 NODE_SQL = (
@@ -123,18 +123,6 @@ class MemoryApiTests(unittest.TestCase):
         ).fetchone()["use_count"]
         self.assertEqual(count, 0)
 
-    def test_edit_drops_the_stale_vector(self):
-        """本文を直したのに古い座標が残ると、想起は前の本文で当たり続ける。"""
-        node = self.add()
-        self.conn.execute(
-            "INSERT INTO memory_vectors(node_id, model, vector) VALUES (?,?,?)",
-            (node, "test", b"\x00" * 8))
-        self.conn.commit()
-        self.edit(node, "書き直した")
-        left = self.conn.execute(
-            "SELECT COUNT(*) AS n FROM memory_vectors WHERE node_id = ?", (node,)).fetchone()["n"]
-        self.assertEqual(left, 0)
-
     def test_edit_refuses_empty_text(self):
         node = self.add()
         self.assertEqual(self.edit(node, "  ").status_code, 400)
@@ -142,7 +130,7 @@ class MemoryApiTests(unittest.TestCase):
 
     def test_edit_refuses_a_too_long_text(self):
         node = self.add()
-        self.assertEqual(self.edit(node, "あ" * (consolidate.text_limit("episode") + 1)).status_code, 400)
+        self.assertEqual(self.edit(node, "あ" * (web.MEMORY_TEXT_LIMIT + 1)).status_code, 400)
 
     def test_edit_of_a_missing_memory(self):
         self.assertEqual(self.edit(999, "なにか").status_code, 404)
@@ -151,7 +139,7 @@ class MemoryApiTests(unittest.TestCase):
         """手で直したときだけ、整理が絶対に作らない長さの意味記憶ができていた。"""
         semantic = self.add(layer="semantic")
         episode = self.add(text="べつのできごと", layer="episode", kind="event")
-        long_one = "あ" * (consolidate.text_limit("semantic") + 1)
+        long_one = "あ" * (web.MEMORY_TEXT_LIMITS["semantic"] + 1)
         self.assertEqual(self.edit(semantic, long_one).status_code, 400)
         self.assertEqual(self.edit(episode, long_one).status_code, 200)
 

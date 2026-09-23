@@ -23,6 +23,15 @@ JOBS_THREAD_NAME = "kotoha-jobs"
 _thread = None
 
 
+def _unprocessed_turns(conn) -> int:
+    last = int(db.get_state(conn, db.LAST_PROCESSED_MESSAGE_ID, "0") or 0)
+    row = conn.execute(
+        "SELECT COUNT(DISTINCT turn_id) AS n FROM messages WHERE id > ? AND extractable = 1",
+        (last,),
+    ).fetchone()
+    return row["n"]
+
+
 def run_periodic_jobs(conn, outside=None) -> None:
     """整理・バックアップ・忘却を、頃合いになったものだけ回す。
 
@@ -31,7 +40,7 @@ def run_periodic_jobs(conn, outside=None) -> None:
     """
     myself.heartbeat(conn)   # 生きている印。止まれば、次に起きたとき長さが分かる
     presence.sample(conn)
-    unprocessed = consolidate.unprocessed_turns(conn)
+    unprocessed = _unprocessed_turns(conn)
     idle = db.overdue(conn, db.LAST_CONVERSATION_AT, config.IDLE_SECONDS)
     # 会話が途切れてからにする。整理は会話と同じ順番待ちに並ぶので、話している
     # 最中に走ると返答が数秒止まる。通話だとそのまま黙り込んで聞こえる。
@@ -40,8 +49,6 @@ def run_periodic_jobs(conn, outside=None) -> None:
             consolidate.run(conn)
         except Exception as error:
             # 整理の失敗で忘却まで止めない。ただし黙っては済ませない。
-            # 書きかけは捨てる。残すと、次の誰かの commit に紛れて半端な記憶が固まる。
-            conn.rollback()
             notify.log(f"記憶整理で失敗: {error!r}")
     if db.overdue(conn, db.LAST_BACKUP_AT, config.BACKUP_INTERVAL_SECONDS):
         try:
@@ -49,26 +56,19 @@ def run_periodic_jobs(conn, outside=None) -> None:
         except Exception as error:
             # 保存先の不調で忘却まで止めない。ただし黙っては済ませない。
             # 控えが取れていないことに、要るときまで気づけないのが一番困る。
-            conn.rollback()
             notify.log(f"バックアップで失敗: {error!r}")
     if db.overdue(conn, db.LAST_FORGET_AT, config.MAINTENANCE_SECONDS):
-        try:
-            db.run_maintenance(conn)
-        except Exception as error:
-            conn.rollback()
-            notify.log(f"忘却で失敗: {error!r}")
+        db.run_maintenance(conn)
     maybe_diary(conn)
     if review.due(conn):
         try:
             review.run(conn)
         except Exception as error:
-            conn.rollback()
             notify.log(f"夜の整理で失敗: {error!r}")
     if habits.due(conn):
         try:
             habits.reflect(conn)
         except Exception as error:
-            conn.rollback()
             notify.log(f"習慣の振り返りで失敗: {error!r}")
     # 朝の一言、頼まれごと、見守り、暇なときの声かけ。どれも滅多に鳴らない。
     # この巡回のあいだは鳴らさずに預かる。朝の一言と頼まれごとが同じ分に
@@ -85,12 +85,8 @@ def run_periodic_jobs(conn, outside=None) -> None:
     except Exception as error:
         notify.log(f"まとめて言えなかった: {error!r}")
     # 時間帯や機嫌で姿が変わる。変わっていなくても送るが、宛先は実体1つだけ。
-    try:
-        hub.refresh(conn)
-        hub.maybe_move(conn)
-    except Exception as error:
-        conn.rollback()
-        notify.log(f"姿の更新で失敗: {error!r}")
+    hub.refresh(conn)
+    hub.maybe_move(conn)
 
 
 def _wake_embedder() -> None:

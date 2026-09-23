@@ -270,6 +270,8 @@ class DiaryApiTests(DbCase):
         self.assertEqual(response.status_code, 401)
 
 
+if __name__ == "__main__":
+    unittest.main()
 
 
 class HonestDiaryTests(DbCase):
@@ -288,7 +290,3 @@ class HonestDiaryTests(DbCase):
         diary.write(self.conn, date(2026, 9, 21))
         self.assertIn("自分がしたこと", pen.prompts[0])
         self.assertIn("PCの中", pen.prompts[0])
-
-
-if __name__ == "__main__":
-    unittest.main()

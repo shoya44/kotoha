@@ -36,6 +36,15 @@ class Image:
         self.height = height
         self.px = px if px is not None else bytearray(width * height * 4)
 
+    def pixel(self, x: int, y: int):
+        i = (y * self.width + x) * 4
+        return self.px[i:i + 4]
+
+    def alpha(self, x: int, y: int) -> int:
+        if not (0 <= x < self.width and 0 <= y < self.height):
+            return 0
+        return self.px[(y * self.width + x) * 4 + 3]
+
 
 def _chunks(data: bytes):
     if data[:8] != SIGNATURE:

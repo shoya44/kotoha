@@ -28,18 +28,12 @@ def _load():
     """
     try:
         raw = json.loads(CALENDAR_PATH.read_text(encoding="utf-8"))
-        weekly = {int(k): v for k, v in (raw.get("weekly") or {}).items()}
-        monthly = {}
-        for k, v in (raw.get("monthly") or {}).items():
-            if isinstance(v, str) or len(v) != 2:      # 「品目と週」の対でないもの
-                raise ValueError("monthly")
-            monthly[int(k)] = (str(v[0]), tuple(int(n) for n in v[1]))
-        breaks = tuple((tuple(start), tuple(end)) for start, end in (raw.get("breaks") or ()))
-        until = date.fromisoformat(raw["until"]) if raw.get("until") else None
-    except (OSError, ValueError, TypeError, KeyError, IndexError, AttributeError):
-        # 形が崩れている（曜日が数字でない、期間が対でない…）のも「壊れている」。
-        # 起動を止めるより、ゴミの話が消えるほうが害が小さい。
+    except (OSError, ValueError):
         return {}, {}, (), None
+    weekly = {int(k): v for k, v in (raw.get("weekly") or {}).items()}
+    monthly = {int(k): (v[0], tuple(v[1])) for k, v in (raw.get("monthly") or {}).items()}
+    breaks = tuple((tuple(start), tuple(end)) for start, end in (raw.get("breaks") or ()))
+    until = date.fromisoformat(raw["until"]) if raw.get("until") else None
     return weekly, monthly, breaks, until
 
 

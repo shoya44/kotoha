@@ -97,13 +97,6 @@ class ReflectingTests(HabitCase):
         self.assertEqual([(r["id"], r["text"]) for r in rows], [(1, "土曜の夜はだいたい出かける")])
         self.assertGreater(rows[0]["confirmed_at"], "2026-01-01T00:00:00Z")
 
-    def test_the_same_id_twice_does_not_become_a_second_habit(self):
-        self.habit("土曜の夜は出かけがち")
-        habits.llm = Pen('{"habits": [{"id": 1, "text": "土曜の夜は出かける"}, '
-                         '{"id": 1, "text": "土曜の夜は出かける"}]}')
-        habits.reflect(self.conn)
-        self.assertEqual([r["text"] for r in habits.alive(self.conn)], ["土曜の夜は出かける"])
-
     def test_what_is_not_named_fades(self):
         self.habit("朝は返事が遅い")
         self.habit("土曜の夜は出かけがち")

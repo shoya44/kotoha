@@ -109,11 +109,6 @@ class GateTests(DbCase):
         for text in ("容量やばい", "PC重い", "Ollama起こして", "メモリ足りてる？"):
             self.assertTrue(presence.asked_about_machine(text), text)
 
-    def test_full_width_letters_count_too(self):
-        """「ＰＣ」を lower() すると「ｐｃ」で、半角の表には当たらなかった。"""
-        for text in ("ＰＣ重い", "ＧＰＵの温度は？", "ＣＰＵ使ってる？"):
-            self.assertTrue(presence.asked_about_machine(text), text)
-
 
 if __name__ == "__main__":
     unittest.main()

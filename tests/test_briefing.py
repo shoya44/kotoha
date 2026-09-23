@@ -327,6 +327,8 @@ class Mouth:
         return self.text
 
 
+if __name__ == "__main__":
+    unittest.main()
 
 
 class MorningMaterialTests(DbCase):
@@ -537,7 +539,3 @@ class SkyMemoryTests(DbCase):
     def test_a_silent_service_leaves_nothing(self):
         weather.remember(self.conn, None, "2026-09-23")
         self.assertEqual(weather.today_line(self.conn, "2026-09-23"), "")
-
-
-if __name__ == "__main__":
-    unittest.main()

@@ -242,7 +242,7 @@ def retrieve_all(conn, user_text: str, recent_text: str = ""):
     by_meaning = _by_meaning(conn, query, known, rows)
     # 予約したぶんは必ず渡す。後ろに足すだけだと、タグが当たった回は枠が
     # 埋まりきって出番が来ない。取り違えても割を食うのは予約枠だけで済む。
-    keep = max(0, config.RELATED_LIMIT - len(by_meaning))
+    keep = config.RELATED_LIMIT - len(by_meaning)
     related = [c for c in cand if not c["pinned"]][:keep] + by_meaning
     diaries = recall_diary(query, pages, {r["day"] for r in diary.shown(conn)})
     return pinned, related, diaries

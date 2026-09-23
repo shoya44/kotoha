@@ -221,6 +221,8 @@ class RememberingTests(HubCase):
         self.assertTrue(found["since"])
 
 
+if __name__ == "__main__":
+    unittest.main()
 
 
 class QueueLimitTests(HubCase):
@@ -246,7 +248,3 @@ class QueueLimitTests(HubCase):
         vessel = hub.join("web", queue, self.loop)
         vessel.send({"type": "say", "text": "1"})
         self.assertEqual([e["text"] for e in queue.items], ["1"])
-
-
-if __name__ == "__main__":
-    unittest.main()
