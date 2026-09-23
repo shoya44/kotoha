@@ -459,3 +459,46 @@ class MigrationTests(DbCase):
         self.assertEqual(self.conn.execute("PRAGMA user_version").fetchone()[0], 2)
         self.assertEqual(ran, [])
 
+
+
+class SpareIsNotAFolderTests(DbCase):
+    """置き場がファイルを指していたら、そう書く。FileExistsError では何を直せばよいか読めない。"""
+
+    def test_a_file_in_the_way_is_named(self):
+        from kotoha import notify
+        self.addCleanup(setattr, notify, "log", notify.log)
+        logged = []
+        notify.log = logged.append
+        blocker = Path(tempfile.mkdtemp(prefix="kotoha spare ")) / "not-a-folder"
+        self.addCleanup(shutil.rmtree, blocker.parent, True)
+        blocker.write_text("ここはファイル", encoding="utf-8")
+        self.addCleanup(setattr, config, "BACKUP_DIR", config.BACKUP_DIR)
+        config.BACKUP_DIR = str(blocker)
+        dest = db.run_backup()
+        self.assertTrue(dest.exists())                     # 隣の1本は取れている
+        self.assertTrue(any("フォルダーではない" in line for line in logged), logged)
+
+
+class JournalTests(unittest.TestCase):
+    """読む側と書く側が互いを待たない（WAL）。"""
+
+    def setUp(self):
+        if config.DB_PATH.exists():
+            config.DB_PATH.unlink()
+
+    def test_the_journal_is_wal(self):
+        conn = db.connect()
+        self.addCleanup(conn.close)
+        self.assertEqual(conn.execute("PRAGMA journal_mode").fetchone()[0], "wal")
+
+    def test_a_reader_does_not_block_a_writer(self):
+        reader = db.connect()
+        self.addCleanup(reader.close)
+        db.init(reader)
+        cursor = reader.execute("SELECT * FROM messages")   # 読みかけのまま
+        writer = db.connect()
+        self.addCleanup(writer.close)
+        db.set_state(writer, "probe", "1")
+        writer.commit()
+        cursor.fetchall()
+        self.assertEqual(db.get_state(reader, "probe"), "1")

@@ -315,6 +315,9 @@ def sample(conn) -> None:
     db.set_state(conn, db.FRONT_TALLY_HOUR, hour)
     db.set_state(conn, db.FRONT_TALLY, json.dumps(tally, ensure_ascii=False))
     _mark_streak(conn, app)
+    # ここで閉じる。巡回はこの直後に記憶整理で Gemini を待つことがあり、
+    # 書きかけのまま待つと、そのあいだ他の書き手（器の取次、CUI）が全部止まる。
+    conn.commit()
 
 
 def _mark_streak(conn, app: str) -> None:
