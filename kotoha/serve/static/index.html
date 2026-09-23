@@ -101,7 +101,7 @@
       <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
         <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z"></path>
       </svg>
-      <input id="volumeRange" type="range" min="0" max="100" step="5"
+      <input class="volume-range" id="volumeRange" type="range" min="0" max="100" step="5"
              value="100" aria-label="声の大きさ">
     </div>
 
@@ -156,6 +156,12 @@
           <span>声で話す</span>
           <span class="sheet-value" id="voiceValue">オフ</span>
         </button>
+        <!-- 声の大きさは通話中の帯にもあるが、通話しない人はそこに辿り着けない。 -->
+        <label class="sheet-row sheet-row-static">
+          <span>声の大きさ</span>
+          <input class="volume-range" id="volumeSheet" type="range" min="0" max="100" step="5"
+                 value="100" aria-label="声の大きさ">
+        </label>
         <button class="sheet-row" id="togglePush" type="button" hidden>
           <span>通知を受け取る</span>
           <span class="sheet-value" id="pushValue">オフ</span>

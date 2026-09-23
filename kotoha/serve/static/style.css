@@ -504,6 +504,8 @@ button {
   font: inherit;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
+  /* iPhone の Safari（タブ）で、二度押しを拡大と取られて 300ms 待たされない。 */
+  touch-action: manipulation;
 }
 
 #gatebtn {
@@ -638,14 +640,14 @@ body.calling .volume {
 
 /* 標準のつまみは上の input 一括指定で外してあるので、ここで描き起こす。
    高さはタップ領域ぶん取り、線そのものは細く見せる。 */
-#volumeRange {
+.volume-range {
   flex: 1;
   max-width: calc(var(--chat-max-width) - 60px);
   height: var(--tap-min);
   background: none;
 }
 
-#volumeRange::-webkit-slider-runnable-track {
+.volume-range::-webkit-slider-runnable-track {
   height: 4px;
   border-radius: 2px;
   background: linear-gradient(
@@ -655,7 +657,7 @@ body.calling .volume {
   );
 }
 
-#volumeRange::-webkit-slider-thumb {
+.volume-range::-webkit-slider-thumb {
   -webkit-appearance: none;
   width: 24px;
   height: 24px;
@@ -666,7 +668,10 @@ body.calling .volume {
   box-shadow: 0 1px 3px #0006;
 }
 
-#volumeRange:active::-webkit-slider-thumb { transform: scale(1.1); }
+.volume-range:active::-webkit-slider-thumb { transform: scale(1.1); }
+/* 設定の行に置くぶんは、行の高さに収める。 */
+.sheet-row-static { cursor: default; }
+.sheet-row-static .volume-range { max-width: 60%; height: 40px; }
 
 /* 音声入力に対応しない環境では通話を出さない。 */
 body.no-call #call { display: none; }

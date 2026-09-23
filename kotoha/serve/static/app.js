@@ -17,6 +17,7 @@ const elements = {
   sendButton: $("send"),
   callButton: $("call"),
   volumeRange: $("volumeRange"),
+  volumeSheet: $("volumeSheet"),
   jumpBottom: $("jumpBottom"),
   settingsOverlay: $("settingsOverlay"),
   toggleTime: $("toggleTime"),
@@ -1425,7 +1426,11 @@ function setVolume(percent) {
   preferences.volume = clampVolume(percent);
   localStorage.setItem("kotoha_volume", String(preferences.volume));
   // つまみより左を色で埋める。線の描き方はCSS側に任せ、割合だけ渡す。
-  elements.volumeRange.style.setProperty("--volume-fill", preferences.volume + "%");
+  // つまみは2つ（通話中の帯と設定の行）。どちらを動かしても、もう片方も付いてくる。
+  for (const range of [elements.volumeRange, elements.volumeSheet]) {
+    range.value = String(preferences.volume);
+    range.style.setProperty("--volume-fill", preferences.volume + "%");
+  }
   if (!volumeKnob) return;
   // 鳴っている最中でも変えられる。急に切り替えるとブツッと鳴るので、少しなまらせる。
   volumeKnob.gain.setTargetAtTime(
@@ -1718,6 +1723,11 @@ async function send() {
     typingRow?.remove();
     addMessage("system", "[エラー] 通信失敗");
     setStatus("接続できない", "offline");
+    // 届かなかった言葉は入力欄に戻す。外で電波が切れるたびに打ち直すのはつらい。
+    if (!elements.input.value.trim()) {
+      elements.input.value = text;
+      resizeInput();
+    }
   } finally {
     talking = false;
     elements.sendButton.disabled = false;
@@ -2007,11 +2017,10 @@ elements.toggleTime.addEventListener("click", () => {
   updateJumpButton();
 });
 
-elements.volumeRange.value = String(preferences.volume);
 setVolume(preferences.volume);
-elements.volumeRange.addEventListener("input", event => {
-  setVolume(event.target.value);
-});
+for (const range of [elements.volumeRange, elements.volumeSheet]) {
+  range.addEventListener("input", event => setVolume(event.target.value));
+}
 
 elements.callButton.addEventListener("click", () => {
   openAudio();  // 指が触れているいまのうちに、音の出口を開けておく
@@ -2444,6 +2453,17 @@ document.addEventListener("visibilitychange", () => {
   }
 });
 window.addEventListener("pagehide", sayGoodbye);
+
+// 電波が切れた・戻った。iPhone は家の Wi-Fi と外を行き来する。切れたときは
+// そう出し、戻ったら繋ぎ直して、そのあいだの言づてを取りに行く。
+window.addEventListener("offline", () => setStatus("オフライン", "offline"));
+window.addEventListener("online", async () => {
+  if (!token) return;
+  connectPresence();
+  await catchUp();
+  loadLiving();
+  if (elements.status.classList.contains("offline") && !calling) setStatus("いるよ");
+});
 
 (async () => {
   if (!token) {
