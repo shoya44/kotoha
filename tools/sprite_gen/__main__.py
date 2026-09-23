@@ -4,8 +4,10 @@
     python -m tools.sprite_gen --only happy,nap # 名前を絞る
     python -m tools.sprite_gen --variants 4     # Seed を 4 つずらして候補を出す（選ぶ用）
     python -m tools.sprite_gen --accept a,b     # 出来のよい絵を台帳（accepted.json）に載せる
+    python -m tools.sprite_gen --accept a:20260924  # Seed 違いの候補から1つを本体にして台帳に載せる
     python -m tools.sprite_gen --retry a,b      # だめな絵だけ Seed をずらして作り直す（台帳から外す）
     python -m tools.sprite_gen --apply          # 台帳にある絵を img/dot/ に置く（旧絵は img/dot/old/ へ）
+    python -m tools.sprite_gen --apply --mouth-only  # 口パク差分だけ置く（本体は触らない）
     python -m tools.sprite_gen --sheet          # out/ の見比べ1枚を out/sheet.png に書く
 
 生成・白抜きは全部 ComfyUI 側（tools/sprite_gen/workflow_restyle.json）。ここでやるのは、
@@ -251,6 +253,106 @@ def _restyled(name: str, work: pathlib.Path) -> pathlib.Path:
     return done[-1] if done else _canvas(DOT_DIR / f"{name}.png", work / f"{name}_base.png")
 
 
+def _dot_mask(dot_png: pathlib.Path, dest: pathlib.Path, window) -> pathlib.Path:
+    """img/dot の絵（透明PNG）を _canvas と同じ置き方で白に置いたときの、窓のマスク。
+
+    元絵のままの絵（ChatGPT 製の14枚）に差分を足すとき用。ComfyUI の出力ではなく
+    img/dot の絵が元になるので、窓も同じ座標系で作る。
+    """
+    im = Image.open(dot_png).convert("RGBA")
+    im = im.crop(im.getbbox() or (0, 0, im.width, im.height))
+    scale = min(1000 / im.height, 1000 / im.width)
+    w, h = max(1, round(im.width * scale)), max(1, round(im.height * scale))
+    left, top = (CANVAS - w) // 2, CANVAS - h - 12
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    mask = Image.new("L", (CANVAS, CANVAS), 0)
+    mask.paste(255, (round(left + w * window[0]), round(top + h * window[2]),
+                     round(left + w * window[1]), round(top + h * window[3])))
+    mask.save(dest)
+    return dest
+
+
+def _current(name: str, work: pathlib.Path):
+    """差分だけ作り直すときの元。(白抜き済み or None, 白抜き前, マスクの元になる透明PNG or None)。
+
+    台帳に載っている絵（LoRA で起こしたもの）はその Seed の final。元絵のままの絵
+    （img/dot にしか無いもの）は img/dot の絵を白に置いたものを使う。
+    """
+    body = OUT_DIR / name / f"{name}.png"
+    done = sorted((OUT_DIR / name).glob("final_*_raw.png"))
+    if name not in _ledger() or not done or not body.exists():
+        return None, _canvas(DOT_DIR / f"{name}.png", work / "ref.png"), DOT_DIR / f"{name}.png"
+    # 台帳の Seed は作り直し（--retry）のあと合っていないことがある。**本体（out/<name>/<name>.png）と
+    # 形が同じ final を選ぶ**（透明度の並びで比べる。色味補正は透明度を変えない）。
+    want = Image.open(body).convert("RGBA").getchannel("A").resize((128, 128))
+    def gap(raw):
+        cut = raw.with_name(raw.name.replace("_raw", ""))
+        if not cut.exists():
+            return float("inf")
+        have = Image.open(cut).convert("RGBA").getchannel("A").resize((128, 128))
+        return sum(abs(a - b) for a, b in zip(want.getdata(), have.getdata()))
+    final_raw = min(done, key=gap)
+    return final_raw.with_name(final_raw.name.replace("_raw", "")), final_raw, None
+
+
+def make_mouth(name: str, spec: dict, seed: int) -> None:
+    """口を開けた差分 `<name>-mouth.png` だけ作る。本体は作り直さない。
+
+    元は、台帳の絵ならその Seed の final、元絵のままの絵（img/dot にしか無いもの）なら
+    img/dot の絵を白に置いたもの。声を出しているあいだ、会話画面が本体と交互に出す。
+    """
+    work = OUT_DIR / name / "work"
+    final, final_raw, dot = _current(name, work)
+    toned = None
+    if dot is None and P.TONE_REF and spec["source"] != "self":
+        toned = tone.measure(final, DOT_DIR / f"{P.TONE_REF}.png")
+    _mouth(name, spec, seed, final, final_raw, dot, toned)
+
+
+def _mouth(name, spec, seed, final, final_raw, dot, toned) -> None:
+    """口の窓だけ塗り直した1枚を out/<name>/<name>-mouth.png に置く。"""
+    work = OUT_DIR / name / "work"
+    window = spec.get("mouth_window", P.MOUTH_WINDOW)
+    if dot is not None:
+        mask = _dot_mask(dot, work / "mouth_mask.png", window)
+    else:
+        mask = _eye_mask(final, work / "mouth_mask.png", window)
+    pose = spec["pose"]
+    for word in P.MOUTH_DROP_WORDS:
+        pose = pose.replace(word, "")
+    if spec["source"] != "self":
+        pose += P.PROPORTION
+    words = P.MOUTH_CLOSED if spec.get("mouth") == "closed" else P.MOUTH
+    mouth, _ = _stage(name, f"{pose}, {words}", final_raw, seed, P.MOUTH_DENOISE, P.PIXEL_STYLE, "mouth",
+                      mask_png=mask)
+    shutil.copy(mouth, OUT_DIR / name / f"{name}-mouth.png")
+    if toned:
+        tone.apply(OUT_DIR / name / f"{name}-mouth.png", toned)
+
+
+def _frames(name, spec, seed, final, final_raw, toned, pose) -> None:
+    """動きのコマ。本体を元に、窓の中（足など）だけ描き直す。窓の外は本体そのもの。"""
+    work = OUT_DIR / name / "work"
+    for tag, words in spec.get("frames", {}).items():
+        mask = _eye_mask(final, work / f"{tag}_mask.png", spec.get("frame_window", P.LEGS_WINDOW))
+        frame, _ = _stage(name, f"{pose}, {words}", final_raw, seed, spec.get("frame_denoise", P.FRAME_DENOISE),
+                          P.PIXEL_STYLE, tag, mask_png=mask)
+        shutil.copy(frame, OUT_DIR / name / f"{name}-{tag}.png")
+        if toned:
+            tone.apply(OUT_DIR / name / f"{name}-{tag}.png", toned)
+
+
+def make_frames(name: str, spec: dict, seed: int) -> None:
+    """コマだけ作り直す（`--frames-only`）。本体は台帳の Seed の候補（無ければ最後の候補）。"""
+    work = OUT_DIR / name / "work"
+    final, final_raw, dot = _current(name, work)
+    if dot is not None:
+        sys.exit(f"{name}: out/ に本体が無い")
+    toned = tone.measure(final, DOT_DIR / f"{P.TONE_REF}.png") if P.TONE_REF and spec["source"] != "self" else None
+    pose = spec["pose"] + (P.PROPORTION if spec["source"] != "self" else "")
+    _frames(name, spec, seed, final, final_raw, toned, pose)
+
+
 def make(name: str, spec: dict, seed: int, only_blink: bool = False) -> None:
     pose, source = spec["pose"], spec["source"]
     if source != "self":
@@ -258,7 +360,9 @@ def make(name: str, spec: dict, seed: int, only_blink: bool = False) -> None:
     work = OUT_DIR / name / "work"
     done = sorted((OUT_DIR / name).glob("final_*_raw.png"))
     if only_blink and done:
-        final_raw = done[-1]
+        # 台帳に Seed があればその候補、無ければ最後の候補
+        chosen = OUT_DIR / name / f"final_{_ledger().get(name, {}).get('seed')}_raw.png"
+        final_raw = chosen if chosen.exists() else done[-1]
         final = final_raw.with_name(final_raw.name.replace("_raw", ""))
     elif source == "self":
         ref = _canvas(DOT_DIR / f"{name}.png", work / "ref.png")
@@ -281,14 +385,9 @@ def make(name: str, spec: dict, seed: int, only_blink: bool = False) -> None:
             tone.apply(OUT_DIR / name / f"{name}-blink.png", toned)
     if only_blink:
         return
-    for tag, words in spec.get("frames", {}).items():
-        # 動きのコマ。本体を元に、窓の中（足など）だけ描き直す。窓の外は本体そのもの。
-        mask = _eye_mask(final, work / f"{tag}_mask.png", spec.get("frame_window", P.LEGS_WINDOW))
-        frame, _ = _stage(name, f"{pose}, {words}", final_raw, seed, P.FRAME_DENOISE, P.PIXEL_STYLE, tag,
-                          mask_png=mask)
-        shutil.copy(frame, OUT_DIR / name / f"{name}-{tag}.png")
-        if toned:
-            tone.apply(OUT_DIR / name / f"{name}-{tag}.png", toned)
+    _frames(name, spec, seed, final, final_raw, toned, pose)
+    if spec.get("mouth"):
+        _mouth(name, spec, seed, final, final_raw, None, toned)
 
 
 # ---- まとめ ------------------------------------------------------------------
@@ -298,7 +397,8 @@ def sheet(names) -> pathlib.Path:
     cell = 256
     rows = []
     for name in names:
-        row = [OUT_DIR / name / f"{name}.png", OUT_DIR / name / f"{name}-blink.png"]
+        row = [OUT_DIR / name / f"{name}.png", OUT_DIR / name / f"{name}-blink.png",
+               OUT_DIR / name / f"{name}-mouth.png"]
         row += [OUT_DIR / name / f"{name}-{tag}.png" for tag in P.POSES[name].get("frames", {})]
         row += sorted((OUT_DIR / name).glob("pose_*_raw.png"))[:1]
         rows.append((name, [p for p in row if p.exists()]))
@@ -314,14 +414,54 @@ def sheet(names) -> pathlib.Path:
     return dest
 
 
-def apply(names) -> None:
-    """台帳にある絵を img/dot/ に置く。差し替え前の絵は img/dot/old/ に退避する。"""
+def pick(name: str, seed: int) -> None:
+    """Seed 違いの候補から1つを本体にする（`--accept 名前:Seed`）。
+
+    `--variants` で出した候補は final_<seed>.png に並び、<name>.png は最後の候補のまま。
+    採る候補の本体・まばたき・口・コマを <name>*.png に置き直し、色味補正も同じ値でかけ直す。
+    """
+    folder = OUT_DIR / name
+    final = folder / f"final_{seed}.png"
+    if not final.exists():
+        sys.exit(f"候補が無い: {final}")
+    spec = P.POSES[name]
+    toned = tone.measure(final, DOT_DIR / f"{P.TONE_REF}.png") if P.TONE_REF and spec["source"] != "self" else None
+    parts = {"": "final", "-blink": "blink", "-mouth": "mouth"}
+    parts.update({f"-{tag}": tag for tag in spec.get("frames", {})})
+    for suffix, tag in parts.items():
+        src, dst = folder / f"{tag}_{seed}.png", folder / f"{name}{suffix}.png"
+        if not src.exists():
+            if dst.exists():
+                dst.unlink()              # 採る候補に無い差分は残さない（別の候補の顔が重なる）
+            continue
+        shutil.copy(src, dst)
+        if toned:
+            tone.apply(dst, toned)
+    print(f"  {name}: seed={seed} を本体にした")
+
+
+def apply(names, only_mouth: bool = False) -> None:
+    """台帳にある絵を img/dot/ に置く。差し替え前の絵は img/dot/old/ に退避する。
+
+    only_mouth なら口パク差分だけ置く。**置いてある本体には触らない**（あとから色味補正を
+    かけた絵は out/ の本体と違う。本体まで置き直すと補正前に戻る。2026-09-23 に fidget_shy でやった）。
+    """
     ledger = _ledger()
-    names = [n for n in names if n in ledger]
     old = DOT_DIR / "old"
     old.mkdir(exist_ok=True)
     for name in names:
-        for suffix in ("", "-blink", *(f"-{tag}" for tag in P.POSES[name].get("frames", {}))):
+        if only_mouth:
+            if not (OUT_DIR / name / f"{name}-mouth.png").exists() or not (DOT_DIR / f"{name}.png").exists():
+                continue
+            suffixes = ("-mouth",)
+        elif name in ledger:
+            suffixes = ("", "-blink", "-mouth", *(f"-{tag}" for tag in P.POSES[name].get("frames", {})))
+        elif (OUT_DIR / name / f"{name}-mouth.png").exists() and (DOT_DIR / f"{name}.png").exists():
+            # 台帳に無い絵（元絵のままの14枚）には、口パク差分だけ足す。本体とまばたきは触らない
+            suffixes = ("-mouth",)
+        else:
+            continue
+        for suffix in suffixes:
             src = OUT_DIR / name / f"{name}{suffix}.png"
             dst = DOT_DIR / f"{name}{suffix}.png"
             if dst.exists() and not (old / dst.name).exists():
@@ -343,6 +483,8 @@ def main(argv=None) -> int:
     ap.add_argument("--seed", type=int, default=P.SEED)
     ap.add_argument("--variants", type=int, default=1, help="Seed をずらして候補を何枚出すか")
     ap.add_argument("--blink-only", action="store_true", help="本体はそのまま、まばたき（とコマ）だけ作り直す")
+    ap.add_argument("--frames-only", action="store_true", help="本体はそのまま、コマ（frames）だけ作り直す")
+    ap.add_argument("--mouth-only", action="store_true", help="本体はそのまま、口パク差分（-mouth）だけ作る。mouth=True の絵だけ")
     ap.add_argument("--apply", action="store_true")
     ap.add_argument("--accept", help="台帳に載せる名前（カンマ区切り）")
     ap.add_argument("--retry", help="Seed をずらして作り直す名前（カンマ区切り）。台帳から外す")
@@ -356,8 +498,14 @@ def main(argv=None) -> int:
 
     ledger = _ledger()
     if a.accept:
-        for name in a.accept.split(","):
-            ledger[name.strip()] = {"seed": ledger.get(name.strip(), {}).get("seed", a.seed)}
+        for token in a.accept.split(","):
+            name, _, chosen = token.strip().partition(":")
+            if chosen:
+                # 候補（final_<seed>.png）から1つを本体にして、その Seed を台帳に書く
+                pick(name, int(chosen))
+                ledger[name] = {"seed": int(chosen)}
+                continue
+            ledger[name] = {"seed": ledger.get(name, {}).get("seed", a.seed)}
         _save_ledger(ledger)
         print("採用:", ", ".join(sorted(ledger)))
         return 0
@@ -374,7 +522,19 @@ def main(argv=None) -> int:
         print(sheet(names))
         return 0
     if a.apply:
-        apply(names)
+        apply(names, only_mouth=a.mouth_only)
+        return 0
+    if a.frames_only:
+        names = [n for n in names if P.POSES[n].get("frames")]
+        for name in names:
+            make_frames(name, P.POSES[name], a.seed)
+        print(sheet(names))
+        return 0
+    if a.mouth_only:
+        names = [n for n in names if P.POSES[n].get("mouth")]
+        for name in names:
+            make_mouth(name, P.POSES[name], a.seed + 1000 * ledger.get("_tries", {}).get(name + "-mouth", 0))
+        print(sheet(names))
         return 0
     if a.sheet:
         print(sheet(names))

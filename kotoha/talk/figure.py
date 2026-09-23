@@ -30,13 +30,14 @@ GROUPS = {
         "コーヒーだけ飲んで、二度寝しようか迷っている",
         "布団から出たくなくて、スマホをだらだら見ている",
         "起きてはいるが、まだ何もしていない",
-    ), ("daydream", "coffee", "phone", "wave")),
+        "歯を磨きながら、ぼーっとしている",
+    ), ("daydream", "coffee", "phone", "wave", "brush")),
     "day": ((
         "家でダラダラしている",
         "洗い物をあとでやろうと思って、先延ばしにしている",
         "昼ごはんを何にするか、まだ決めていない",
         "ノートPCを開いたまま、特に何もしていない",
-    ), ("laptop", "dishes", "think", "laptop")),
+    ), ("chin", "dishes", "think", "laptop")),
     "afternoon": ((
         "昼寝やおやつでだらけている",
         "プリンをいま食べるか、夕飯のあとに取っておくか迷っている",
@@ -48,7 +49,8 @@ GROUPS = {
         "夕飯は食べたが、お風呂はまだ入っていない",
         "洗濯物を畳まないまま、山にしてある",
         "夕飯のあとで、甘いものが食べたくなっている",
-    ), ("book", "bored", "phone", "snack")),
+        "お風呂あがりで、頭にタオルをのせたまま水を飲んでいる",
+    ), ("book", "bored", "phone", "snack", "bath")),
     "night": ((
         "夜更かし中で、ゲームかスマホを触っている",
         "寝ようと思いつつ、スマホを見続けている",
@@ -96,6 +98,8 @@ FIDGET_FIT = {
     "fidget_giggle":  dict(moods=_CHEERFUL),
     "fidget_hum":     dict(moods=_CHEERFUL),
     "fidget_kick":    dict(moods=_CHEERFUL),
+    # ため息は、機嫌がいいときには出さない
+    "fidget_sigh":    dict(moods=("ふつう", "疲れ気味")),
 }
 
 # 絵が変わる機嫌。**chat.MOODS のラベルと同じ文字でなければ効かない**

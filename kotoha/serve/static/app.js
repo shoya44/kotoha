@@ -1116,6 +1116,10 @@ let currentPicture = "";
 let currentAct = "idle";
 // まばたきのある絵の一覧。無い絵は、まばたきしないだけ。
 let blinkable = new Set();
+// 口を開けた差分のある絵の一覧。声を出しているあいだ、口を開け閉めする。無い絵は口が動かないだけ。
+let mouthable = new Set();
+// 持っている絵の名前。押されたときの顔があるかを見る。
+let spriteNames = new Set();
 // 手持ちぶさたの所作（fidget_* の絵）。暇なときに数秒だけ出して戻す。トレイと同じ癖。
 let fidgets = [];
 let fidgetTimer = null;
@@ -1130,6 +1134,9 @@ async function loadSpriteList() {
     const manifest = await response.json();
     blinkable = new Set(
       Object.entries(manifest.sprites).filter(([, s]) => s.blink).map(([name]) => name));
+    mouthable = new Set(
+      Object.entries(manifest.sprites).filter(([, s]) => s.mouth).map(([name]) => name));
+    spriteNames = new Set(Object.keys(manifest.sprites));
     fidgets = Object.keys(manifest.sprites).filter(name => name.startsWith("fidget_"));
   } catch {
     // 読めなくても絵は出る。まばたきしないだけ。
@@ -1206,6 +1213,24 @@ function scheduleFidget() {
 const avatarImage = $("miniAvatarImage");
 avatarImage.addEventListener("error", () => avatarImage.classList.add("unloaded"));
 avatarImage.addEventListener("load", () => avatarImage.classList.remove("unloaded"));
+
+// 触られたら一瞬だけ驚いた顔。トレイと同じ癖。絵が無ければ跳ねるだけ。
+const REACT_NAME = "surprised", REACT_MS = 900;
+let reactTimer = null;
+
+avatarImage.addEventListener("click", async () => {
+  reactAvatar("avatar-tap");
+  if (!embodied || !spriteNames.has(REACT_NAME) || currentPicture === REACT_NAME) return;
+  clearTimeout(fidgetTimer);
+  fidgetTimer = null;
+  clearTimeout(reactTimer);
+  await showPicture(REACT_NAME);
+  reactTimer = setTimeout(() => {
+    reactTimer = null;
+    showPicture(brainPicture);
+    scheduleFidget();
+  }, REACT_MS);
+});
 
 function setEmbodied(here, where = "") {
   // **実体が移れば通話も終わる。** 向こうで話しているのに、こちらのマイクが
@@ -1428,14 +1453,47 @@ function playAudio(sound) {
     const source = context.createBufferSource();
     source.buffer = sound;
     source.connect(volumeKnob || context.destination);
+    const stopMouth = startMouth();
     // stopで止めたときも鳴り終わりとして届くので、待ち続けることはない。
     source.addEventListener("ended", () => {
       if (currentSource === source) currentSource = null;
+      stopMouth();
       resolve();
     }, { once: true });
     currentSource = source;
     source.start();
   });
+}
+
+// 口パク。声が鳴っているあいだ、口を開けた差分と本体を交互に出す。差分の無い絵は動かない。
+// まばたきは口が動いているあいだ止める（両方が src を触ると取り合いになる）。
+const MOUTH_MS = 120;
+
+function startMouth() {
+  const name = currentPicture;
+  if (!mouthable.has(name)) return () => {};
+  const image = $("miniAvatarImage");
+  const open = `${SPRITE_URL}${name}.png`;
+  const mouth = `${SPRITE_URL}${name}-mouth.png`;
+  clearTimeout(blinkTimer);
+  let shown = false;
+  let stopped = false;
+  let ready = false;
+  readyPicture(mouth).then(() => { ready = true; }).catch(() => {});
+  const timer = setInterval(() => {
+    // 途中で絵が替わったら、その絵の口は触らない。差分が読めるまでは待つ。
+    if (stopped || !ready || currentPicture !== name) return;
+    shown = !shown;
+    image.src = shown ? mouth : open;
+  }, MOUTH_MS);
+  return () => {
+    stopped = true;
+    clearInterval(timer);
+    if (currentPicture === name) {
+      image.src = open;
+      scheduleBlink();
+    }
+  };
 }
 
 // plain を付けたぶんだけ、機嫌の乗らない素の声で返る。**どんな声にするかは

@@ -7,8 +7,8 @@
 まばたきの差分があるものは時々差し替える。止まっている絵は、止まって見える。
 
 暇なときの動き（脳は関わらない。まばたきと同じ「器の癖」）:
-- 散歩: `walk` の絵で、机の端を少し歩いて止まる。コマ（f1, f2）を足で交互に出し、
-  左へ行くときは絵を返す。歩いた先は置き場所として覚える
+- 散歩: `walk` の絵で、机の端を少し歩いて止まる。コマ（f1, f2）があれば足で交互に出し、
+  無ければ一歩おきに 1 ドット浮かせる。左へ行くときは絵を返す。歩いた先は置き場所として覚える
 - 所作: `fidget_*` の絵を数秒だけ出して、元の姿に戻る
 - 跳ね: 話したとき・機嫌がいいとき、足元から少し跳ねる
 脳から姿が届いたら、動きは途中でもやめてそれに従う。
@@ -47,11 +47,14 @@ STROLL_MIN, STROLL_MAX = 150.0, 420.0
 STROLL_PX_MIN, STROLL_PX_MAX = 60, 220       # 一度に歩く距離
 STROLL_SPEED = 1                             # 1ティックに進むドット（40msなので 25px/s）
 STROLL_STEP_SECONDS = 0.26                   # 足のコマを替える間
+STROLL_BOB = 1                               # 歩くとき一歩おきに浮くドット（コマが無くても歩いて見せる）
 # 歩きの絵が向いている側。左へ行くときは返す。
 WALK_FACES_RIGHT = True
 FIDGET_MIN, FIDGET_MAX, FIDGET_SECONDS = 30.0, 90.0, 3.2
 # 跳ね。足元から HOP_HEIGHT ドット浮いて戻る。
 HOP_SECONDS, HOP_HEIGHT = 0.36, 6
+# 押されたときの顔。この絵があれば、一瞬だけ出して元の姿に戻る（暇でなくても出す）。
+REACT_NAME, REACT_SECONDS = "surprised", 0.9
 # 脳の姿が「暇」のときだけ動く。話している・寝ている・すねているときは動かない。
 IDLE_ACTS = ("idle", "happy")
 
@@ -97,6 +100,7 @@ class Mascot:
         self.step_at = 0.0
         self.step = 0
         self.hops = []                        # 跳ねの始まり（time）の並び
+        self.react_until = 0.0                # 押されて驚いている終わり（time）
         self.fidgets_off = set()              # 脳が「いまは合わない」と言った所作
         self.reloaded_for = set()             # 読み直しても無かった絵の名前（何度も読み直さない）
         now = time.time()
@@ -152,7 +156,9 @@ class Mascot:
         breathing_out = (now % BREATH_SECONDS) < BREATH_SECONDS / 2
         opacity = 255 if self.online else DIM
         name, tag, mirror = self.picture, None, False
-        if self.motion and self.motion[0] == "stroll":
+        if now < self.react_until and REACT_NAME in self.sheet.frames:
+            name = REACT_NAME
+        elif self.motion and self.motion[0] == "stroll":
             name = "walk"
             tags = self.sheet.tags(name)
             tag = tags[self.step % len(tags)] if tags else None
@@ -161,6 +167,9 @@ class Mascot:
         elif self.motion and self.motion[0] == "fidget":
             name = self.motion[1]
         hop = self._hop(now)
+        if self.motion and self.motion[0] == "stroll" and self.step % 2:
+            # 一歩おきに 1 ドット浮く。脚のコマが無い絵でも、横に動くだけよりは歩いて見える
+            hop += STROLL_BOB
         state = (name, tag, mirror, self.blinking, breathing_out, opacity, hop)
         if state == self.last_drawn and not force:
             return
@@ -344,6 +353,10 @@ class Mascot:
         if self.bubble.asking:
             self.bubble.hide()
             return
+        # 触られたら一瞬だけ驚いた顔。動きの途中ならやめる。
+        self.react_until = time.time() + REACT_SECONDS
+        if self.motion:
+            self._stop_motion()
         self.say("", asking=True)
         self.bubble.focus_input()
 
