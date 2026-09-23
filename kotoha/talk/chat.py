@@ -412,7 +412,7 @@ def build_prompt(conn, user_text: str, recent, pinned, related, fast: bool = Fal
         f"現在: {now:%Y-%m-%d %H:%M}（{WEEKDAYS[now.weekday()]}曜日）",
         # 今日が仕事か休みかは、毎日変わる。書き置きにできないので毎回渡す。
         schedule.line(schedule.today(now.date())),
-        f"前回の会話: {elapsed_phrase(db.get_state(conn, 'last_conversation_at'))}",
+        f"前回の会話: {elapsed_phrase(db.get_state(conn, db.LAST_CONVERSATION_AT))}",
         f"今のことは: {situation(now.hour)}",
         f"今の機嫌: {mood}（{MOODS[mood]}）" + (f"。きっかけ: {why}" if why else "")
         + (f"。{mood_note(conn)}" if why and mood_note(conn) else "")
@@ -448,7 +448,7 @@ def build_prompt(conn, user_text: str, recent, pinned, related, fast: bool = Fal
     if not fast:
         lines.append(
             f"覚えていること: {_memory_count(conn)}件"
-            f"（最後に整理したのは{elapsed_phrase(db.get_state(conn, 'last_consolidation_at'))}）"
+            f"（最後に整理したのは{elapsed_phrase(db.get_state(conn, db.LAST_CONSOLIDATION_AT))}）"
         )
         machine = presence.describe(conn)
         if machine:

@@ -16,6 +16,7 @@ import json
 import shutil
 import subprocess
 import sys
+import unicodedata
 from datetime import datetime
 
 from .. import config
@@ -60,8 +61,8 @@ FRIENDLY = {
 
 # この言葉が出たときだけ、機械の中身を調べて渡す。外れたら足せばよい。
 MACHINE_WORDS = (
-    "容量", "空き", "ディスク", "ドライブ", "ストレージ", "メモリ", "cpu", "ＣＰＵ",
-    "gpu", "ＧＰＵ", "vram", "温度", "ファン", "パソコン", "pc", "ＰＣ",
+    "容量", "空き", "ディスク", "ドライブ", "ストレージ", "メモリ", "cpu",
+    "gpu", "vram", "温度", "ファン", "パソコン", "pc",
     "音声エンジン", "aivis", "ollama", "エンジン", "再起動", "入れ直",
     "起こし", "起動", "止め", "落とし", "重い", "遅い",
 )
@@ -86,7 +87,8 @@ def enabled() -> bool:
 
 
 def asked_about_machine(text: str) -> bool:
-    lowered = text.lower()
+    # 全角の「ＰＣ」は lower() では「ｐｃ」にしかならない。先に半角へ寄せる。
+    lowered = unicodedata.normalize("NFKC", text).lower()
     return any(word in lowered for word in MACHINE_WORDS)
 
 

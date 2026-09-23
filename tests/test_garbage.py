@@ -55,6 +55,32 @@ class ScheduleTests(CalendarCase):
         self.assertIsNotNone(garbage.today(date(2026, 12, 21)))
 
 
+class BrokenCalendarTests(unittest.TestCase):
+    """壊れた暦は「知らない」と同じ。起動を止めない。"""
+
+    def broken(self, text):
+        import tempfile
+        from pathlib import Path
+
+        folder = Path(tempfile.mkdtemp())
+        self.addCleanup(setattr, garbage, "CALENDAR_PATH", garbage.CALENDAR_PATH)
+        garbage.CALENDAR_PATH = folder / "garbage.json"
+        garbage.CALENDAR_PATH.write_text(text, encoding="utf-8")
+        return garbage._load()
+
+    def test_a_weekday_that_is_not_a_number(self):
+        self.assertEqual(self.broken('{"weekly": {"mon": "燃やすごみ"}}'), ({}, {}, (), None))
+
+    def test_a_monthly_entry_that_is_not_a_pair(self):
+        self.assertEqual(self.broken('{"monthly": {"4": "燃やさないごみ"}}'), ({}, {}, (), None))
+
+    def test_a_bad_until_date(self):
+        self.assertEqual(self.broken('{"until": "いつまでも"}'), ({}, {}, (), None))
+
+    def test_not_an_object(self):
+        self.assertEqual(self.broken('[1, 2]'), ({}, {}, (), None))
+
+
 class BlockTests(unittest.TestCase):
     def test_nothing_to_say_on_a_day_with_no_collection(self):
         self.assertEqual(garbage.block([]), "")

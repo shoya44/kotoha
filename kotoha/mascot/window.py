@@ -33,7 +33,7 @@ WM_MOUSEMOVE, WM_LBUTTONDOWN, WM_LBUTTONUP = 0x0200, 0x0201, 0x0202
 WM_RBUTTONUP, WM_CLOSE = 0x0205, 0x0010
 MF_STRING, MF_SEPARATOR, MF_GRAYED = 0x0000, 0x0800, 0x0001
 TPM_RIGHTBUTTON, TPM_RETURNCMD = 0x0002, 0x0100
-SWP_NOSIZE, SWP_NOACTIVATE, SWP_NOZORDER = 0x0001, 0x0010, 0x0004
+SWP_NOSIZE, SWP_NOACTIVATE = 0x0001, 0x0010
 HWND_TOPMOST = -1
 SPI_GETWORKAREA = 0x0030
 # 押したまま動かした距離がこれを超えたら、押したのではなく運んだと見なす。
@@ -68,6 +68,7 @@ def _signature(func, restype, *argtypes):
     func.argtypes = list(argtypes)
 
 
+_signature(kernel32.GetModuleHandleW, w.HMODULE, w.LPCWSTR)   # 無いと上位32bitが落ちる
 _signature(user32.DefWindowProcW, LRESULT, w.HWND, w.UINT, w.WPARAM, w.LPARAM)
 _signature(user32.CreateWindowExW, w.HWND, w.DWORD, w.LPCWSTR, w.LPCWSTR, w.DWORD,
            ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int,

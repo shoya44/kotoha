@@ -26,10 +26,13 @@ def _load():
     """勤め先のことを読む。無ければ「知らない」として空で返す。"""
     try:
         raw = json.loads(WORK_PATH.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+        meetings = raw.get("meetings") or ()
+        if isinstance(meetings, str):      # 1件だけを文字列で書いても、1文字ずつにしない
+            meetings = (meetings,)
+        return (str(raw.get("from") or ""), str(raw.get("to") or ""),
+                frozenset(str(m) for m in meetings))
+    except (OSError, ValueError, TypeError, AttributeError):
         return "", "", frozenset()
-    return (raw.get("from") or "", raw.get("to") or "",
-            frozenset(raw.get("meetings") or ()))
 
 
 # 平日の勤務時間と、全体会議（帰社日）。

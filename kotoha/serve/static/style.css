@@ -49,7 +49,6 @@
   --radius-sm: 8px;
   --radius-md: 12px;
   --radius-lg: 14px;
-  --radius-xl: 16px;
   --radius-sheet: 22px;
   --radius-card: 20px;
   --radius-full: 999px;
@@ -81,7 +80,6 @@ body {
 }
 
 body {
-  height: 100%;
   background: var(--bg);
 
   font-family:
@@ -217,7 +215,7 @@ body.away #awaySign { display: flex; }
 
 #awaySign .away-call {
   border: 1px solid var(--separator-weak);
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   padding: 5px 14px;
   color: var(--accent);
   font-size: 12px;
@@ -357,13 +355,13 @@ body.away #awaySign { display: flex; }
   background: var(--ai-bg);
 }
 
-.typing {
+.msg.typing {
   display: flex;
   gap: 5px;
   padding: 14px;
 }
 
-.typing i {
+.msg.typing i {
   width: 7px;
   height: 7px;
   border-radius: 50%;
@@ -371,11 +369,11 @@ body.away #awaySign { display: flex; }
   animation: typing-dot 1.2s infinite ease-in-out;
 }
 
-.typing i:nth-child(2) {
+.msg.typing i:nth-child(2) {
   animation-delay: .2s;
 }
 
-.typing i:nth-child(3) {
+.msg.typing i:nth-child(3) {
   animation-delay: .4s;
 }
 
@@ -677,6 +675,13 @@ body.no-call #call { display: none; }
 button:focus-visible {
   outline: 2px solid var(--ink);
   outline-offset: 2px;
+}
+
+/* 角丸の枠の中いっぱいに置く行は、外側の輪郭が枠に切られる。内側に描く。 */
+.sheet-row:focus-visible,
+.setting-row:focus-visible,
+#awaySign:focus-visible {
+  outline-offset: -2px;
 }
 
 #gate input:focus { border-color: var(--accent); }
@@ -988,7 +993,6 @@ button.setting-row {
   text-align: left;
 }
 
-button.setting-row:last-child { border-bottom: 0; }
 
 .setting-label {
   min-width: 0;
@@ -1031,7 +1035,7 @@ button.setting-row:last-child { border-bottom: 0; }
   background: var(--fill);
   min-height: var(--tap-min);
   border: 1px solid var(--line);
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   color: var(--ink);
   cursor: pointer;
   font: inherit;
@@ -1286,9 +1290,6 @@ button.setting-row:last-child { border-bottom: 0; }
 .reaction-mark { margin-top: 4px; color: var(--muted); font-size: 11px; text-align: right; }
 body.hide-time .msg[data-time]::after { display: none; }
 
-@media (display-mode: standalone) {
-  header { padding-top: calc(6px + env(safe-area-inset-top)); }
-}
 
 .msg-enter {
   animation: msg-in .16s ease-out both;
@@ -1388,7 +1389,8 @@ body.hide-time .msg[data-time]::after { display: none; }
 }
 
 .vessel-field { display: grid; gap: 8px; margin: 16px 0; }
-.vessel-field input, .vessel-field select { width: 100%; min-height: 44px; padding: 10px; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; font: inherit; }
+.vessel-field input, .vessel-field select { width: 100%; min-height: var(--tap-min); padding: 10px; color: var(--ink); background: var(--input-bg); border: 1px solid var(--input-line); border-radius: var(--radius-sm); font: inherit; }
+.vessel-field input:focus, .vessel-field select:focus { border-color: var(--accent); outline: none; }
 .vessel-field input[type="checkbox"] { width: 20px; height: 20px; min-height: auto; appearance: auto; -webkit-appearance: auto; }
 /* 額縁。履歴だけを畳み、入力欄と電話は会話画面のまま残す（額縁から直接話せる）。
    姿が余白を取り、時計・ひとこと・置き手紙はその下にまとまる。 */
@@ -1405,7 +1407,6 @@ body.frame-mode .mini-avatar img { height: 100%; max-height: 52dvh; width: auto;
   max-height: 40dvh;
   overflow: auto;
 }
-#framePanel[hidden] { display: none; }
 #frameClock { font-size: 32px; line-height: 1; font-variant-numeric: tabular-nums; }
 #frameBubble { white-space: pre-wrap; max-width: 38em; margin: 0; min-height: 1.5em; }
 #frameBubble:empty { display: none; }
@@ -1413,7 +1414,6 @@ body.frame-mode .mini-avatar img { height: 100%; max-height: 52dvh; width: auto;
 #frameLetter:empty { display: none; }
 #framePanel .sheet-button { margin-top: 4px; }
 #growthCard { margin: 4px 12px; padding: 10px; border: 1px solid var(--line); border-radius: 10px; max-height: 30dvh; overflow: auto; background: var(--bg); font-size: 13px; }
-#growthCard[hidden] { display: none; }
 #growthText { white-space: pre-wrap; margin: 0 0 8px; }
 #growthActions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
-#frameReturn { width: auto; flex: none; font-size: 13px; padding: 8px 12px; min-height: 44px; }
+#frameReturn { width: auto; flex: none; font-size: 13px; padding: 8px 12px; min-height: var(--tap-min); }

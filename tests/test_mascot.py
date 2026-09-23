@@ -88,8 +88,6 @@ class SheetTests(unittest.TestCase):
         self.assertIn(self.sheet.any_name(), self.sheet.frames)
 
 
-if __name__ == "__main__":
-    unittest.main()
 
 
 class CatchUpTests(unittest.TestCase):
@@ -137,3 +135,7 @@ class CatchUpTests(unittest.TestCase):
             self.catch_up("dishes")
         self.assertIs(self.me.sheet, before)
         self.assertNotIn("dishes", self.me.reloaded_for)
+
+
+if __name__ == "__main__":
+    unittest.main()

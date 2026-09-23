@@ -69,7 +69,7 @@ const LONG_PRESS_MS = 520;
 let token = localStorage.getItem("kotoha_token") || "";
 let longPressTimer = null;
 // 画面がすでに並べた最後のメッセージ。ここから後ろだけを取りに行く。
-let lastMessageId = 0;
+let lastMessageId = null;   // 履歴を読むまでは null。空の履歴は 0
 let catchUpTimer = null;
 // 送信の往復のあいだは見に行かない。返事より先に自分の発言を拾うと二重に並ぶ。
 let talking = false;
@@ -101,16 +101,19 @@ function setNote(element, text, bad = false) {
 function armOnce(button, label, confirmLabel, run) {
   let armed = false;
   let timer = null;
+  // もとから赤い（danger）ボタンは、戻すときも赤のまま。文字は中の span に書く。
+  const dangerous = button.classList.contains("danger");
+  const face = button.querySelector("span") || button;
   const reset = () => {
     armed = false;
     clearTimeout(timer);
-    button.textContent = label;
-    button.classList.remove("danger");
+    face.textContent = label;
+    button.classList.toggle("danger", dangerous);
   };
   button.addEventListener("click", () => {
     if (!armed) {
       armed = true;
-      button.textContent = confirmLabel;
+      face.textContent = confirmLabel;
       button.classList.add("danger");
       timer = setTimeout(reset, 5000);
       return;
@@ -166,6 +169,7 @@ function selectPrompt(name) {
 }
 
 async function savePrompt() {
+  if (!promptName) return;
   const text = elements.promptText.value;
   elements.promptSave.disabled = true;
   try {
@@ -190,6 +194,7 @@ async function savePrompt() {
 }
 
 async function revertPrompt() {
+  if (!promptName) return;
   try {
     const response = await api(`/api/prompts/${promptName}/revert`, { method: "POST" });
     const data = await response.json().catch(() => ({}));
@@ -347,6 +352,8 @@ async function answerTheCall() {
   const params = new URLSearchParams(location.search);
   const called = params.has("call");
   if (!called && !params.has("remind") && !params.has("snooze")) return;
+  // 読み込み直すたびに通話が始まっては困る。押した跡はURLから消す。
+  if (called) history.replaceState(null, "", location.pathname);
   await callHer();
   if (called) startCall();
 }
@@ -503,13 +510,16 @@ const MEMORY_KIND_LABEL = { event: "できごと", fact: "事実", preference: "
 let memoryKind = "semantic";
 let openMemory = null;
 
+let memoryRequest = 0;
 async function loadMemories(kind = memoryKind) {
   memoryKind = kind;
   for (const tab of elements.memoryTabs.children) {
     tab.setAttribute("aria-selected", tab.dataset.kind === kind ? "true" : "false");
   }
+  // 速く切り替えると、前のタブの返事があとから届く。最後に頼んだぶんだけ出す。
+  const mine = ++memoryRequest;
   const data = await fetchPanel(elements.memoryNote, `/api/memories?kind=${kind}`);
-  if (!data) return;
+  if (!data || mine !== memoryRequest) return;
   const items = data.memories;
   elements.memoryList.replaceChildren(...items.map(item => {
     const row = document.createElement("button");
@@ -873,11 +883,13 @@ function createMessageBubble(role, text, iso) {
 
 function addMessage(role, text, iso) {
   const shouldFollow = isNearBottom();
+  // 履歴から来たものは書かれた時刻、いま届いたものはいまの時刻。false は時刻なし。
+  if (iso === undefined) iso = new Date().toISOString();
 
-if (iso !== false) {
-  const date = parseMessageDate(iso);
-  addDateSeparator(date);
-}
+  if (iso !== false) {
+    const date = parseMessageDate(iso);
+    addDateSeparator(date);
+  }
 
   let element;
   let bubble;
@@ -1332,7 +1344,11 @@ function sayGoodbye() {
 // 「こっちに呼ぶ」。話しかければ来るので、押すのは用が無いときだけ。
 async function callHer() {
   try {
-    await api("/api/presence/here", { method: "POST", body: { vessel: VESSEL } });
+    const response = await api("/api/presence/here", { method: "POST", body: { vessel: VESSEL } });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      setStatus(error.detail || "いま呼べない", "offline");
+    }
   } catch {
     setStatus("接続できない", "offline");
   }
@@ -1349,7 +1365,7 @@ function scheduleBlink() {
     try {
       await readyPicture(closed);
       image.src = closed;
-      setTimeout(() => {
+      blinkTimer = setTimeout(() => {
         image.src = open;
         scheduleBlink();
       }, 130);
@@ -1395,6 +1411,8 @@ function audioReady() {
 }
 
 function clampVolume(saved) {
+  // 未設定（null や ""）は 100。Number(null) は 0 なので、先に弾く。
+  if (saved === null || saved === undefined || saved === "") return 100;
   const value = Number(saved);
   return Number.isFinite(value) ? Math.min(100, Math.max(0, value)) : 100;
 }
@@ -1612,7 +1630,7 @@ async function loadHistory() {
 // 知らないので、**自分が持っている最後のぶんより後ろだけ**を取りに行く。
 // 全部を読み直すと、そのたびに画面を組み直すことになる。
 async function catchUp() {
-  if (!token || !lastMessageId || document.hidden || talking) return;
+  if (!token || lastMessageId === null || document.hidden || talking) return;
   try {
     const response = await api(`/api/history?after=${lastMessageId}`);
     if (!response.ok) return;
@@ -2172,6 +2190,7 @@ elements.toggleVoice.addEventListener("click", () => {
 });
 
 elements.changeToken.addEventListener("click", () => {
+  disconnectPresence();   // 古い合言葉のまま繋がり続けないように
   localStorage.removeItem("kotoha_token");
   token = "";
   closeSettings();
@@ -2281,11 +2300,6 @@ function syncVisualViewport() {
 }
 
 syncVisualViewport();
-elements.awaySign.addEventListener("click", callHer);
-
-document.addEventListener("visibilitychange", () => {
-  if (!document.hidden) catchUp();
-});
 
 window.visualViewport?.addEventListener("resize", syncVisualViewport);
 window.visualViewport?.addEventListener("scroll", syncVisualViewport);
@@ -2294,7 +2308,7 @@ window.visualViewport?.addEventListener("scroll", syncVisualViewport);
 let vesselProfile = null;
 async function livingApi(path, options) {
   const response = await api(path, options);
-  const data = await response.json();
+  const data = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(data.detail || "保存できませんでした");
   return data;
 }
@@ -2377,7 +2391,10 @@ $("frameChat").addEventListener("click", () => {
   scrollToBottom();
 });
 $("frameReturn").addEventListener("click", () => { framePaused = false; elements.input.blur(); renderFrame(); });
-setInterval(renderFrame, 60000);
+// 分の頭に合わせて描き直す。60秒ごとだと、時計が最大1分近く遅れて見える。
+(function tickFrame() {
+  setTimeout(() => { renderFrame(); tickFrame(); }, 60000 - (Date.now() % 60000));
+})();
 
 function renderGrowth(proposal) {
   $("growthCard").hidden = !proposal;
@@ -2423,6 +2440,7 @@ document.addEventListener("visibilitychange", () => {
     disconnectPresence();
   } else {
     connectPresence();
+    catchUp();
   }
 });
 window.addEventListener("pagehide", sayGoodbye);

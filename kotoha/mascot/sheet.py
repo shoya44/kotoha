@@ -69,19 +69,6 @@ class Frame:
         seam = int(height * SEAM)
         for y in range(1, height):
             source = y - 1 if y < seam else y
-            bgra[y * width * 4:(y + 1) * width * 4] =                 self.bgra[source * width * 4:(source + 1) * width * 4]
-            alpha[y * width:(y + 1) * width] =                 self.alpha[source * width:(source + 1) * width]
-        self._squashed = Frame.__new__(Frame)
-        self._squashed.width, self._squashed.height = width, height
-        self._squashed.bgra, self._squashed.alpha = bgra, alpha
-        self._squashed._squashed = self._squashed
-        return self._squashed
-        width, height = self.width, self.height
-        bgra = bytearray(width * height * 4)
-        alpha = bytearray(width * height)
-        # 上の1行は空けて、残りへ元の絵を詰める（下端が揃う）。
-        for y in range(1, height):
-            source = min(height - 1, round((y - 1) * height / (height - 1)))
             bgra[y * width * 4:(y + 1) * width * 4] = \
                 self.bgra[source * width * 4:(source + 1) * width * 4]
             alpha[y * width:(y + 1) * width] = \
@@ -134,7 +121,7 @@ class Sheet:
         self.size = (0, 0)
 
     def load(self) -> "Sheet":
-        manifest = json.loads((self.folder / "sprites.json").read_text(encoding="utf-8"))
+        manifest = json.loads((self.folder / MANIFEST.name).read_text(encoding="utf-8"))
         width, height = manifest["sizes"][SIZE]
         self.size = (width, height)
         for name, info in manifest["sprites"].items():

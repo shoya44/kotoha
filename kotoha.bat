@@ -56,15 +56,15 @@ exit /b 0
 title Kotoha (console)
 :loop
 "%PY%" -m kotoha.launcher
-rem 42 is the restart request from the app. errorlevel is a "greater or equal"
-rem test, so the highest code has to be checked first.
-if errorlevel 42 (
+rem 42 is the restart request from the app. Compare the exact value: "if errorlevel"
+rem is a "greater or equal" test, and a crash code (0xC0000005) is negative in cmd.
+if "%errorlevel%"=="42" (
     echo.
     echo Restarting Kotoha...
     echo.
     goto :loop
 )
-if errorlevel 1 goto :failed
+if not "%errorlevel%"=="0" goto :failed
 exit /b 0
 
 :failed

@@ -17,7 +17,7 @@ import time
 
 from .. import config
 
-LOG_PATH = config.BASE_DIR / "data" / "actions.log"
+LOG_PATH = config.DB_PATH.parent / "actions.log"
 # 応答を返しきってから落ちる。web.py の再起動と同じ間の取り方。
 RESTART_DELAY = 0.4
 
@@ -125,9 +125,13 @@ def _start_ollama():
     return "Ollama: 起こした"
 
 
-def _restart_self():
-    # 返答を届けきってから落ちる。kotoha.bat かトレイ常駐が上げ直す。
+def restart_later() -> None:
+    """返答を届けきってから落ちる。kotoha.bat かトレイ常駐が上げ直す。"""
     threading.Timer(RESTART_DELAY, lambda: os._exit(config.RESTART_EXIT_CODE)).start()
+
+
+def _restart_self():
+    restart_later()
     return "ことは: 入れ直す"
 
 

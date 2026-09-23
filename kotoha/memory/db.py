@@ -503,11 +503,15 @@ def set_pending_ids(conn, ids: list) -> None:
 
 def backup(dest_path) -> None:
     src = connect()
-    dst = sqlite3.connect(dest_path)
-    with dst:
-        src.backup(dst)
-    dst.close()
-    src.close()
+    try:
+        dst = sqlite3.connect(dest_path)
+        try:
+            with dst:
+                src.backup(dst)
+        finally:
+            dst.close()   # 失敗しても閉じる。開いたままだと書きかけの控えが掴まれたままになる
+    finally:
+        src.close()
 
 
 def backup_dir():

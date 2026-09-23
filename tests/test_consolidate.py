@@ -230,6 +230,21 @@ class GiveUpTests(DbCase):
         consolidate.run(self.conn)
         self.assertEqual(self.fails(), 0)
 
+    def test_json_with_the_wrong_shapes_is_a_failure_too(self):
+        """形は JSON でも中身が約束と違う（本文が数値、タグが null）。
+
+        これが素通りすると、失敗に数えられず、同じ会話を毎分投げ直し続ける。
+        """
+        self.answer('{"new_nodes": [{"layer": "semantic", "kind": "fact", "text": 12, '
+                    '"source_message_ids": null, "tags": null}], "updates": null}')
+        with self.assertRaises(consolidate.llm.LLMError):
+            consolidate.run(self.conn)
+        self.answer('[1, 2, 3]')                   # オブジェクトでない
+        with self.assertRaises(consolidate.llm.LLMError):
+            consolidate.run(self.conn)
+        self.assertEqual(self.fails(), 2)
+        self.assertEqual(self.position(), 0)      # 数えただけ。まだ置いていかない
+
     def test_nothing_to_process_is_not_a_failure(self):
         """整理するものが無いときは、失敗の数を触らない。"""
         db.set_state(self.conn, db.LAST_PROCESSED_MESSAGE_ID, 999)
@@ -238,8 +253,6 @@ class GiveUpTests(DbCase):
         self.assertEqual(self.fails(), 0)
 
 
-if __name__ == "__main__":
-    unittest.main()
 
 
 class HonestMemoryTests(DbCase):
@@ -280,3 +293,7 @@ class HonestMemoryTests(DbCase):
         rules = chat._read("consolidation_system.txt")
         self.assertIn("人名", rules)
         self.assertIn("ことはが主語の出来事", rules)
+
+
+if __name__ == "__main__":
+    unittest.main()

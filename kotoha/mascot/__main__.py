@@ -28,7 +28,7 @@ from .client import Brain
 from .window import Dot, kernel32, user32
 
 PLACE_PATH = config.BASE_DIR / "data" / "mascot.json"
-LOG_PATH = config.BASE_DIR / "data" / "mascot.log"
+LOG_PATH = config.DB_PATH.parent / "mascot.log"
 
 TICK_MS = 40
 # 呼吸。この周期で、1ドットぶん縮んでは戻る（足元は動かない）。
@@ -324,6 +324,9 @@ class Mascot:
                 self.online = True
             elif kind == "offline":
                 self.online = False
+            elif kind == "refused":
+                # 合言葉違いなど。繋ぎ直しても通らないので、理由を残しておく。
+                log(f"脳に断られた（{event.get('status')}）。合言葉（KOTOHA_WEB_TOKEN）を確かめて")
             elif kind == "reply":
                 self.busy = False
                 self.say(event.get("text") or "うまく言えなかった")
