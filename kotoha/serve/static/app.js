@@ -1627,6 +1627,7 @@ async function send() {
     if (data.last_id) lastMessageId = data.last_id;
     // 文ごとの吹き出しに分けて出す。声は分けずに、最初の吹き出しと同時に始める。
     const shown = showReply(data.reply);
+    showInFrame(data.reply);
     reactAvatar();
     elements.mode.textContent = data.mode || "";
     setStatus(calling ? "通話中" : "いるよ", calling ? "calling" : "online");
@@ -1726,6 +1727,7 @@ async function sendStream(text, onFirst) {
     }
     if (done.last_id) lastMessageId = done.last_id;
     addMessage("assistant", done.reply);
+    showInFrame(done.reply);
     (done.kept || []).forEach(showKept);
     (done.dropped || []).forEach(showDropped);
     reactAvatar();
@@ -2273,15 +2275,22 @@ document.addEventListener("pointerdown", () => reportActivity(true), { passive: 
 document.addEventListener("keydown", () => reportActivity(true));
 setInterval(() => { reportActivity(false); if (!document.hidden) loadLiving(); }, 30000);
 
+// 額縁。履歴を畳んで姿を大きく出す。**入力欄と電話はそのまま**なので、額縁の
+// まま話しかけられる。返事は履歴（畳んである）と、姿の下のひとことの両方に出す。
 let framePaused = false;
 let quietNow = false;
+function frameShowing() {
+  return document.body.classList.contains("frame-mode");
+}
 function renderFrame() {
   const framed = Boolean(vesselProfile?.frame && !framePaused);
   document.body.classList.toggle("frame-mode", framed);
   $("framePanel").hidden = !framed;
   $("frameReturn").hidden = !(vesselProfile?.frame && framePaused);
   $("frameClock").textContent = new Date().toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" });
-  $("frameChat").textContent = framePaused ? "額縁に戻る" : "話しかける";
+}
+function showInFrame(text) {
+  if (frameShowing() && text) $("frameBubble").textContent = text;
 }
 async function loadLiving() {
   if (!token || document.hidden) return;
@@ -2302,10 +2311,11 @@ $("quietToggle").addEventListener("click", async () => {
     await loadLiving();
   } catch (error) { setStatus(error.message, "offline"); }
 });
+// 「履歴を見る」で会話画面に、見出しの「額縁に戻る」で額縁に。
 $("frameChat").addEventListener("click", () => {
-  framePaused = !framePaused;
+  framePaused = true;
   renderFrame();
-  if (framePaused) { callHer(); elements.input.focus(); }
+  scrollToBottom();
 });
 $("frameReturn").addEventListener("click", () => { framePaused = false; elements.input.blur(); renderFrame(); });
 setInterval(renderFrame, 60000);
