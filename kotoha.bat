@@ -118,5 +118,8 @@ echo   kotoha.bat memory        show what she remembers
 echo   kotoha.bat remind        show what she was asked to hold
 echo   kotoha.bat note "..."    let her remember something about herself
 echo   kotoha.bat backup        take a copy of the memories
+echo   kotoha.bat tailscale     start Tailscale and show how it is doing
+echo   kotoha.bat consolidate   turn the unprocessed talk into memories now
+echo   kotoha.bat test-llm      check that the Gemini key works
 echo.
 exit /b 0

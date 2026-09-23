@@ -80,8 +80,8 @@ Gemini の鍵は [Google AI Studio](https://aistudio.google.com/) で取れま�
 ## 画面
 
 ```
-合言葉 → 会話画面 ──歯車→ 設定シート（1段だけ潜る）
-                          記憶 / 頼まれごと / 日記と習慣 / プロンプト / PCの様子 / 設定
+合言葉 → 会話画面 ──顔（名前の見出し）をタップ→ 設定シート（1段だけ潜る）
+                          器の役割 / 静かな同席 / ことばを直す / 記憶 / 頼まれごと / 日記と習慣 / PCの様子 / 設定
 ```
 
 - 送信欄の右が**電話ボタン**。押すと通話に入ります
@@ -99,7 +99,7 @@ Gemini の鍵は [Google AI Studio](https://aistudio.google.com/) で取れま�
 
 ## 設定
 
-会話画面の歯車、`kotoha.bat settings`、`.env` の直接編集。どれも同じところを書きます。画面から変えたぶんは**すぐ効きます**。
+会話画面の設定シート（顔をタップ）、`kotoha.bat settings`、`.env` の直接編集。どれも同じところを書きます。画面から変えたぶんは**すぐ効きます**。
 
 とくに見ておきたいもの:
 
@@ -128,11 +128,13 @@ kotoha/
   mascot/       デスクトップの姿（ctypes と自前のPNGデコーダ）
   tray.py       タスクトレイ常駐
   launcher.py   起動と配信
+  cli.py        kotoha.bat の後ろにある命令（status / memory / note / backup …）
+scripts/        kotoha.bat から呼ばれる長い中身（setup / menu / rescue）と、窓を出さない入口（tray.pyw / mascot.pyw）
 prompts/        固定ルール・人格のひな形・整理／日記／夜の整理／習慣の指示
-data/           DB・控え・自分ぶんのファイル（Git管理外）
+data/           DB・控え・ログ・自分ぶんのファイル（Git管理外）
 docs/           資料
-tests/          テスト（840件ほど・20秒ほど）
-tools/          手元の検査（check）と、テストの時間計測
+tests/          テスト（930件ほど・20秒ほど。2026-09-23 に tools.time_tests で計測）
+tools/          手元の検査（check）、テストの時間計測、立ち絵の焼き込み（build_sprites）と生成（sprite_gen）
 ```
 
 ## 資料
@@ -144,6 +146,7 @@ tools/          手元の検査（check）と、テストの時間計測
 - [処理フロー](docs/03_処理フロー.md) ── LLMの使いどころ・発言生成・記憶処理・裏の巡回・手続き
 - [フロントエンド](docs/04_フロントエンド.md) / [バックエンド](docs/05_バックエンド.md) / [データベース](docs/06_データベース.md)
 - [運用と設定](docs/07_運用と設定.md)
+- [立ち絵の作り方](docs/08_立ち絵の作り方.md) / [動き](docs/11_動き.md) / [姿の決まり方](docs/12_姿の決まり方.md)
 - [解剖図](docs/09_解剖図.md) ── 人間の機能・部位との対応
 - [気になる点と見直し手順](docs/10_気になる点と見直し手順.md)
 - [history/](docs/history/) ── 検討と見送り、事故の記録、済んだ計画（現行仕様ではありません）
@@ -154,7 +157,7 @@ tools/          手元の検査（check）と、テストの時間計測
 python -m tools.check
 ```
 
-CI と同じ2つ（pyflakes → テスト）を順に回します。外への通信は塞いであるので、本物のGeminiも通知も呼びません。push と pull request のたびに GitHub Actions でも同じものが走ります。
+CI と同じ2つ（pyflakes → テスト）を順に回します。外への通信は塞いであるので、本物のGeminiも通知も呼びません。pull request と、main への push のたびに GitHub Actions でも同じものが走ります。
 
 ## 素材
 

@@ -230,13 +230,25 @@ class Dot:
         user32.SetWindowPos(self.hwnd, HWND_TOPMOST, self.x, self.y - pixels, 0, 0,
                             SWP_NOSIZE | SWP_NOACTIVATE)
 
-    def walk(self, dx: int) -> bool:
-        """横に dx ドット歩く。画面の外に出るなら動かず False。"""
+    def room(self):
+        """いまの画面で、左と右にあと何ドット歩けるか。"""
         left, _, right, _ = work_area_at(self.x + self.width // 2, self.y + self.height // 2)
-        x = self.x + dx
+        return self.x - left, right - (self.x + self.width)
+
+    def walk_to(self, x: int) -> bool:
+        """横に x まで歩く。画面の外に出るなら動かず False。
+
+        浮いているぶん（lift）はそのまま。place() のように浮きを戻すと、
+        一歩ごとに沈んでから浮き直して見える。
+        """
+        left, _, right, _ = work_area_at(self.x + self.width // 2, self.y + self.height // 2)
         if x < left or x + self.width > right:
             return False
-        self.place(x, self.y)
+        if x == self.x:
+            return True
+        self.x = int(x)
+        user32.SetWindowPos(self.hwnd, HWND_TOPMOST, self.x, self.y - getattr(self, "_lifted", 0),
+                            0, 0, SWP_NOSIZE | SWP_NOACTIVATE)
         return True
 
     def dragging(self) -> bool:
