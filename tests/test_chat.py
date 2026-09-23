@@ -79,6 +79,21 @@ class TimeBlockTests(DbCase):
         current = self.time_lines()[0]
         self.assertIn(chat.WEEKDAYS[datetime.now().weekday()] + "曜日", current)
 
+    def test_the_sky_is_in_the_situation_when_known(self):
+        """朝に取った空模様は、昼の会話にも1行で渡る。持ち主と同じ空の下に居るぶん。"""
+        from kotoha.talk import weather
+        weather.remember(self.conn, {"word": "雨", "high": 21.0, "umbrella": True},
+                         datetime.now().strftime("%Y-%m-%d"))
+        prompt = chat.build_prompt(self.conn, "やっほー", [], [], [])
+        self.assertIn("外の様子: 雨、最高21℃、傘はいる", prompt)
+
+    def test_yesterdays_sky_is_not_passed(self):
+        from kotoha.talk import weather
+        weather.remember(self.conn, {"word": "雨", "high": 21.0, "umbrella": True},
+                         (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d"))
+        prompt = chat.build_prompt(self.conn, "やっほー", [], [], [])
+        self.assertNotIn("外の様子", prompt)
+
     def test_first_conversation_then_just_now(self):
         self.assertIn("初めての会話", self.time_lines()[1])
         db.set_state(self.conn, "last_conversation_at", db.now_utc())

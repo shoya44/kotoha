@@ -282,6 +282,24 @@ def maybe_reminders(conn) -> None:
             conn.commit()
 
 
+# 日記が書けなかったときの間と回数。**一度の失敗でその日を捨てない。**
+# 503が一度来ただけで、夜の整理・翌朝の一言・会話に添える日記が丸一日欠けた
+# （2026-09-22）。1時間おきに3回まで。それでも駄目ならその日は諦める
+# （毎分試して枠を食い潰さないため）。翌日にはさかのぼって拾う。
+DIARY_RETRY_SECONDS = 3600
+DIARY_TRIES = 3
+
+
+def _diary_failed(conn, today: str) -> int:
+    """しくじりを1つ数えて、今日で何度目かを返す。日付が変われば数え直す。"""
+    day, _, count = (db.get_state(conn, db.DIARY_FAILS) or "").partition(":")
+    tries = (int(count) if day == today and count.isdigit() else 0) + 1
+    db.set_state(conn, db.DIARY_FAILS, f"{today}:{tries}")
+    db.set_state(conn, db.DIARY_FAILED_AT, db.now_utc())
+    conn.commit()
+    return tries
+
+
 def maybe_diary(conn) -> None:
     """日付が変わったら、前の日の日記を1件。寝ていた日は起きてから順に。
 
@@ -296,6 +314,8 @@ def maybe_diary(conn) -> None:
     today = now.strftime("%Y-%m-%d")
     if db.done_today(conn, db.LAST_DIARY_ON, today):
         return
+    if not db.overdue(conn, db.DIARY_FAILED_AT, DIARY_RETRY_SECONDS):
+        return                                          # しくじった直後。間を空ける
     days = diary.missing_days(conn, now.date())
     if not days:
         db.mark_today(conn, db.LAST_DIARY_ON, today)
@@ -303,8 +323,13 @@ def maybe_diary(conn) -> None:
     try:
         diary.write(conn, days[0])
     except Exception as error:
-        db.mark_today(conn, db.LAST_DIARY_ON, today)   # 今日はもう試さない
-        notify.log(f"日記が書けなかった（{days[0]}）: {error!r}")
+        tries = _diary_failed(conn, today)
+        if tries >= DIARY_TRIES:
+            db.mark_today(conn, db.LAST_DIARY_ON, today)   # 今日はもう試さない
+            notify.log(f"日記が書けなかった（{days[0]}）: {error!r}。{tries}回目なので今日は諦める")
+        else:
+            notify.log(f"日記が書けなかった（{days[0]}）: {error!r}。"
+                       f"{DIARY_RETRY_SECONDS // 60}分後にもう一度")
         return
     if len(days) == 1:
         db.mark_today(conn, db.LAST_DIARY_ON, today)
@@ -362,6 +387,7 @@ def maybe_briefing(conn, outside=None) -> None:
     # keep=False: その日の天気やゴミを長期記憶に溜めない。画面には残る。
     # 外の2つは、ロックの外で取ってあれば使う（briefing_outside）。無ければここで取る。
     sky, shake = outside if outside else (weather.today(), quake.night())
+    weather.remember(conn, sky, today)   # 昼になっても、外がどうかは知っている
     extra = "\n".join(part for part in (
         weather.block(sky),
         garbage.block(garbage.today()),

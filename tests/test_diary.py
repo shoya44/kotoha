@@ -4,7 +4,7 @@ import unittest
 from datetime import date, datetime, timedelta, timezone
 
 from kotoha import config
-from tests.support import DbCase, use_temp_db
+from tests.support import Clock, DbCase, use_temp_db
 
 _TMP = use_temp_db("diary")
 
@@ -158,15 +158,47 @@ class NightlyJobTests(DbCase):
         jobs.maybe_diary(self.conn)
         self.assertEqual([r["day"] for r in diary.recent(self.conn)], ["2026-09-21"])
 
-    def test_a_failure_is_logged_and_not_retried_today(self):
+    def test_a_failure_is_logged_and_not_retried_right_away(self):
         _say(self.conn, 1, "user", "やあ", datetime(2026, 9, 21, 9, 0))
         self.conn.commit()
         self.pen.text = ""
         self.at(datetime(2026, 9, 22, 0, 5))
-        jobs.maybe_diary(self.conn)
-        jobs.maybe_diary(self.conn)
+        with Clock(datetime(2026, 9, 22, 0, 5)):
+            jobs.maybe_diary(self.conn)
+            jobs.maybe_diary(self.conn)
         self.assertEqual(len(self.pen.prompts), 1)
         self.assertTrue(any("日記が書けなかった" in line for line in self.logged))
+
+    def test_a_failure_is_retried_after_an_hour(self):
+        """503が一度来ただけで、その日の日記も夜の整理も丸一日欠けていた。"""
+        _say(self.conn, 1, "user", "やあ", datetime(2026, 9, 21, 9, 0))
+        self.conn.commit()
+        self.pen.text = ""
+        self.at(datetime(2026, 9, 22, 0, 5))
+        with Clock(datetime(2026, 9, 22, 0, 5)) as clock:
+            jobs.maybe_diary(self.conn)
+            clock.advance(minutes=30)
+            jobs.maybe_diary(self.conn)                 # まだ間を空けている
+            self.assertEqual(len(self.pen.prompts), 1)
+            clock.advance(minutes=31)
+            self.pen.text = "書けた。"
+            jobs.maybe_diary(self.conn)
+        self.assertEqual(len(self.pen.prompts), 2)
+        self.assertEqual(diary.entry(self.conn, date(2026, 9, 21))["text"], "書けた。")
+
+    def test_it_gives_up_for_the_day_after_a_few_tries(self):
+        """際限なく試して枠を食い潰さない。翌日にはさかのぼって拾う。"""
+        _say(self.conn, 1, "user", "やあ", datetime(2026, 9, 21, 9, 0))
+        self.conn.commit()
+        self.pen.text = ""
+        self.at(datetime(2026, 9, 22, 0, 5))
+        with Clock(datetime(2026, 9, 22, 0, 5)) as clock:
+            for _ in range(jobs.DIARY_TRIES + 2):
+                jobs.maybe_diary(self.conn)
+                clock.advance(hours=1, minutes=1)
+        self.assertEqual(len(self.pen.prompts), jobs.DIARY_TRIES)
+        self.assertTrue(any("今日は諦める" in line for line in self.logged))
+        self.assertEqual(db.get_state(self.conn, db.LAST_DIARY_ON), "2026-09-22")
 
     def test_off_means_off(self):
         config.DIARY_ENABLED = False
