@@ -92,6 +92,59 @@ class SituationTests(unittest.TestCase):
                     self.assertEqual(figure.sprite(now), pictures[said])
 
 
+class FaceTests(unittest.TestCase):
+    def test_the_face_replaces_talk(self):
+        self.assertEqual(figure.look(12, face="笑う", said_ago=0), ("laugh", "talk"))
+
+    def test_no_face_is_plain_talk(self):
+        self.assertEqual(figure.look(12, face="", said_ago=0), ("talk", "talk"))
+        self.assertEqual(figure.look(12, face="知らない顔", said_ago=0), ("talk", "talk"))
+
+    def test_the_face_only_counts_while_talking(self):
+        """顔は一瞬のもの。話し終わったら、機嫌と時間帯の姿に戻る。"""
+        picture, act = figure.look(12, datetime(2026, 9, 19, 12), face="笑う")
+        self.assertEqual(act, "idle")
+        self.assertNotEqual(picture, "laugh")
+
+    def test_the_face_labels_match_the_prompt_rules(self):
+        """FACES と fixed_rules.txt のラベル一覧がずれると、顔が出ない。"""
+        rules = (config.PROMPTS_DIR / "fixed_rules.txt").read_text(encoding="utf-8")
+        line = next(l for l in rules.splitlines() if l.startswith("- [FACE:"))
+        for label in figure.FACES:
+            with self.subTest(label=label):
+                self.assertIn(label, line)
+
+
+class FidgetFitTests(unittest.TestCase):
+    def test_off_by_hour(self):
+        self.assertIn("fidget_stretch", figure.fidgets_off(datetime(2026, 9, 19, 22), "ふつう"))
+        self.assertNotIn("fidget_stretch", figure.fidgets_off(datetime(2026, 9, 19, 8), "ふつう"))
+
+    def test_off_by_season(self):
+        self.assertIn("fidget_cold", figure.fidgets_off(datetime(2026, 8, 1, 12), "ふつう"))
+        self.assertNotIn("fidget_cold", figure.fidgets_off(datetime(2026, 1, 10, 12), "ふつう"))
+        self.assertIn("fidget_fan", figure.fidgets_off(datetime(2026, 1, 10, 12), "ふつう"))
+
+    def test_off_by_mood(self):
+        self.assertIn("fidget_spin", figure.fidgets_off(datetime(2026, 9, 19, 12), "疲れ気味"))
+        self.assertNotIn("fidget_spin", figure.fidgets_off(datetime(2026, 9, 19, 12), "機嫌がいい"))
+
+    def test_unlisted_fidgets_are_never_off(self):
+        for hour in range(24):
+            off = figure.fidgets_off(datetime(2026, 9, 19, hour), "疲れ気味")
+            with self.subTest(hour=hour):
+                self.assertTrue(set(off) <= set(figure.FIDGET_FIT))
+
+    def test_the_moods_are_real_labels(self):
+        for name, fit in figure.FIDGET_FIT.items():
+            for mood in fit.get("moods", ()):
+                with self.subTest(fidget=name):
+                    self.assertIn(mood, chat.MOODS)
+            for when in fit.get("when", ()):
+                with self.subTest(fidget=name):
+                    self.assertIn(when, figure.GROUPS)
+
+
 class ActTests(unittest.TestCase):
     def setUp(self):
         self.addCleanup(setattr, config, "LOOKOUT_SIT_HOURS", config.LOOKOUT_SIT_HOURS)

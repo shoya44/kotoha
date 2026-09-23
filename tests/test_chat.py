@@ -306,6 +306,22 @@ class MoodTests(DbCase):
         line = next(l for l in prompt.split("\n") if l.startswith("今の機嫌:"))
         self.assertNotIn("きっかけ", line)
 
+    def test_the_face_is_read_and_kept_briefly(self):
+        clean, face = chat.parse_face("あはは [FACE: 笑う]")
+        self.assertEqual((clean, face), ("あはは", "笑う"))
+        self.assertEqual(chat.parse_face("ふーん [FACE: にやり]")[1], None)
+        turn_id = db.start_turn(self.conn, "user", "ねえ")
+        chat._finish(self.conn, turn_id, "あはは", [], "slow", face="笑う")
+        self.assertEqual(chat.current_face(self.conn), "笑う")
+        db.set_state(self.conn, db.FACE_AT, ago(seconds=figure.TALK_SECONDS))
+        self.assertEqual(chat.current_face(self.conn), "")
+
+    def test_a_reply_without_a_face_clears_the_last_one(self):
+        """前の返事の顔を引きずらない。"""
+        chat.remember(self.conn, "あはは", face="笑う")
+        chat.remember(self.conn, "で、なに？")
+        self.assertEqual(chat.current_face(self.conn), "")
+
     def test_reason_is_stored_with_the_mood(self):
         turn_id = db.start_turn(self.conn, "user", "ただいま")
         chat._finish(self.conn, turn_id, "おかえりー", [], "slow", "機嫌がいい", (), "帰ってきた")

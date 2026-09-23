@@ -212,11 +212,14 @@ def say(text: str) -> bool:
     return _to_body({"type": "say", "text": text})
 
 
-def show(picture: str, act: str) -> bool:
-    """絵を切り替えさせる。**覚えておいて、移った先にも同じものを渡す。**"""
+def show(picture: str, act: str, fidgets_off=()) -> bool:
+    """絵を切り替えさせる。**覚えておいて、移った先にも同じものを渡す。**
+
+    fidgets_off は、いまは合わない所作（figure.fidgets_off）。器はそれを除いて選ぶ。
+    """
     global _look
     with _lock:
-        _look = {"type": "act", "picture": picture, "act": act}
+        _look = {"type": "act", "picture": picture, "act": act, "fidgets_off": list(fidgets_off)}
     return _to_body(dict(_look))
 
 
@@ -231,13 +234,15 @@ def refresh(conn=None, said_ago: float = None) -> bool:
             return refresh(fresh, said_ago)
     now = clock.now()
     found = presence.streak(conn)
+    mood = chat.current_mood(conn, now.hour)
     picture, act = figure.look(
         now.hour, now,
-        mood=chat.current_mood(conn, now.hour),
+        face=chat.current_face(conn),
+        mood=mood,
         said_ago=said_ago,
         streak_hours=found[1] if found else None,
     )
-    return show(picture, act)
+    return show(picture, act, figure.fidgets_off(now, mood))
 
 
 def start_call(name: str):

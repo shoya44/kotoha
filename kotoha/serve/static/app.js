@@ -1121,6 +1121,8 @@ let fidgets = [];
 let fidgetTimer = null;
 // 脳が出せと言っている絵。所作から戻る先。
 let brainPicture = "";
+// 脳が「いまは合わない」と言った所作（時間帯・季節・機嫌）。
+let fidgetsOff = new Set();
 
 async function loadSpriteList() {
   try {
@@ -1163,8 +1165,9 @@ async function showPicture(name) {
 }
 
 // 脳からの姿。所作の途中なら、それをやめて従う。
-function showBrainPicture(name, act) {
+function showBrainPicture(name, act, off) {
   brainPicture = name || brainPicture;
+  fidgetsOff = new Set(off || []);
   const wasAct = currentAct;
   currentAct = act || "idle";
   clearTimeout(fidgetTimer);
@@ -1185,7 +1188,9 @@ function scheduleFidget() {
   fidgetTimer = setTimeout(async () => {
     fidgetTimer = null;
     if (currentAct !== "idle" && currentAct !== "happy") return;
-    const name = fidgets[Math.floor(Math.random() * fidgets.length)];
+    const fits = fidgets.filter(name => !fidgetsOff.has(name));
+    if (!fits.length) return;
+    const name = fits[Math.floor(Math.random() * fits.length)];
     await showPicture(name);
     fidgetTimer = setTimeout(() => {
       fidgetTimer = null;
@@ -1267,7 +1272,7 @@ function connectPresence() {
     }
     if (message.type === "here") setEmbodied(true);
     else if (message.type === "away") setEmbodied(false, message.where);
-    else if (message.type === "act") showBrainPicture(message.picture, message.act);
+    else if (message.type === "act") showBrainPicture(message.picture, message.act, message.fidgets_off);
     else if (message.type === "say") {
       $("frameBubble").textContent = message.text || "";
       // 本文は履歴から取る。並べ方を1か所にしておく。

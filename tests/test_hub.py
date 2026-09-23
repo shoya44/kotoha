@@ -179,7 +179,19 @@ class SpeakingTests(HubCase):
         self.connect(hub.DESKTOP)
         self.assertTrue(hub.show("laptop", "idle"))
         self.assertEqual(self.last(hub.DESKTOP),
-                         {"type": "act", "picture": "laptop", "act": "idle"})
+                         {"type": "act", "picture": "laptop", "act": "idle", "fidgets_off": []})
+
+    def test_the_face_of_the_reply_is_shown_while_talking(self):
+        """返事の [FACE:] は、話した直後の絵になる。巡回（said_ago なし）では元に戻る。"""
+        from kotoha.talk import chat
+        self.connect(hub.DESKTOP)
+        turn_id = db.start_turn(self.conn, "user", "ねえ聞いて")
+        chat._finish(self.conn, turn_id, "あはは", [], "slow", face="笑う")
+        hub.refresh(self.conn, said_ago=0)
+        self.assertEqual(self.last(hub.DESKTOP)["picture"], "laugh")
+        hub.refresh(self.conn)
+        self.assertNotEqual(self.last(hub.DESKTOP)["act"], "talk")
+        self.assertIn("fidgets_off", self.last(hub.DESKTOP))
 
 
 class RememberingTests(HubCase):
