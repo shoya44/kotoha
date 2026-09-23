@@ -15,7 +15,6 @@ import sys
 BODY = "kotoha-body-single-instance"
 
 ERROR_ALREADY_EXISTS = 183
-SYNCHRONIZE = 0x00100000
 _held = {}
 
 
@@ -37,19 +36,15 @@ def claim(name: str) -> bool:
 
 
 def taken(name: str) -> bool:
-    """誰かが印を持っているか、覗くだけ。自分では持たない。
-
-    **作らずに開く（OpenMutex）。** CreateMutex で覗くと、無かった一瞬だけ印が
-    生まれ、同じ瞬間に掴もうとした本体が「もう居る」と誤って引き下がる。
-    """
+    """誰かが印を持っているか、覗くだけ。自分では持たない。"""
     if sys.platform != "win32":
         return False
     if name in _held:
         return True
     kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-    kernel32.OpenMutexW.restype = ctypes.c_void_p
-    handle = kernel32.OpenMutexW(SYNCHRONIZE, False, name)
+    handle = kernel32.CreateMutexW(None, False, name)
     if not handle:
         return False
-    kernel32.CloseHandle(ctypes.c_void_p(handle))
-    return True
+    exists = ctypes.get_last_error() == ERROR_ALREADY_EXISTS
+    kernel32.CloseHandle(handle)
+    return exists

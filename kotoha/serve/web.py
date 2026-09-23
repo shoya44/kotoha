@@ -1,5 +1,6 @@
 import asyncio
 import json
+import os
 import secrets
 import threading
 
@@ -11,11 +12,15 @@ from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from .. import config, notify
-from ..memory import consolidate, db, diary, embed, growth, habits, remind, strength, vessels
-from ..talk import actions, chat, living, llm, myself, presence
+from ..memory import db, diary, growth, habits, remind, strength, vessels
+from ..talk import chat, living, llm, myself, presence
 from . import admin, hub, jobs, voice
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
+# 記憶本文の上限。層ごとに、整理が作るときと同じにしてある（consolidate）。
+# 分けないと、手で直したときだけ整理が絶対に作らない長さの意味記憶ができる。
+MEMORY_TEXT_LIMITS = {"episode": 400, "semantic": 200}
+MEMORY_TEXT_LIMIT = MEMORY_TEXT_LIMITS["episode"]
 
 
 @asynccontextmanager
@@ -51,6 +56,49 @@ def _check_token(request: Request, allow_query: bool = False) -> None:
     # 合わせ方で時間が変わらない比べ方。Tailscale の中とはいえ、ただなので。
     if not config.WEB_TOKEN or not secrets.compare_digest(token, config.WEB_TOKEN):
         raise HTTPException(status_code=401, detail="トークンが無効")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 @app.get("/")
@@ -374,7 +422,7 @@ def api_restart(request: Request):
     """外出先から立て直すための最後の手段。kotoha.bat が起動し直す。"""
     _check_token(request)
     # 先に応答を返しきってから落とす。DBへの書き込みはその都度コミットしてある。
-    actions.restart_later()
+    threading.Timer(0.4, lambda: os._exit(config.RESTART_EXIT_CODE)).start()
     return {"restarting": True}
 
 
@@ -435,7 +483,7 @@ def memory_update(request: Request, node_id: int, payload: dict):
         row = conn.execute("SELECT layer FROM memory_nodes WHERE id = ?", (node_id,)).fetchone()
         if row is None:
             raise HTTPException(status_code=404, detail="その記憶はありません")
-        limit = consolidate.text_limit(row["layer"])
+        limit = MEMORY_TEXT_LIMITS.get(row["layer"], MEMORY_TEXT_LIMIT)
         if len(text) > limit:
             raise HTTPException(status_code=400, detail=f"{limit}字までにしてください")
         strength.reinforce(conn, node_id)      # 手で確かめ直した＝思い出したのと同じ
@@ -447,8 +495,6 @@ def memory_update(request: Request, node_id: int, payload: dict):
             raise HTTPException(status_code=404, detail="その記憶はありません")
         # 手で直したものは、想起の近道をいったん解く。
         conn.execute("UPDATE memory_tags SET use_count = 0 WHERE node_id = ?", (node_id,))
-        # 本文が変わったのでベクトルも古い。捨てておけば次の巡回で作り直される。
-        embed.drop(conn, node_id)
         conn.commit()
         return {"saved": True}
 

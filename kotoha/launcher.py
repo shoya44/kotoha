@@ -1,6 +1,5 @@
 """Web起動、Tailscale Serve配信、ブラウザー表示。"""
 
-import http.client
 import importlib.util
 import json
 import os
@@ -39,7 +38,7 @@ def is_kotoha(url):
         )
         with opener.open(request, timeout=1) as response:
             return json.load(response) == []
-    except (OSError, ValueError, TypeError, AttributeError, http.client.HTTPException):
+    except (OSError, ValueError, urllib.error.URLError):
         return False
 
 
@@ -81,7 +80,7 @@ def aivis_is_up():
     try:
         with opener.open(config.VOICE_BASE_URL + "/version", timeout=1) as response:
             return response.status == 200
-    except (OSError, ValueError, TypeError, AttributeError, http.client.HTTPException):
+    except (OSError, ValueError, urllib.error.URLError):
         return False
 
 
@@ -132,7 +131,7 @@ def ollama_is_up():
     try:
         with opener.open(config.EMBED_BASE_URL + "/api/tags", timeout=1) as response:
             return response.status == 200
-    except (OSError, ValueError, TypeError, AttributeError, http.client.HTTPException):
+    except (OSError, ValueError, urllib.error.URLError):
         return False
 
 

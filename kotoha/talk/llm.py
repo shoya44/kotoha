@@ -70,13 +70,12 @@ def chat(prompt: str, max_tokens: int | None = None) -> str:
             last_error = trouble
             continue
 
-        # 200 でも中身が JSON でない・形が違うことはある。どれも LLMError にして、
-        # 呼び出し側が「モデルの返事がおかしい」として同じ道で扱えるようにする。
+        data = resp.json()
         try:
-            content = resp.json()["choices"][0]["message"]["content"]
-        except (ValueError, KeyError, IndexError, TypeError):
-            raise LLMError("応答形式が不正。") from None
-        if not isinstance(content, str) or not content.strip():
+            content = data["choices"][0]["message"]["content"]
+        except (KeyError, IndexError):
+            raise LLMError("応答形式が不正。")
+        if not content or not content.strip():
             last_error = LLMError("応答が空。", retryable=True)
             continue
         return content.strip()

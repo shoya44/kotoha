@@ -74,6 +74,7 @@ def falls_on(repeat: str, day) -> bool:
     """その日が、繰り返しに当たるか。「平日」「休日」は暦（土日・祝日）を見る。"""
     if repeat == "毎日":
         return True
+    plan = None
     if repeat in ("平日", "休日"):
         plan = schedule.today(day.date() if hasattr(day, "date") else day)
         return plan["working"] if repeat == "平日" else not plan["working"]

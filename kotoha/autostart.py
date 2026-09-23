@@ -98,8 +98,7 @@ def watchdog_needs_fixing() -> bool:
     xml = _task_xml()
     if not xml:
         return False
-    # rescue.bat が書く綴りは打った人しだい（c:\ と C:\）。大文字小文字では違わない。
-    return str(TRAY).lower() not in xml.lower() and "tray.pyw" in xml.lower()
+    return str(TRAY) not in xml and "tray.pyw" in xml
 
 
 def fix_watchdog() -> bool:

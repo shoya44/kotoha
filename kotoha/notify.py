@@ -10,13 +10,12 @@ OneSignal に任せ、こちらはREST APIを1回叩くだけにしてある。
 
 import time
 
+import httpx
+
 from . import config
 
-# httpx はここでは取り込まない。db が log() のためだけにこのモジュールを読むので、
-# 上で取り込むと「記憶を見る」だけの命令まで httpx 一式を待ってから始まる。
-
 ENDPOINT = "https://api.onesignal.com/notifications"
-LOG_PATH = config.DB_PATH.parent / "notify.log"
+LOG_PATH = config.BASE_DIR / "data" / "notify.log"
 TIMEOUT = 10.0
 
 # 宛先の束の名前。**OneSignalが最初から用意する束で、名前は作った時期で違う。**
@@ -31,8 +30,6 @@ _client = None
 def _http():
     global _client
     if _client is None:
-        import httpx
-
         _client = httpx.Client()
     return _client
 
@@ -88,8 +85,6 @@ def push(title: str, body: str, quiet_body: str = "ことはから", buttons=Non
     if buttons:
         payload["web_buttons"] = buttons
     payload = {key: value for key, value in payload.items() if value is not None}
-    import httpx
-
     try:
         response = _http().post(
             ENDPOINT, json=payload, timeout=TIMEOUT,

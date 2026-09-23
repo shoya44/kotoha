@@ -53,7 +53,7 @@ def _http():
 
 
 def umbrella(code: int, chance: int) -> bool:
-    return chance >= RAIN_FLOOR or code in WET
+    return chance >= 50 or code in WET
 
 
 def rain_from(hours):

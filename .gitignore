@@ -8,11 +8,12 @@ prompts/*.bak
 # 素材の画像。26MBあり、アイコンは生成ずみなので追わない
 img/
 
-# レビューのパッチ置き場（作業用。製品には含めない）。docs/old/ に手元だけで残している
+# レビューのパッチ置き場（作業用。製品には含めない）
 kotoha-fixes/
 
 # 立ち絵の生成候補（採用ぶんは img/dot/ に置く）
 tools/sprite_gen/out/
+tools/sprite_gen_run.log
 tools/sprite_gen/lora/dataset/
 tools/sprite_gen/lora/logs/
 tools/sprite_gen/lora/compare_work/
