@@ -96,7 +96,7 @@ class SupervisorTests(unittest.TestCase):
         self.assertEqual(len(self.spawned), 2)
 
     def test_it_does_not_fight_a_server_someone_else_started(self):
-        """start.bat から上がっているときに子を作ると、即終了して上げ直し続ける。"""
+        """kotoha.bat console から上がっているときに子を作ると、即終了して上げ直し続ける。"""
         sup = self.make(codes=[0], serving=True)
         thread = threading.Thread(target=sup._loop, daemon=True)
         thread.start()
@@ -210,8 +210,6 @@ class StatusTests(unittest.TestCase):
         self.assertFalse(thread.is_alive())
 
 
-if __name__ == "__main__":
-    unittest.main()
 
 
 @unittest.skipUnless(sys.platform == "win32", "トレイはWindows専用")
@@ -327,6 +325,9 @@ class ClickTests(unittest.TestCase):
         self.click(tray.WM_LBUTTONDBLCLK)
         self.assertEqual(self.done, ["chat"])
         self.assertEqual(self.timers, [])            # シングルの時計は止めた
+        # Windows はダブルクリックのあとにも WM_LBUTTONUP を1つ送る。それで姿を出さない。
+        self.click(tray.WM_LBUTTONUP)
+        self.assertEqual(self.timers, [])            # シングルの時計を掛け直さない
 
     def test_a_stray_timer_is_not_a_click(self):
         self.tray._handle(None, tray.WM_TIMER, 99, 0)
@@ -335,3 +336,7 @@ class ClickTests(unittest.TestCase):
     def test_the_menu_can_bring_the_figure_back(self):
         self.tray.command(tray.ID_FIGURE)
         self.assertEqual(self.done, ["figure"])
+
+
+if __name__ == "__main__":
+    unittest.main()

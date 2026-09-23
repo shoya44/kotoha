@@ -97,11 +97,11 @@
     </button>
 
     <!-- 通話中だけ出る。話しながら片手で声の大きさを変えられるように。 -->
-    <div id="volume" class="volume">
+    <div class="volume">
       <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
         <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z"></path>
       </svg>
-      <input id="volumeRange" type="range" min="0" max="100" step="5"
+      <input class="volume-range" id="volumeRange" type="range" min="0" max="100" step="5"
              value="100" aria-label="声の大きさ">
     </div>
 
@@ -156,6 +156,12 @@
           <span>声で話す</span>
           <span class="sheet-value" id="voiceValue">オフ</span>
         </button>
+        <!-- 声の大きさは通話中の帯にもあるが、通話しない人はそこに辿り着けない。 -->
+        <label class="sheet-row sheet-row-static">
+          <span>声の大きさ</span>
+          <input class="volume-range" id="volumeSheet" type="range" min="0" max="100" step="5"
+                 value="100" aria-label="声の大きさ">
+        </label>
         <button class="sheet-row" id="togglePush" type="button" hidden>
           <span>通知を受け取る</span>
           <span class="sheet-value" id="pushValue">オフ</span>
@@ -166,7 +172,7 @@
         <button class="sheet-row" data-open="vessel" type="button">
           <span>この器の役割</span><span aria-hidden="true">›</span>
         </button>
-        <button class="sheet-row" id="quietToggle" type="button"><span>静かな同席（1時間）</span><span id="quietValue">開始</span></button>
+        <button class="sheet-row" id="quietToggle" type="button"><span>静かな同席（1時間）</span><span class="sheet-value" id="quietValue">開始</span></button>
         <button class="sheet-row" data-open="prompts" type="button">
           <span>ことばを直す</span>
           <span aria-hidden="true">›</span>
@@ -199,7 +205,7 @@
           <span class="sheet-value" id="remoteCallValue"></span>
         </button>
         <button class="sheet-row danger" id="restartApp" type="button">
-          <span id="restartLabel">再起動する</span>
+          <span>再起動する</span>
         </button>
       </div>
 
@@ -212,8 +218,15 @@
       </div>
 
       <section class="sheet-page" data-page="vessel" aria-label="この器の役割">
-        <div class="sheet-nav"><button class="sheet-back" data-back type="button">戻る</button>
-          <span class="sheet-nav-title">この器の役割</span></div>
+        <div class="sheet-nav">
+          <button class="sheet-back" data-back type="button">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path d="M15 5l-7 7 7 7"></path>
+            </svg>
+            <span>戻る</span>
+          </button>
+          <span class="sheet-nav-title">この器の役割</span>
+        </div>
         <label class="vessel-field">種類
           <select id="vesselKind">
             <option value="screen">会話画面（自動では移動しない）</option>
@@ -258,9 +271,9 @@
           <span class="sheet-nav-title">記憶を見る</span>
         </div>
         <div class="segmented" id="memoryTabs" role="tablist">
-          <button type="button" data-kind="semantic" aria-selected="true">覚えたこと</button>
-          <button type="button" data-kind="episode" aria-selected="false">できごと</button>
-          <button type="button" data-kind="pinned" aria-selected="false">保護</button>
+          <button type="button" role="tab" data-kind="semantic" aria-selected="true">覚えたこと</button>
+          <button type="button" role="tab" data-kind="episode" aria-selected="false">できごと</button>
+          <button type="button" role="tab" data-kind="pinned" aria-selected="false">保護</button>
         </div>
         <div id="memoryList"></div>
         <p class="sheet-note" id="memoryNote"></p>

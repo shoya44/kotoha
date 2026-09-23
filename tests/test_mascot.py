@@ -88,8 +88,6 @@ class SheetTests(unittest.TestCase):
         self.assertIn(self.sheet.any_name(), self.sheet.frames)
 
 
-if __name__ == "__main__":
-    unittest.main()
 
 
 class CatchUpTests(unittest.TestCase):
@@ -137,3 +135,60 @@ class CatchUpTests(unittest.TestCase):
             self.catch_up("dishes")
         self.assertIs(self.me.sheet, before)
         self.assertNotIn("dishes", self.me.reloaded_for)
+
+
+class StrollTests(unittest.TestCase):
+    """散歩は一歩ずつ。滑らせると引きずられて見え、向きが読めない。"""
+
+    def setUp(self):
+        import types
+        from kotoha.mascot import __main__ as mascot
+        self.mascot = mascot
+        self.dot = types.SimpleNamespace(x=100, dragging=lambda: False,
+                                         room=lambda: (100, 1000), walk_to=self.walk_to)
+        self.me = types.SimpleNamespace(
+            dot=self.dot, motion=None, step_at=0.0, step=0, step_from=0,
+            next_stroll=0.0, next_fidget=10 ** 9, sheet=types.SimpleNamespace(frames={"walk": 1}),
+            _idle=lambda: True, _fidgets=lambda: [], remember_place=lambda x, y: None)
+        self.me._stride_phase = lambda now: mascot.Mascot._stride_phase(self.me, now)
+
+    def walk_to(self, x):
+        self.dot.x = x
+        return True
+
+    def move(self, now):
+        self.mascot.Mascot._move(self.me, now)
+
+    def test_a_step_advances_by_one_stride_then_rests(self):
+        import random
+        random.seed(1)
+        self.dot.room = lambda: (10, 1000)               # 左は 10 しか無い。右へ
+        self.move(0.0)
+        self.assertEqual(self.me.motion[0], "stroll")
+        self.assertEqual(self.me.motion[1], 1)
+        direction = self.me.motion[1]
+        moving = self.mascot.STROLL_STEP_SECONDS * self.mascot.STROLL_STEP_MOVING
+        self.move(moving / 2)
+        half = abs(self.dot.x - 100)
+        self.assertTrue(0 < half < self.mascot.STROLL_STRIDE)
+        self.move(moving)
+        self.assertEqual(self.dot.x, 100 + direction * self.mascot.STROLL_STRIDE)
+        self.move(self.mascot.STROLL_STEP_SECONDS * 0.9)  # 一歩の後半は止まっている
+        self.assertEqual(self.dot.x, 100 + direction * self.mascot.STROLL_STRIDE)
+        self.move(self.mascot.STROLL_STEP_SECONDS + 0.001)  # 次の一歩へ
+        self.assertEqual(self.me.step, 1)
+
+    def test_no_stroll_towards_a_near_edge(self):
+        self.dot.room = lambda: (10, 10)
+        self.move(0.0)
+        self.assertIsNone(self.me.motion)
+        self.assertGreater(self.me.next_stroll, 0.0)
+
+    def test_the_picture_faces_the_way_she_walks(self):
+        faces_right = self.mascot.WALK_FACES_RIGHT
+        self.assertEqual(self.mascot.walk_mirrored(1), not faces_right)
+        self.assertEqual(self.mascot.walk_mirrored(-1), faces_right)
+
+
+if __name__ == "__main__":
+    unittest.main()

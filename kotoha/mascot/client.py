@@ -10,11 +10,12 @@
 import json
 import queue
 import threading
-import time
+import urllib.parse
 
 import httpx
 
 from .. import config
+from ..launcher import local_url
 
 VESSEL = "desktop"
 # 切れたときに繋ぎ直すまでの間。すぐ繋ぎ直すと、落ちている相手を叩き続ける。
@@ -24,8 +25,8 @@ CHAT_TIMEOUT = 120.0
 
 
 def base_url() -> str:
-    """脳の居場所。**同じPCの中**なので、外には出ない。"""
-    return f"http://127.0.0.1:{config.WEB_PORT}"
+    """脳の居場所。**同じPCの中**なので、外には出ない。宛先は本体と同じ設定から。"""
+    return local_url(config.WEB_HOST, config.WEB_PORT)[0]
 
 
 class Brain:
@@ -34,7 +35,8 @@ class Brain:
     def __init__(self):
         self.events = queue.Queue()
         self.stopping = threading.Event()
-        self._client = httpx.Client(timeout=None)
+        # 相手は同じPC。プロキシの設定を見ると 127.0.0.1 まで外へ回されることがある。
+        self._client = httpx.Client(timeout=None, trust_env=False)
         self._thread = None
 
     # --- 受ける ---
@@ -48,7 +50,7 @@ class Brain:
         while not self.stopping.is_set():
             try:
                 url = (f"{base_url()}/api/presence/stream"
-                       f"?vessel={VESSEL}&token={config.WEB_TOKEN}")
+                       f"?vessel={VESSEL}&token={urllib.parse.quote(config.WEB_TOKEN, safe='')}")
                 with self._client.stream("GET", url) as response:
                     response.raise_for_status()
                     connected = True
@@ -61,6 +63,9 @@ class Brain:
                                 self.events.put(json.loads(line[5:]))
                             except ValueError:
                                 pass
+            except httpx.HTTPStatusError as error:
+                # 合言葉違いなど。黙って待ち続けると、姿が薄いままの理由が分からない。
+                self.events.put({"type": "refused", "status": error.response.status_code})
             except Exception:                  # noqa: BLE001 - 繋がらないだけ
                 pass
             if connected:
@@ -111,4 +116,3 @@ def in_thread(work, done, *args):
             done(None, error)
 
     threading.Thread(target=run, daemon=True).start()
-    return time.time()

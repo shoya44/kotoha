@@ -244,7 +244,7 @@ class TogetherTests(DbCase):
             self.addCleanup(setattr, notify, name, getattr(notify, name))
         self.addCleanup(setattr, chat, "speak", chat.speak)
         self.addCleanup(setattr, chat, "remember", chat.remember)
-        self.addCleanup(setattr, web, "_collecting", False)
+        self.addCleanup(setattr, announce_mod, "_collecting", False)
         notify.log = lambda text: None      # 本物のログに書き込まない
         notify.ready = lambda: True
         self.pushed = []

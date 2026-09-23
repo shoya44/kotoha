@@ -181,7 +181,26 @@ def _build_prompt(conn, messages, pending_nodes) -> str:
     return "\n\n".join(parts)
 
 
-def _validate_and_save(conn, data, messages) -> int:
+# 記憶本文の上限（層ごと）。手で直す口（serve/web.py）と夜の整理（review.py）も
+# ここを見る。分けて持つと、片方だけが長さを許して整理が作らない記憶ができる。
+TEXT_LIMITS = {"episode": 400, "semantic": 200}
+
+
+def text_limit(layer: str) -> int:
+    return TEXT_LIMITS.get(layer, TEXT_LIMITS["semantic"])
+
+
+def unprocessed_turns(conn) -> int:
+    """まだ整理していない会話の往復数。整理を走らせるかの目安。"""
+    last = int(db.get_state(conn, db.LAST_PROCESSED_MESSAGE_ID, "0") or 0)
+    row = conn.execute(
+        "SELECT COUNT(DISTINCT turn_id) AS n FROM messages WHERE id > ? AND extractable = 1",
+        (last,),
+    ).fetchone()
+    return row["n"]
+
+
+def _validate_and_save(conn, data, messages) -> tuple[int, int]:
     msg_ids = {m["id"] for m in messages} if messages else set()
     msg_date = {m["id"]: m["created_at"] for m in messages} if messages else {}
     first_id = messages[0]["id"] if messages else 0
@@ -202,18 +221,18 @@ def _validate_and_save(conn, data, messages) -> int:
             continue
         layer = spec.get("layer")
         kind = spec.get("kind")
-        text = (spec.get("text") or "").strip()
+        text = spec.get("text")
+        text = text.strip() if isinstance(text, str) else ""
         if layer == "episode":
-            kind, limit = "event", 400
+            kind = "event"
         elif layer == "semantic":
             if kind not in ("fact", "preference", "open_topic", "procedure"):
                 continue
-            limit = 200
         else:
             continue
-        if not text or len(text) > limit:
+        if not text or len(text) > text_limit(layer):
             continue
-        src = [i for i in spec.get("source_message_ids", []) if isinstance(i, int) and i in msg_ids]
+        src = [i for i in (spec.get("source_message_ids") or []) if isinstance(i, int) and i in msg_ids]
         if not src:
             continue
         if idx in merge:
@@ -226,7 +245,7 @@ def _validate_and_save(conn, data, messages) -> int:
                 )
             continue
         tags = []
-        for t in spec.get("tags", [])[:3]:
+        for t in (spec.get("tags") or [])[:3]:
             nt = _normalize_tag(t)
             # 人名は付けない（retrieve.persona_names）。ルール文でも止めているが、
             # 守られなかったときに毎回当たるタグが増えないよう、ここでも落とす。
@@ -290,12 +309,17 @@ def _validate_and_save(conn, data, messages) -> int:
             if not isinstance(u, dict):
                 continue
             nid = u.get("id")
-            text = (u.get("text") or "").strip()[:200]
+            text = u.get("text")
+            text = text.strip() if isinstance(text, str) else ""
             if not isinstance(nid, int) or not text:
                 continue
-            src = [i for i in u.get("source_message_ids", []) if isinstance(i, int) and i in msg_ids]
+            src = [i for i in (u.get("source_message_ids") or []) if isinstance(i, int) and i in msg_ids]
             if not src:
                 continue
+            row = conn.execute("SELECT layer FROM memory_nodes WHERE id = ?", (nid,)).fetchone()
+            if row is None:
+                continue
+            text = text[:text_limit(row["layer"])]   # できごとは 400、意味は 200
             strength.reinforce(conn, nid)
             conn.execute("UPDATE memory_nodes SET text = ?, confirmed_at = ? WHERE id = ?",
                          (text, now, nid))
@@ -315,9 +339,12 @@ def _as_json(raw: str):
     if start < 0 or end <= start:
         raise llm.LLMError("整理結果をJSONとして解析できなかった。")
     try:
-        return json.loads(raw[start : end + 1])
+        data = json.loads(raw[start : end + 1])
     except json.JSONDecodeError:
         raise llm.LLMError("整理結果をJSONとして解析できなかった。") from None
+    if not isinstance(data, dict):
+        raise llm.LLMError("整理結果がJSONオブジェクトではなかった。")
+    return data
 
 
 def _count_failure(conn, messages) -> None:
@@ -356,10 +383,17 @@ def run(conn) -> str:
         _count_failure(conn, messages)
         raise
 
+    try:
+        created, merged = _validate_and_save(conn, data, messages)
+    except (TypeError, AttributeError, ValueError, KeyError) as error:
+        # 形は JSON でも中身が約束と違う（数値の本文、null のタグなど）。
+        # 通信の失敗と同じに数えないと、同じ会話を毎分投げ直して枠を空にする。
+        conn.rollback()
+        _count_failure(conn, messages)
+        raise llm.LLMError(f"整理結果の中身が不正: {error!r}") from None
+
     db.set_state(conn, db.CONSOLIDATE_FAILS, 0)
 
-    created, merged = _validate_and_save(conn, data, messages)
-    
     if messages:
         db.set_state(conn, db.LAST_PROCESSED_MESSAGE_ID, messages[-1]["id"])
     db.set_state(conn, db.LAST_CONSOLIDATION_AT, db.now_utc())

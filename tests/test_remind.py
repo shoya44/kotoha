@@ -702,8 +702,6 @@ class ReminderListApiTests(DbCase):
             self.client.delete("/api/reminders/1", headers={"X-Kotoha-Token": "wrong"}).status_code, 401)
 
 
-if __name__ == "__main__":
-    unittest.main()
 
 
 class MorningTests(DbCase):
@@ -748,3 +746,7 @@ class MorningTests(DbCase):
 
     def test_nothing_to_say_when_there_is_nothing(self):
         self.assertEqual(remind.morning_block([]), "")
+
+
+if __name__ == "__main__":
+    unittest.main()

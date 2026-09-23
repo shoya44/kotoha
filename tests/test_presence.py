@@ -166,8 +166,6 @@ class SnapshotTests(DbCase):
             self.assertNotIn("題名", label)
 
 
-if __name__ == "__main__":
-    unittest.main()
 
 
 class CommitTests(DbCase):
@@ -186,3 +184,7 @@ class CommitTests(DbCase):
         other = db.connect()
         self.addCleanup(other.close)
         self.assertIn("VS Code", db.get_state(other, db.FRONT_TALLY) or "")
+
+
+if __name__ == "__main__":
+    unittest.main()

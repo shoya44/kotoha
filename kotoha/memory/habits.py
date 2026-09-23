@@ -145,6 +145,8 @@ def reflect(conn) -> int:
             conn.execute("UPDATE habits SET text = ?, confirmed_at = ? WHERE id = ?",
                          (text, now, hid))
             kept.add(hid)
+        elif isinstance(hid, int) and hid in kept:
+            continue   # 同じ番号を二度返してきた。二つ目を新しい習慣にはしない
         else:
             cursor = conn.execute(
                 "INSERT INTO habits(text, first_at, confirmed_at) VALUES (?,?,?)",

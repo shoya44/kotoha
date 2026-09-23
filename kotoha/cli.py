@@ -2,8 +2,11 @@ import hashlib
 import sys
 
 from . import config
-from .memory import consolidate, db
-from .talk import chat, llm
+from .memory import db
+
+# 会話と整理の道具（talk / consolidate）は、要る命令のなかで取り込む。
+# kotoha.bat のダブルクリック（tray）は窓を探して子を作るだけなのに、
+# 上で取り込むと httpx から talk/ 一式まで（200 モジュール超）を読んでから始まる。
 
 
 def _status(conn) -> None:
@@ -27,17 +30,11 @@ def _backup() -> None:
     print(f"バックアップ完了: {dest}（最新{config.BACKUP_KEEP}件を保持）")
 
 
-def _unprocessed_turns(conn) -> int:
-    last = int(db.get_state(conn, db.LAST_PROCESSED_MESSAGE_ID, "0") or 0)
-    row = conn.execute(
-        "SELECT COUNT(DISTINCT turn_id) AS n FROM messages WHERE id > ? AND extractable = 1",
-        (last,),
-    ).fetchone()
-    return row["n"]
-
-
 def _maybe_consolidate(conn, force: bool = False) -> None:
-    if not force and _unprocessed_turns(conn) < config.CONSOLIDATE_TURNS:
+    from .memory import consolidate
+    from .talk import llm
+
+    if not force and consolidate.unprocessed_turns(conn) < config.CONSOLIDATE_TURNS:
         return
     try:
         print(consolidate.run(conn))
@@ -204,6 +201,8 @@ def _wait_for_tray(wait: float, process=None) -> bool:
 
 
 def _start() -> None:
+    from .talk import chat, llm
+
     config.require_keys()
     conn = db.connect()
     db.init(conn)
@@ -317,6 +316,8 @@ def main(argv) -> None:
         _status(conn)
         conn.close()
     elif cmd == "test-llm":
+        from .talk import llm
+
         config.require_keys()
         print(llm.chat("「私はことは。一声かけて」と1行だけで返して。"))
     elif cmd == "memory":

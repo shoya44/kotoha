@@ -28,7 +28,7 @@ from .client import Brain
 from .window import Dot, kernel32, user32
 
 PLACE_PATH = config.BASE_DIR / "data" / "mascot.json"
-LOG_PATH = config.BASE_DIR / "data" / "mascot.log"
+LOG_PATH = config.DB_PATH.parent / "mascot.log"
 
 TICK_MS = 40
 # 呼吸。この周期で、1ドットぶん縮んでは戻る（足元は動かない）。
@@ -45,9 +45,14 @@ MARGIN_RIGHT, MARGIN_BOTTOM = 28, 10
 # 暇なときの動き。間をばらつかせる。**動きすぎると邪魔**なので、散歩は数分に一度。
 STROLL_MIN, STROLL_MAX = 150.0, 420.0
 STROLL_PX_MIN, STROLL_PX_MAX = 60, 220       # 一度に歩く距離
-STROLL_SPEED = 1                             # 1ティックに進むドット（40msなので 25px/s）
-STROLL_STEP_SECONDS = 0.26                   # 足のコマを替える間
-STROLL_BOB = 1                               # 歩くとき一歩おきに浮くドット（コマが無くても歩いて見せる）
+STROLL_STEP_SECONDS = 0.26                   # 一歩の長さ（足のコマもこの間で替える）
+# **歩きは一歩ずつ。** 1ティックに1ドットずつ滑らせると、足が動かない絵では
+# 「引きずられている」ようにしか見えない（実際にそう見えた）。一歩ごとに
+# STROLL_STRIDE ドットを跳ぶように進み（一歩の前半で進み、後半は止まる）、
+# そのあいだ小さく浮く。速さは同じ（6ドット / 0.26秒 ≒ 23px/s）。
+STROLL_STRIDE = 6                            # 一歩で進むドット
+STROLL_BOB = 2                               # 一歩のあいだに浮く高さ（放物線）
+STROLL_STEP_MOVING = 0.6                     # 一歩のうち、動いている割合
 # 歩きの絵が向いている側。左へ行くときは返す。
 WALK_FACES_RIGHT = True
 FIDGET_MIN, FIDGET_MAX, FIDGET_SECONDS = 30.0, 90.0, 3.2
@@ -57,6 +62,11 @@ HOP_SECONDS, HOP_HEIGHT = 0.36, 6
 REACT_NAME, REACT_SECONDS = "surprised", 0.9
 # 脳の姿が「暇」のときだけ動く。話している・寝ている・すねているときは動かない。
 IDLE_ACTS = ("idle", "happy")
+
+
+def walk_mirrored(direction: int) -> bool:
+    """その向きへ歩くとき、絵を左右に返すか。進む向きと顔の向きを合わせる。"""
+    return (direction < 0) == WALK_FACES_RIGHT
 
 # 同じ姿を二重に出さない。トレイと同じ作法（tray.already_running）。
 MUTEX_NAME = "kotoha-mascot-single-instance"
@@ -99,6 +109,7 @@ class Mascot:
         self.motion = None                    # None | ("stroll", 向き, 残り) | ("fidget", 名前, 終わり)
         self.step_at = 0.0
         self.step = 0
+        self.step_from = 0                    # いまの一歩を踏み出した x
         self.hops = []                        # 跳ねの始まり（time）の並び
         self.react_until = 0.0                # 押されて驚いている終わり（time）
         self.fidgets_off = set()              # 脳が「いまは合わない」と言った所作
@@ -162,14 +173,15 @@ class Mascot:
             name = "walk"
             tags = self.sheet.tags(name)
             tag = tags[self.step % len(tags)] if tags else None
-            mirror = (self.motion[1] < 0) == WALK_FACES_RIGHT
+            mirror = walk_mirrored(self.motion[1])
             breathing_out = False
         elif self.motion and self.motion[0] == "fidget":
             name = self.motion[1]
         hop = self._hop(now)
-        if self.motion and self.motion[0] == "stroll" and self.step % 2:
-            # 一歩おきに 1 ドット浮く。脚のコマが無い絵でも、横に動くだけよりは歩いて見える
-            hop += STROLL_BOB
+        if self.motion and self.motion[0] == "stroll":
+            # 一歩のあいだ、放物線で浮いて戻る。脚のコマが無い絵でも、跳ぶように
+            # 進めば「歩いている」と読める。滑るだけだと引きずられて見える
+            hop += self._stride_lift(now)
         state = (name, tag, mirror, self.blinking, breathing_out, opacity, hop)
         if state == self.last_drawn and not force:
             return
@@ -185,6 +197,15 @@ class Mascot:
         self.dot.lift(hop)
 
     # --- 暇なときの動き ---
+
+    def _stride_phase(self, now: float) -> float:
+        """いまの一歩の、動いている区間の進み（0〜1）。後半の止まっている間は 1。"""
+        phase = (now - self.step_at) / (STROLL_STEP_SECONDS * STROLL_STEP_MOVING)
+        return min(1.0, max(0.0, phase))
+
+    def _stride_lift(self, now: float) -> int:
+        phase = self._stride_phase(now)
+        return round(STROLL_BOB * 4 * phase * (1 - phase))
 
     def _hop(self, now: float) -> int:
         """いま何ドット浮いているか。放物線で上がって戻る。"""
@@ -232,9 +253,16 @@ class Mascot:
             if not self._idle():
                 return
             if now >= self.next_stroll and "walk" in self.sheet.frames:
-                direction = random.choice((-1, 1))
-                self.motion = ("stroll", direction, random.randint(STROLL_PX_MIN, STROLL_PX_MAX))
-                self.step_at, self.step = now, 0
+                distance = random.randint(STROLL_PX_MIN, STROLL_PX_MAX)
+                # 端が近い側へは歩き出さない。二歩で止まる散歩は、ただ揺れたように見える
+                room_left, room_right = self.dot.room()
+                choices = [d for d, room in ((-1, room_left), (1, room_right)) if room >= distance]
+                if not choices:
+                    self.next_stroll = now + random.uniform(STROLL_MIN, STROLL_MAX)
+                    return
+                direction = random.choice(choices)
+                self.motion = ("stroll", direction, distance)
+                self.step_at, self.step, self.step_from = now, 0, self.dot.x
             elif now >= self.next_fidget and self._fidgets():
                 self.motion = ("fidget", random.choice(self._fidgets()), now + FIDGET_SECONDS)
             return
@@ -245,11 +273,15 @@ class Mascot:
                 self._stop_motion()
                 return
             if now - self.step_at >= STROLL_STEP_SECONDS:
+                # 一歩ぶん進んだ。次の一歩へ
                 self.step_at, self.step = now, self.step + 1
-            if not self.dot.walk(direction * STROLL_SPEED):
+                self.step_from = self.dot.x
+                self.motion = ("stroll", direction, left - STROLL_STRIDE)
+            stride = min(STROLL_STRIDE, left)
+            target = self.step_from + direction * round(stride * self._stride_phase(now))
+            if not self.dot.walk_to(target):
                 self._stop_motion()           # 画面の端。引き返さず、ここで止まる
                 return
-            self.motion = ("stroll", direction, left - STROLL_SPEED)
         elif kind == "fidget":
             if now >= self.motion[2] or not self._idle():
                 self._stop_motion()
@@ -324,6 +356,9 @@ class Mascot:
                 self.online = True
             elif kind == "offline":
                 self.online = False
+            elif kind == "refused":
+                # 合言葉違いなど。繋ぎ直しても通らないので、理由を残しておく。
+                log(f"脳に断られた（{event.get('status')}）。合言葉（KOTOHA_WEB_TOKEN）を確かめて")
             elif kind == "reply":
                 self.busy = False
                 self.say(event.get("text") or "うまく言えなかった")

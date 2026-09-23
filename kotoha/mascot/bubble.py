@@ -25,7 +25,7 @@ dwmapi = ctypes.WinDLL("dwmapi", use_last_error=True)
 DWMWA_BORDER_COLOR = 34
 DWMWA_COLOR_NONE = 0xFFFFFFFE
 
-WS_CHILD, WS_VISIBLE, WS_BORDER = 0x40000000, 0x10000000, 0x00800000
+WS_CHILD = 0x40000000
 # 折り返して伸びる入力にする。横へ流す（AUTOHSCROLL）と、打った先が見えない。
 ES_MULTILINE, ES_AUTOVSCROLL = 0x0004, 0x0040
 WM_COMMAND, EN_CHANGE, EM_GETLINECOUNT = 0x0111, 0x0300, 0x00BA
@@ -242,9 +242,6 @@ class Bubble:
         self.asking = False
         user32.ShowWindow(self.edit, SW_HIDE)
         user32.ShowWindow(self.hwnd, SW_HIDE)
-
-    def shown(self) -> bool:
-        return bool(user32.IsWindowVisible(self.hwnd))
 
     # --- 描く ---
 

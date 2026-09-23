@@ -291,8 +291,6 @@ class RoundTests(unittest.TestCase):
         self.assertEqual(ran, [1])
 
 
-if __name__ == "__main__":
-    unittest.main()
 
 
 class TurnNumberTests(unittest.TestCase):
@@ -502,3 +500,7 @@ class JournalTests(unittest.TestCase):
         writer.commit()
         cursor.fetchall()
         self.assertEqual(db.get_state(reader, "probe"), "1")
+
+
+if __name__ == "__main__":
+    unittest.main()

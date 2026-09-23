@@ -1,0 +1,7 @@
+# 改行は index では LF に揃え、Windows 専用の bat だけは CRLF で取り出す。
+# cmd.exe は LF だけの bat でラベル（goto）を読み違えることがある。
+* text=auto
+*.bat text eol=crlf
+*.png binary
+*.webp binary
+*.ico binary

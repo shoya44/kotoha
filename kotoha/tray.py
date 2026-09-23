@@ -25,9 +25,9 @@ _STATIC = config.BASE_DIR / "kotoha" / "serve" / "static"
 ICON_PATH = _STATIC / "kotoha.ico"
 # 止まっているときは沈んだ色にする。かざさなくても分かるように。
 ICON_OFF_PATH = _STATIC / "kotoha_off.ico"
-LOG_PATH = config.BASE_DIR / "data" / "tray.log"
+LOG_PATH = config.DB_PATH.parent / "tray.log"
 # 本体（uvicorn）の画面出力。トレイから上げると窓が無いので、ここに落とす。
-BODY_LOG_PATH = config.BASE_DIR / "data" / "kotoha.log"
+BODY_LOG_PATH = config.DB_PATH.parent / "kotoha.log"
 # 同じものを二重に常駐させない。名前は書き換えないこと。
 MUTEX_NAME = "kotoha-tray-single-instance"
 # 落ちたときに上げ直すまでの間。すぐ上げ直すと、壊れていたとき暴れ続ける。
@@ -45,7 +45,7 @@ WM_TIMER = 0x0113
 # OSのダブルクリック間隔だけ待ってから「1回だった」と決める。
 TIMER_CLICK = 1
 NIM_ADD, NIM_MODIFY, NIM_DELETE = 0, 1, 2
-NIF_MESSAGE, NIF_ICON, NIF_TIP, NIF_INFO = 0x01, 0x02, 0x04, 0x10
+NIF_MESSAGE, NIF_ICON, NIF_TIP = 0x01, 0x02, 0x04
 MF_STRING, MF_SEPARATOR, MF_DEFAULT, MF_GRAYED = 0x0000, 0x0800, 0x1000, 0x0001
 MF_POPUP = 0x0010
 TPM_RIGHTBUTTON, TPM_RETURNCMD = 0x0002, 0x0100
@@ -133,6 +133,9 @@ class Supervisor:
         self.process = None
         self.stopping = threading.Event()
         self.on_change = on_change or (lambda: None)
+        # 自分で上げた本体が応じるようになったとき、1度だけ呼ぶ（会話画面を開く）。
+        self.on_up = lambda: None
+        self._announced_up = False
         self._thread = None
 
     def mine(self) -> bool:
@@ -172,9 +175,30 @@ class Supervisor:
             if output is not None:
                 output.close()
 
+    def _wait_up(self):
+        """上げた本体が応じるまで待って、1度だけ知らせる。待ちは別の糸で。"""
+        if self._announced_up:
+            return
+
+        def wait():
+            deadline = time.monotonic() + config.STARTUP_TIMEOUT_SECONDS
+            while not self.stopping.is_set() and time.monotonic() < deadline:
+                if self.mine() and self.serving():
+                    self._announced_up = True
+                    self.on_up()
+                    return
+                self.stopping.wait(0.5)
+
+        threading.Thread(target=wait, daemon=True).start()
+
     def _loop(self):
         while not self.stopping.is_set():
-            if self.serving():
+            try:
+                busy = self.serving()
+            except Exception as error:      # 様子見の失敗で見張りを終えない
+                log(f"本体の様子を調べられない: {error!r}")
+                busy = True
+            if busy:
                 # すでに動いている。kotoha.bat から上げた本体を横取りしない。
                 # ここで子を作ると、ポートが塞がっていて即終了し、上げ直し続ける。
                 self.stopping.wait(WATCH_WAIT)
@@ -186,6 +210,7 @@ class Supervisor:
                 self.stopping.wait(RESPAWN_WAIT)
                 continue
             self.on_change()
+            self._wait_up()
             code = self.process.wait()
             self.process = None
             self.on_change()
@@ -346,6 +371,8 @@ class Tray:
         self._proc = WNDPROC(self._on_message)
         self._added = False
         self._taskbar_created = user32.RegisterWindowMessageW("TaskbarCreated")
+        # ダブルクリックのあとにも WM_LBUTTONUP が1つ来る。それをシングルにしない。
+        self._swallow_up_until = 0.0
 
     # ---- 窓とアイコン ----
 
@@ -380,12 +407,9 @@ class Tray:
         data.hIcon = self.icon
         return data
 
-    def _notify(self, action, flags=NIF_MESSAGE | NIF_ICON | NIF_TIP, **text):
+    def _notify(self, action, flags=NIF_MESSAGE | NIF_ICON | NIF_TIP, tip="ことは"):
         data = self._data(flags)
-        data.szTip = text.get("tip", "ことは")
-        if flags & NIF_INFO:
-            data.szInfoTitle = text.get("title", "ことは")
-            data.szInfo = text.get("info", "")
+        data.szTip = tip
         shell32.Shell_NotifyIconW(action, ctypes.byref(data))
 
     def refresh_tip(self):
@@ -429,6 +453,7 @@ class Tray:
 
     def double_click(self):
         self._disarm_click()
+        self._swallow_up_until = time.monotonic() + user32.GetDoubleClickTime() / 1000
         self.open_chat()
 
     def menu(self):
@@ -512,6 +537,8 @@ class Tray:
     def _handle(self, hwnd, message, wparam, lparam):
         if message == WM_TRAY:
             if lparam == WM_LBUTTONUP:
+                if time.monotonic() < self._swallow_up_until:
+                    return 0
                 self._arm_click()
             elif lparam == WM_LBUTTONDBLCLK:
                 self.double_click()
@@ -618,6 +645,9 @@ def main():
     tray.create()
     supervisor.on_change = tray.refresh_tip
     status.on_change = tray.refresh_tip
+    # 本体はブラウザーを開かずに上げる（spawn）。開くのは、上がったのを見届けてから。
+    if config.BROWSER_AUTO_OPEN:
+        supervisor.on_up = tray.open_chat
     supervisor.start()
     figure.start()
     status.start()

@@ -99,7 +99,11 @@ def speak(text: str, mood: str = "") -> bytes:
     if not text:
         raise VoiceError("読み上げる文がありません。")
     params = {"text": text, "speaker": config.VOICE_STYLE_ID}
-    query = color(_request("POST", "/audio_query", params=params).json(), mood)
+    try:
+        query = _request("POST", "/audio_query", params=params).json()
+    except ValueError:
+        raise VoiceError("音声エンジンの応答が読めませんでした。") from None
+    query = color(query, mood)
     audio = _request(
         "POST", "/synthesis", params={"speaker": config.VOICE_STYLE_ID}, json=query
     )
