@@ -159,7 +159,6 @@ def _tray() -> None:
     人には「何も起きない」のがいちばん分かりにくい。
     """
     import subprocess
-    import time
     import webbrowser
 
     from . import autostart, tray
