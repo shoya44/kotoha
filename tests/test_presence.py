@@ -168,3 +168,21 @@ class SnapshotTests(DbCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CommitTests(DbCase):
+    """数えたぶんはその場で閉じる。閉じずに Gemini を待つと、ほかの書き手が全部止まる。"""
+
+    def setUp(self):
+        super().setUp()
+        self.addCleanup(setattr, config, "PRESENCE_ENABLED", config.PRESENCE_ENABLED)
+        config.PRESENCE_ENABLED = True
+        self.addCleanup(setattr, presence, "enabled", presence.enabled)
+        presence.enabled = lambda: True
+
+    def test_the_sample_is_visible_from_another_connection_right_away(self):
+        with patch.object(presence, "foreground_app", return_value="VS Code"):
+            presence.sample(self.conn)
+        other = db.connect()
+        self.addCleanup(other.close)
+        self.assertIn("VS Code", db.get_state(other, db.FRONT_TALLY) or "")

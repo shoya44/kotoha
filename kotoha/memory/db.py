@@ -136,6 +136,12 @@ def connect() -> sqlite3.Connection:
     conn.execute("PRAGMA foreign_keys = ON")
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA busy_timeout = 5000")
+    # 読む側と書く側が互いを待たない（WAL）。脳の中では会話・巡回・器の取次が
+    # 別々の糸から繋ぎ、外からはCUIも同じファイルを開く。巻き戻し日誌のままだと
+    # 読んでいるだけの相手にも書き手が待たされ、5秒を越えて「database is locked」
+    # になった（2026-09-23）。設定はファイルに残るので、一度効けば毎回同じ。
+    # DBの隣に -wal / -shm ができる。控えは backup API で取るので、そこも含めて写る。
+    conn.execute("PRAGMA journal_mode = WAL")
     return conn
 
 
@@ -522,6 +528,10 @@ def _copy_to_spare(dest) -> None:
     if spare is None:
         return
     try:
+        # 置き場がファイルだと mkdir が FileExistsError を返し、何が悪いのか
+        # 読めない行が毎回並んだ。何を直せばよいかまで書く。
+        if spare.exists() and not spare.is_dir():
+            raise NotADirectoryError(f"{spare} はフォルダーではない（KOTOHA_BACKUP_DIR を見直す）")
         spare.mkdir(parents=True, exist_ok=True)
         shutil.copy2(dest, spare / dest.name)
         for old in sorted(spare.glob("kotoha_*.sqlite3"))[: -config.BACKUP_KEEP]:
