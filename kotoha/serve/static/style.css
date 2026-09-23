@@ -1390,14 +1390,28 @@ body.hide-time .msg[data-time]::after { display: none; }
 .vessel-field { display: grid; gap: 8px; margin: 16px 0; }
 .vessel-field input, .vessel-field select { width: 100%; min-height: 44px; padding: 10px; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; font: inherit; }
 .vessel-field input[type="checkbox"] { width: 20px; height: 20px; min-height: auto; appearance: auto; -webkit-appearance: auto; }
-body.frame-mode #log, body.frame-mode .composer { display: none; }
+/* 額縁。履歴だけを畳み、入力欄と電話は会話画面のまま残す（額縁から直接話せる）。
+   姿が余白を取り、時計・ひとこと・置き手紙はその下にまとまる。 */
+body.frame-mode #log { display: none; }
 body.frame-mode .mini-avatar { flex: 1; height: auto; min-height: 160px; }
 body.frame-mode .mini-avatar img { height: 100%; max-height: 52dvh; width: auto; max-width: 95%; object-fit: contain; margin: auto; }
-#framePanel { text-align: center; padding: 12px 20px 28px; overflow: auto; }
+#framePanel {
+  flex: none;
+  display: grid;
+  gap: 8px;
+  justify-items: center;
+  text-align: center;
+  padding: 8px 20px 12px;
+  max-height: 40dvh;
+  overflow: auto;
+}
 #framePanel[hidden] { display: none; }
-#frameClock { font-size: 32px; font-variant-numeric: tabular-nums; }
-#frameBubble { white-space: pre-wrap; max-width: 38em; margin: 12px auto; }
-#frameLetter { white-space: pre-wrap; color: var(--muted); font-size: 14px; }
+#frameClock { font-size: 32px; line-height: 1; font-variant-numeric: tabular-nums; }
+#frameBubble { white-space: pre-wrap; max-width: 38em; margin: 0; min-height: 1.5em; }
+#frameBubble:empty { display: none; }
+#frameLetter { white-space: pre-wrap; color: var(--muted); font-size: 14px; margin: 0; }
+#frameLetter:empty { display: none; }
+#framePanel .sheet-button { margin-top: 4px; }
 #growthCard { margin: 4px 12px; padding: 10px; border: 1px solid var(--line); border-radius: 10px; max-height: 30dvh; overflow: auto; background: var(--bg); font-size: 13px; }
 #growthCard[hidden] { display: none; }
 #growthText { white-space: pre-wrap; margin: 0 0 8px; }

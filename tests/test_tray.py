@@ -237,3 +237,101 @@ class AlreadyRunningTests(unittest.TestCase):
         with self.mock.patch.object(tray, "_taken", return_value=False) as taken:
             self.assertFalse(tray.already_running())
         self.assertEqual(taken.call_count, 1)
+
+
+@unittest.skipUnless(sys.platform == "win32", "トレイ常駐はWindows専用")
+class FigureTests(unittest.TestCase):
+    """しまった姿を、もう一度出せること。トレイごと入れ直す以外に道が無かった。"""
+
+    def setUp(self):
+        self.addCleanup(setattr, tray, "RESPAWN_WAIT", tray.RESPAWN_WAIT)
+        tray.RESPAWN_WAIT = 0.01
+        self.addCleanup(setattr, tray, "log", tray.log)
+        tray.log = lambda message: None
+        self.addCleanup(setattr, tray.config, "MASCOT_ENABLED", tray.config.MASCOT_ENABLED)
+        tray.config.MASCOT_ENABLED = True
+        self.spawned = []
+        self.figure = tray.Figure()
+        self.figure.spawn = self.spawn
+
+    def spawn(self):
+        process = FakeProcess(0)     # 「しまう」で自分から終わる
+        self.spawned.append(process)
+        return process
+
+    def settle(self):
+        thread = self.figure._thread
+        if thread is not None:
+            thread.join(timeout=2)
+
+    def test_put_away_means_no_respawn(self):
+        self.figure.start()
+        self.settle()
+        self.assertEqual(len(self.spawned), 1)
+        self.assertFalse(self.figure.watching())
+
+    def test_show_brings_it_back(self):
+        self.figure.start()
+        self.settle()
+        self.assertTrue(self.figure.show())
+        self.settle()
+        self.assertEqual(len(self.spawned), 2)
+
+    def test_show_does_nothing_while_it_is_out(self):
+        self.figure.process = FakeProcess(0)      # まだ出ている
+        self.assertFalse(self.figure.show())
+        self.assertEqual(self.spawned, [])
+
+    def test_switched_off_stays_off(self):
+        tray.config.MASCOT_ENABLED = False
+        self.assertFalse(self.figure.show())
+        self.assertEqual(self.spawned, [])
+
+
+@unittest.skipUnless(sys.platform == "win32", "トレイ常駐はWindows専用")
+class ClickTests(unittest.TestCase):
+    """シングルは姿、ダブルは会話画面。ダブルの前に来るシングルで姿を出さない。"""
+
+    def setUp(self):
+        self.addCleanup(setattr, tray, "log", tray.log)
+        tray.log = lambda message: None
+        for name in ("SetTimer", "KillTimer", "GetDoubleClickTime"):
+            self.addCleanup(setattr, tray.user32, name, getattr(tray.user32, name))
+        self.timers = []
+        tray.user32.SetTimer = lambda hwnd, ident, ms, proc: self.timers.append(ident) or 1
+        tray.user32.KillTimer = lambda hwnd, ident: self.timers.remove(ident) if ident in self.timers else 0
+        tray.user32.GetDoubleClickTime = lambda: 500
+        sup = tray.Supervisor()
+        sup.serving = lambda: False
+        self.tray = tray.Tray(sup, tray.Status(sup))
+        self.done = []
+        self.tray.open_chat = lambda: self.done.append("chat")
+        self.tray.show_figure = lambda: self.done.append("figure")
+
+    def click(self, lparam):
+        self.tray._handle(None, tray.WM_TRAY, 0, lparam)
+
+    def tick(self):
+        self.tray._handle(None, tray.WM_TIMER, tray.TIMER_CLICK, 0)
+
+    def test_a_single_click_waits_then_shows_the_figure(self):
+        self.click(tray.WM_LBUTTONUP)
+        self.assertEqual(self.done, [])              # まだ決めない
+        self.assertEqual(self.timers, [tray.TIMER_CLICK])
+        self.tick()
+        self.assertEqual(self.done, ["figure"])
+        self.assertEqual(self.timers, [])
+
+    def test_a_double_click_opens_the_chat_and_cancels_the_single(self):
+        self.click(tray.WM_LBUTTONUP)
+        self.click(tray.WM_LBUTTONDBLCLK)
+        self.assertEqual(self.done, ["chat"])
+        self.assertEqual(self.timers, [])            # シングルの時計は止めた
+
+    def test_a_stray_timer_is_not_a_click(self):
+        self.tray._handle(None, tray.WM_TIMER, 99, 0)
+        self.assertEqual(self.done, [])
+
+    def test_the_menu_can_bring_the_figure_back(self):
+        self.tray.command(tray.ID_FIGURE)
+        self.assertEqual(self.done, ["figure"])

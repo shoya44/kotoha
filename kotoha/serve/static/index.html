@@ -71,11 +71,14 @@
     </section>
 
     <main id="log" aria-live="polite" aria-relevant="additions"></main>
+    <!-- 額縁。姿を大きく出し、その下に時計・ことはの最後のひとこと・置き手紙。
+         入力欄と電話は会話画面と同じもの（下の composer）をそのまま使うので、
+         額縁のまま話しかけられる。履歴だけは畳んでおき、見たいときに開く。 -->
     <section id="framePanel" hidden aria-label="額縁">
       <time id="frameClock"></time>
       <p id="frameBubble" aria-live="polite"></p>
       <p id="frameLetter"></p>
-      <button class="sheet-button" id="frameChat" type="button">話しかける</button>
+      <button class="sheet-button" id="frameChat" type="button">履歴を見る</button>
     </section>
 
     <!-- 画面のいちばん下。つまみ・入力欄・「最新へ」を、ひとまとまりで置く。 -->

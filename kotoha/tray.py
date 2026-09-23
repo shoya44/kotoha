@@ -40,6 +40,10 @@ WATCH_WAIT = 5.0
 
 WM_DESTROY, WM_COMMAND, WM_TRAY = 0x0002, 0x0111, 0x0400 + 1
 WM_LBUTTONUP, WM_RBUTTONUP, WM_LBUTTONDBLCLK = 0x0202, 0x0205, 0x0203
+WM_TIMER = 0x0113
+# シングルクリックを待つ時計の番号。ダブルクリックの前にもシングルの合図が来るので、
+# OSのダブルクリック間隔だけ待ってから「1回だった」と決める。
+TIMER_CLICK = 1
 NIM_ADD, NIM_MODIFY, NIM_DELETE = 0, 1, 2
 NIF_MESSAGE, NIF_ICON, NIF_TIP, NIF_INFO = 0x01, 0x02, 0x04, 0x10
 MF_STRING, MF_SEPARATOR, MF_DEFAULT, MF_GRAYED = 0x0000, 0x0800, 0x1000, 0x0001
@@ -47,7 +51,7 @@ MF_POPUP = 0x0010
 TPM_RIGHTBUTTON, TPM_RETURNCMD = 0x0002, 0x0100
 IMAGE_ICON, LR_LOADFROMFILE, LR_DEFAULTSIZE = 1, 0x0010, 0x0040
 
-ID_OPEN, ID_RESTART, ID_QUIT = 1, 3, 4
+ID_OPEN, ID_FIGURE, ID_RESTART, ID_QUIT = 1, 2, 3, 4
 # 頼まれごとはここから番号を振る。actions の一覧と並びを合わせる。
 ID_ACTION_BASE = 100
 # 様子の書き換え間隔。メニューを開いた瞬間に調べると、止まっているとき待たされる。
@@ -103,6 +107,9 @@ _signature(user32.PostMessageW, w.BOOL, w.HWND, w.UINT, w.WPARAM, w.LPARAM)
 _signature(user32.FindWindowW, w.HWND, w.LPCWSTR, w.LPCWSTR)
 _signature(user32.RegisterWindowMessageW, w.UINT, w.LPCWSTR)
 _signature(user32.GetMessageW, w.BOOL, ctypes.POINTER(w.MSG), w.HWND, w.UINT, w.UINT)
+_signature(user32.SetTimer, ctypes.c_size_t, w.HWND, ctypes.c_size_t, w.UINT, w.LPVOID)
+_signature(user32.KillTimer, w.BOOL, w.HWND, ctypes.c_size_t)
+_signature(user32.GetDoubleClickTime, w.UINT)
 _signature(kernel32.GetModuleHandleW, w.HMODULE, w.LPCWSTR)
 _signature(kernel32.CreateMutexW, w.HANDLE, w.LPVOID, w.BOOL, w.LPCWSTR)
 _signature(kernel32.CloseHandle, w.BOOL, w.HANDLE)
@@ -261,6 +268,20 @@ class Figure:
         self._thread = threading.Thread(target=self._loop, daemon=True)
         self._thread.start()
 
+    def watching(self) -> bool:
+        return self._thread is not None and self._thread.is_alive()
+
+    def show(self) -> bool:
+        """しまった姿を、もう一度出す。出ていれば何もしない。
+
+        「しまう」で自分から終わると見張りも終わる（上げ直さない）。それまで
+        戻す道が無く、トレイごと入れ直すしかなかった。出せたら True。
+        """
+        if not config.MASCOT_ENABLED or self.alive() or self.watching():
+            return False
+        self.start()
+        return True
+
     def stop(self):
         self.stopping.set()
         if self.alive():
@@ -315,9 +336,10 @@ class Status:
 
 
 class Tray:
-    def __init__(self, supervisor, status=None):
+    def __init__(self, supervisor, status=None, figure=None):
         self.supervisor = supervisor
         self.status = status or Status(supervisor)
+        self.figure = figure
         self.hwnd = None
         self.icon = None
         # WNDPROC は参照を持っておかないと回収され、落ちる。
@@ -384,9 +406,39 @@ class Tray:
         url, _ = local_url(config.WEB_HOST, config.WEB_PORT)
         webbrowser.open(url)
 
+    def show_figure(self):
+        """右下の姿を出す。しまってあれば出し直し、出ていれば何もしない。"""
+        if self.figure is None:
+            return
+        if self.figure.show():
+            log("姿を出した")
+
+    # ---- クリック ----
+    # シングルは姿、ダブルは会話画面。Windows はダブルクリックの前にも
+    # WM_LBUTTONUP を送るので、シングルはOSの間隔だけ待ってから決める。
+
+    def _arm_click(self):
+        user32.SetTimer(self.hwnd, TIMER_CLICK, user32.GetDoubleClickTime(), None)
+
+    def _disarm_click(self):
+        user32.KillTimer(self.hwnd, TIMER_CLICK)
+
+    def single_click(self):
+        self._disarm_click()
+        self.show_figure()
+
+    def double_click(self):
+        self._disarm_click()
+        self.open_chat()
+
     def menu(self):
         handle = user32.CreatePopupMenu()
         user32.AppendMenuW(handle, MF_STRING | MF_DEFAULT, ID_OPEN, "ことはを開く")
+        # しまった姿を戻す道。出ているあいだは押せない。
+        can_show = config.MASCOT_ENABLED and self.figure is not None and not (
+            self.figure.alive() or self.figure.watching())
+        user32.AppendMenuW(handle, MF_STRING if can_show else MF_STRING | MF_GRAYED,
+                           ID_FIGURE, "姿を出す")
         user32.AppendMenuW(handle, MF_SEPARATOR, 0, None)
         # 押せない行として並べる。押させるより、開いた時点で見えるほうが早い。
         for line in self.status.lines:
@@ -440,6 +492,8 @@ class Tray:
             return
         if choice == ID_OPEN:
             self.open_chat()
+        elif choice == ID_FIGURE:
+            self.show_figure()
         elif choice == ID_RESTART:
             self.supervisor.restart()
         elif choice == ID_QUIT:
@@ -457,10 +511,15 @@ class Tray:
 
     def _handle(self, hwnd, message, wparam, lparam):
         if message == WM_TRAY:
-            if lparam in (WM_LBUTTONDBLCLK, WM_LBUTTONUP):
-                self.open_chat()
+            if lparam == WM_LBUTTONUP:
+                self._arm_click()
+            elif lparam == WM_LBUTTONDBLCLK:
+                self.double_click()
             elif lparam == WM_RBUTTONUP:
                 self.menu()
+            return 0
+        if message == WM_TIMER and wparam == TIMER_CLICK:
+            self.single_click()
             return 0
         if message == WM_COMMAND:
             self.command(wparam & 0xFFFF)
@@ -555,7 +614,7 @@ def main():
     supervisor = Supervisor()
     figure = Figure()
     status = Status(supervisor)
-    tray = Tray(supervisor, status)
+    tray = Tray(supervisor, status, figure)
     tray.create()
     supervisor.on_change = tray.refresh_tip
     status.on_change = tray.refresh_tip
