@@ -195,6 +195,7 @@ def _validate_and_save(conn, data, messages) -> int:
     created = 0
     merge = _merge_targets(conn, specs)
     merged_ids = []
+    names = retrieve.persona_names()
 
     for idx, spec in enumerate(specs):
         if not isinstance(spec, dict):
@@ -227,7 +228,9 @@ def _validate_and_save(conn, data, messages) -> int:
         tags = []
         for t in spec.get("tags", [])[:3]:
             nt = _normalize_tag(t)
-            if nt and nt not in tags:
+            # 人名は付けない（retrieve.persona_names）。ルール文でも止めているが、
+            # 守られなかったときに毎回当たるタグが増えないよう、ここでも落とす。
+            if nt and nt not in tags and nt not in names:
                 tags.append(nt)
         base = msg_date[src[0]]
         occurred = _safe_date(spec.get("occurred_at"), base)

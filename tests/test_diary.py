@@ -240,3 +240,21 @@ class DiaryApiTests(DbCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class HonestDiaryTests(DbCase):
+    """日記に、自分がしたことを書かせない。
+
+    「朝ごはん食べた？」と聞いただけの日に「朝ごはんを作ってあげた」と書いた
+    ことがある。ルール文は Gemini にしか読めないので、消えていないかを見張る。
+    """
+
+    def test_the_rule_is_in_the_prompt(self):
+        pen = Pen()
+        self.addCleanup(setattr, diary, "llm", diary.llm)
+        diary.llm = pen
+        _say(self.conn, 1, "assistant", "朝ごはん食べたのー？", datetime(2026, 9, 21, 9, 0))
+        self.conn.commit()
+        diary.write(self.conn, date(2026, 9, 21))
+        self.assertIn("自分がしたこと", pen.prompts[0])
+        self.assertIn("PCの中", pen.prompts[0])
