@@ -13,7 +13,7 @@ import urllib.parse
 import urllib.request
 import webbrowser
 
-from . import autostart, config
+from . import autostart, config, single
 
 
 def local_url(host, port):
@@ -329,11 +329,22 @@ def main():
         if config.WEB_HOST not in ("127.0.0.1", "localhost", "0.0.0.0"):
             raise SystemExit("Serve配信ではKOTOHA_WEB_HOSTを127.0.0.1に設定してください。")
         url, connect_host = local_url("127.0.0.1", config.WEB_PORT)
-    try:
-        with socket.create_connection((connect_host, config.WEB_PORT), timeout=1):
-            listening = True
-    except OSError:
-        listening = False
+    if not single.claim(single.BODY):
+        # 別の本体が印を持っている。二重には上げない。起動処理中で、まだ
+        # 答えないだけかもしれないので、少し待ってから画面だけ開く。
+        deadline = time.monotonic() + config.STARTUP_TIMEOUT_SECONDS
+        while not is_kotoha(url):
+            if time.monotonic() >= deadline:
+                raise SystemExit("ことはは別のプロセスで起動中です。二重には起動しません。")
+            time.sleep(0.5)
+        listening = True
+    else:
+        # 印の無い相手（古い本体や別アプリ）がポートを使っていないか。
+        try:
+            with socket.create_connection((connect_host, config.WEB_PORT), timeout=1):
+                listening = True
+        except OSError:
+            listening = False
     if listening:
         if not is_kotoha(url):
             raise SystemExit("指定ポートは使用中です。別アプリ、または異なる設定のことはを確認してください。")

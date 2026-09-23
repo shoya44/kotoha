@@ -153,38 +153,52 @@ def _autostart(args) -> None:
 
 
 def _tray() -> None:
-    """いますぐ常駐させる。コンソールを残さないよう pythonw に渡す。"""
+    """いますぐ常駐させ、会話画面を開く。コンソールを残さないよう pythonw に渡す。
+
+    すでに居るなら黙って終わらず、そう言って画面だけ開く。ダブルクリックした
+    人には「何も起きない」のがいちばん分かりにくい。
+    """
     import subprocess
+    import webbrowser
 
-    from . import autostart
+    from . import autostart, tray
+    from .launcher import local_url
 
+    url, _ = local_url(config.WEB_HOST, config.WEB_PORT)
+    if tray.resident():
+        print(f"すでにタスクトレイに常駐しています。会話画面を開きます: {url}")
+        webbrowser.open(url)
+        return
     runner = config.BASE_DIR / ".venv" / "Scripts" / "pythonw.exe"
     if not runner.is_file():
         raise SystemExit("pythonw.exe が見つかりません。kotoha.bat setup を実行してください。")
-    subprocess.Popen([str(runner), str(autostart.TRAY)],
-                     cwd=str(config.BASE_DIR),
-                     creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    process = subprocess.Popen([str(runner), str(autostart.TRAY)],
+                               cwd=str(config.BASE_DIR),
+                               creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     # 常駐は画面なしで上がるので、上がったかは窓で確かめる。黙って引き下がると
     # ダブルクリックしても何も起きないように見える。前の常駐の終わり待ち（最大10秒）ぶん待つ。
-    if _wait_for_tray(TRAY_WAIT):
-        print("タスクトレイに常駐しています。アイコンから開けます。")
+    # 窓が出ずに終わったなら、理由は tray.log にある。
+    if _wait_for_tray(TRAY_WAIT, process):
+        print(f"タスクトレイに常駐しました。会話画面は起き次第ひらきます: {url}")
         return
-    raise SystemExit(f"常駐を確かめられませんでした。{config.BASE_DIR / 'data' / 'tray.log'} を見てください。")
+    raise SystemExit(f"常駐を確かめられませんでした。{tray.LOG_PATH} を見てください。")
 
 
 # 常駐の窓が出るまで待つ長さ（秒）。tray.PREVIOUS_WAIT より長くする。
 TRAY_WAIT = 20.0
 
 
-def _wait_for_tray(wait: float) -> bool:
-    import ctypes
+def _wait_for_tray(wait: float, process=None) -> bool:
     import time
 
-    find = ctypes.WinDLL("user32").FindWindowW
+    from . import tray
+
     deadline = time.monotonic() + wait
     while time.monotonic() < deadline:
-        if find("KotohaTray", None):
+        if tray.resident():
             return True
+        if process is not None and process.poll() is not None:
+            return False
         time.sleep(0.5)
     return False
 

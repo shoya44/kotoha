@@ -18,7 +18,7 @@ import threading
 import time
 import webbrowser
 
-from . import autostart, config
+from . import autostart, config, single
 from .config import RESTART_EXIT_CODE
 
 _STATIC = config.BASE_DIR / "kotoha" / "serve" / "static"
@@ -26,6 +26,8 @@ ICON_PATH = _STATIC / "kotoha.ico"
 # 止まっているときは沈んだ色にする。かざさなくても分かるように。
 ICON_OFF_PATH = _STATIC / "kotoha_off.ico"
 LOG_PATH = config.BASE_DIR / "data" / "tray.log"
+# 本体（uvicorn）の画面出力。トレイから上げると窓が無いので、ここに落とす。
+BODY_LOG_PATH = config.BASE_DIR / "data" / "kotoha.log"
 # 同じものを二重に常駐させない。名前は書き換えないこと。
 MUTEX_NAME = "kotoha-tray-single-instance"
 # 落ちたときに上げ直すまでの間。すぐ上げ直すと、壊れていたとき暴れ続ける。
@@ -133,6 +135,8 @@ class Supervisor:
         """誰かがことはを動かしているか。kotoha.bat から上がっていることもある。"""
         from .launcher import is_kotoha, local_url
 
+        if single.taken(single.BODY):
+            return True
         url, _ = local_url(config.WEB_HOST, config.WEB_PORT)
         return is_kotoha(url)
 
@@ -142,14 +146,24 @@ class Supervisor:
     def spawn(self):
         # 起動時にブラウザーを開かない。開くのはトレイの役目になった。
         environment = dict(os.environ, KOTOHA_BROWSER_AUTO_OPEN="false")
-        return subprocess.Popen(
-            [sys.executable, "-m", "kotoha.launcher"],
-            cwd=str(config.BASE_DIR),
-            env=environment,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-        )
+        # 窓が無いぶん、落ちた理由をどこにも残せない。画面出力はファイルに。
+        try:
+            BODY_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+            output = BODY_LOG_PATH.open("ab")
+        except OSError:
+            output = None
+        try:
+            return subprocess.Popen(
+                [sys.executable, "-m", "kotoha.launcher"],
+                cwd=str(config.BASE_DIR),
+                env=environment,
+                stdout=output or subprocess.DEVNULL,
+                stderr=subprocess.STDOUT if output else subprocess.DEVNULL,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+        finally:
+            if output is not None:
+                output.close()
 
     def _loop(self):
         while not self.stopping.is_set():
@@ -173,7 +187,8 @@ class Supervisor:
             if code == RESTART_EXIT_CODE:
                 log("再起動の合図を受けた")
                 continue
-            log(f"本体が終了した（コード {code}）。{RESPAWN_WAIT:.0f}秒後に上げ直す")
+            log(f"本体が終了した（コード {code}）。{RESPAWN_WAIT:.0f}秒後に上げ直す"
+                f"（理由は {BODY_LOG_PATH.name} に）")
             self.stopping.wait(RESPAWN_WAIT)
 
     def start(self):
@@ -499,6 +514,11 @@ def _taken() -> bool:
         _mutex = None
         return True
     return False
+
+
+def resident() -> bool:
+    """トレイが居るか。印は掴まずに窓だけ見るので、外の道具から呼んでよい。"""
+    return bool(user32.FindWindowW("KotohaTray", None))
 
 
 _mutex = None
