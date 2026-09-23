@@ -212,3 +212,28 @@ class StatusTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@unittest.skipUnless(sys.platform == "win32", "トレイはWindows専用")
+class AlreadyRunningTests(unittest.TestCase):
+    """終わりかけの前の常駐を「いる」と取り違えない。終えた3秒後のダブルクリックで何も出なかった。"""
+
+    def setUp(self):
+        from unittest import mock
+        self.mock = mock
+        patcher = mock.patch.object(tray.time, "sleep", lambda _s: None)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_waits_for_a_tray_that_is_leaving(self):
+        with self.mock.patch.object(tray, "_taken", side_effect=[True, True, False]):
+            self.assertFalse(tray.already_running(wait=5))
+
+    def test_a_tray_that_stays_is_running(self):
+        with self.mock.patch.object(tray, "_taken", return_value=True):
+            self.assertTrue(tray.already_running(wait=0))
+
+    def test_nobody_there_starts_at_once(self):
+        with self.mock.patch.object(tray, "_taken", return_value=False) as taken:
+            self.assertFalse(tray.already_running())
+        self.assertEqual(taken.call_count, 1)

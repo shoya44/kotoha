@@ -164,7 +164,29 @@ def _tray() -> None:
     subprocess.Popen([str(runner), str(autostart.TRAY)],
                      cwd=str(config.BASE_DIR),
                      creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-    print("タスクトレイに常駐しました。アイコンから開けます。")
+    # 常駐は画面なしで上がるので、上がったかは窓で確かめる。黙って引き下がると
+    # ダブルクリックしても何も起きないように見える。前の常駐の終わり待ち（最大10秒）ぶん待つ。
+    if _wait_for_tray(TRAY_WAIT):
+        print("タスクトレイに常駐しています。アイコンから開けます。")
+        return
+    raise SystemExit(f"常駐を確かめられませんでした。{config.BASE_DIR / 'data' / 'tray.log'} を見てください。")
+
+
+# 常駐の窓が出るまで待つ長さ（秒）。tray.PREVIOUS_WAIT より長くする。
+TRAY_WAIT = 20.0
+
+
+def _wait_for_tray(wait: float) -> bool:
+    import ctypes
+    import time
+
+    find = ctypes.WinDLL("user32").FindWindowW
+    deadline = time.monotonic() + wait
+    while time.monotonic() < deadline:
+        if find("KotohaTray", None):
+            return True
+        time.sleep(0.5)
+    return False
 
 
 def _start() -> None:
