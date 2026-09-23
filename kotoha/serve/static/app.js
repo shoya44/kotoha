@@ -1467,7 +1467,8 @@ function playAudio(sound) {
 
 // 口パク。声が鳴っているあいだ、口を開けた差分と本体を交互に出す。差分の無い絵は動かない。
 // まばたきは口が動いているあいだ止める（両方が src を触ると取り合いになる）。
-const MOUTH_MS = 120;
+// 速いとパクパクして違和感がある（120ms は速すぎた）。ゆっくり、ときどき開く程度にする。
+const MOUTH_MS = 260;
 
 function startMouth() {
   const name = currentPicture;

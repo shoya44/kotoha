@@ -266,6 +266,65 @@ def _fit_blink(base, blink, window, guess=(0, 0), search: int = BLINK_SEARCH):
     return out, (dx, dy)
 
 
+# 口の差分で、本体と違うとみなす画素の閾値と、口の塊をふくらませる幅（ドット）。
+MOUTH_DIFF = 60
+MOUTH_GROW = 2
+MOUTH_MIN_BLOB = 8
+
+
+def _only_mouth(base, fitted, window):
+    """窓の中で本体と違う塊のうち、**いちばん大きい塊（口）だけ**を差分から取る。
+
+    口の窓を塗り直すと、口だけでなく窓に入った手や袖の縁も少しずつ描き直される。
+    そのまま交互に出すと、口が動くたびに手までちらつく（2026-09-23 に worry / talk で
+    そう見えた）。違う画素を4方向でつないだ塊に分け、窓の真ん中にいちばん近い塊を口と
+    みなしてその周りだけ差分にし、ほかは本体に戻す。
+    """
+    x0, y0, x1, y1 = window
+    width = base.width
+    changed = set()
+    for y in range(max(0, y0), min(base.height, y1)):
+        for x in range(max(0, x0), min(width, x1)):
+            i = (y * width + x) * 4
+            diff = sum(abs(base.px[i + k] - fitted.px[i + k]) for k in range(4))
+            if diff > MOUTH_DIFF:
+                changed.add((x, y))
+    blobs = []
+    left = set(changed)
+    while left:
+        seed = left.pop()
+        blob, stack = {seed}, [seed]
+        while stack:
+            cx, cy = stack.pop()
+            for nx, ny in ((cx + 1, cy), (cx - 1, cy), (cx, cy + 1), (cx, cy - 1)):
+                if (nx, ny) in left:
+                    left.discard((nx, ny))
+                    blob.add((nx, ny))
+                    stack.append((nx, ny))
+        blobs.append(blob)
+    blobs = [b for b in blobs if len(b) >= MOUTH_MIN_BLOB]
+    if not blobs:
+        return fitted
+    # 窓の真ん中（口のあるところ）にいちばん近い塊を口とみなす。いちばん大きい塊だと、
+    # 顎の下の手や袖の縁（think / worry / happy / fidget_shy）を拾った
+    cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
+    def far(blob):
+        mx = sum(x for x, _ in blob) / len(blob)
+        my = sum(y for _, y in blob) / len(blob)
+        return (mx - cx) ** 2 + (my - cy) ** 2
+    keep = min(blobs, key=far)
+    grown = set(keep)
+    for _ in range(MOUTH_GROW):
+        grown |= {(x + dx, y + dy) for x, y in grown for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1))}
+    out = png.Image(base.width, base.height)
+    out.px[:] = base.px
+    for x, y in grown:
+        if 0 <= x < width and 0 <= y < base.height:
+            i = (y * width + x) * 4
+            out.px[i:i + 4] = fitted.px[i:i + 4]
+    return out
+
+
 def _head(image, bounds, part: float):
     """頭を中心にした正方形の切り抜き。part は中身の高さに対する割合。"""
     left, top, right, bottom = bounds
@@ -436,6 +495,8 @@ def main(check: bool = False) -> int:
                 default, overrides = DIFF_WINDOWS[suffix]
                 window = _eye_window(box, place, ratio, overrides.get(name, default))
                 fitted, found[suffix] = _fit_blink(base, drawn, window, guess, search)
+                if suffix == MOUTH_SUFFIX:
+                    fitted = _only_mouth(base, fitted, window)
                 png.save(OUT_DIR / folder / f"{name}{suffix}.png", fitted)
                 if folder == "full":
                     checks.append((name + suffix, base, fitted, window))

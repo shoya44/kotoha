@@ -99,8 +99,7 @@
       "blink": true
     },
     "fidget_shy": {
-      "blink": true,
-      "mouth": true
+      "blink": true
     },
     "fidget_sigh": {
       "blink": false
@@ -127,15 +126,13 @@
       "blink": false
     },
     "happy": {
-      "blink": true,
-      "mouth": true
+      "blink": true
     },
     "laptop": {
       "blink": true
     },
     "laugh": {
-      "blink": true,
-      "mouth": true
+      "blink": true
     },
     "nap": {
       "blink": true
@@ -157,8 +154,7 @@
       "mouth": true
     },
     "talk": {
-      "blink": true,
-      "mouth": true
+      "blink": true
     },
     "think": {
       "blink": true,
@@ -171,8 +167,7 @@
       "blink": true
     },
     "worry": {
-      "blink": true,
-      "mouth": true
+      "blink": true
     },
     "write": {
       "blink": true

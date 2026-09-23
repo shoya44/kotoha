@@ -58,7 +58,7 @@ BLINK_DENOISE = 0.8
 EYE_WINDOW = (0.28, 0.72, 0.20, 0.40)
 LOW_EYE_WINDOW = (0.28, 0.72, 0.45, 0.68)
 # 口の窓（口パク差分 `-mouth.png`）。目の下から顎まで。目の窓と同じく、顔が低い絵は poses の mouth_window で下げる。
-# 差分を作るのは mouth=True の絵だけ（talk と返事の顔）。会話画面が声を出しているあいだ本体と交互に出す。
+# 差分を作るのは mouth=True の絵だけ（いまは think / surprised）。会話画面が声を出しているあいだ本体と交互に出す。
 MOUTH_WINDOW = (0.32, 0.68, 0.36, 0.52)
 MOUTH_DENOISE = 0.8
 # 脚の窓。歩きのコマで足の前後だけを描き直す。
@@ -68,7 +68,7 @@ FRAME_DENOISE = 0.75
 
 POSES = {
     # 既存（ポーズはそのまま、筆致をそろえる）
-    "talk":     dict(mouth=True, pose="standing, one hand near mouth, small open mouth, talking", source="self"),
+    "talk":     dict(pose="standing, one hand near mouth, small open mouth, talking", source="self"),
     "wave":     dict(pose="standing, waving one hand, cheerful", source="self"),
     "daydream": dict(pose="standing, looking up, blank sleepy expression, daydreaming", source="self"),
     "laptop":   dict(pose="sitting on the floor with an open laptop, looking at the screen", source="self"),
@@ -78,13 +78,13 @@ POSES = {
     "book":     dict(pose="sitting, reading a book held in both hands", source="self"),
     "think":    dict(mouth=True, pose="standing, one finger on chin, looking aside, thinking", source="self"),
     "cards":    dict(pose="sitting, holding playing cards, playful grin", source="self"),
-    "laugh":    dict(mouth="closed", pose="standing, laughing with eyes closed, one hand near mouth", source="self"),
+    "laugh":    dict(pose="standing, laughing with eyes closed, one hand near mouth", source="self"),
     "sleep":    dict(pose="lying down asleep on a pillow, eyes closed, peaceful", source="self", blink=False),
-    "worry":    dict(mouth=True, pose="standing, hands clasped in front, worried expression, sweat drop", source="self"),
+    "worry":    dict(pose="standing, hands clasped in front, worried expression, sweat drop", source="self"),
     # sulk は横顔で口が小さく、口パク差分は髪のほうが動いて見えたので付けない（2026-09-23）
     "sulk":     dict(pose="standing, arms crossed, cheeks puffed, pouting, looking away", source="self"),
     # 機嫌ぶん（新規）。tired は 2026-09-23 に不採用（「疲れ気味」は絵を持たず、時間帯の立ち姿のまま）
-    "happy":    dict(mouth="closed", pose="big smile, eyes closed in joy, both hands raised slightly, bouncing on toes", source="wave"),
+    "happy":    dict(pose="big smile, eyes closed in joy, both hands raised slightly, bouncing on toes", source="wave"),
     # 返事の顔ぶん（figure.FACES）。話した直後だけ出る
     # 頭を大きくしたので目が 32〜41% に下がる。既定の目の窓（20〜40%）では片目が閉じきらない
     "surprised": dict(mouth="closed", pose="surprised, wide open eyes, small open mouth, both hands raised near chest, leaning back slightly", source="talk",
@@ -133,7 +133,7 @@ POSES = {
     "fidget_hum":     dict(pose="eyes closed, humming a tune, head tilted, small smile, one hand raised", source="laugh"),
     "fidget_pocket":  dict(pose="both hands in hoodie pockets, slouching slightly, relaxed, looking away", source="talk"),
     "fidget_giggle":  dict(pose="giggling behind one hand, eyes closed, shoulders raised", source="laugh"),
-    "fidget_shy":     dict(mouth=True, pose="shy, fidgeting with hoodie drawstring, looking down, light blush", source="talk"),
+    "fidget_shy":     dict(pose="shy, fidgeting with hoodie drawstring, looking down, light blush", source="talk"),
     "fidget_nod":     dict(pose="nodding, eyes closed, satisfied smile, arms folded", source="wave"),
     "fidget_hungry":  dict(pose="holding own stomach with both hands, thinking about food, slight pout", source="worry"),
     "fidget_cold":    dict(pose="hugging own arms, shivering slightly, hoodie pulled tight, cheeks flushed", source="worry"),
@@ -156,8 +156,10 @@ BLINK = "(closed eyes:1.4), both eyes closed, eyes shut, closed eyes drawn as a 
 BLINK_DROP = "red-brown eyes, "
 # 口パク差分に足す言葉。口の窓だけ塗り直す。目は窓の外なので変わらない。
 MOUTH = "(open mouth:1.4), mouth wide open, talking, small round open mouth"
-# 本体がもう口を開けている絵（laugh / happy / surprised）は、逆に閉じた口の差分を作る（mouth="closed"）。
+# 本体がもう口を開けている絵（surprised）は、逆に閉じた口の差分を作る（mouth="closed"）。
 # 交互に出したときに動いて見えるのは、本体と差分の口が違うときだけ。
+# 2026-09-23: 8枚作って、口だけがきれいに変わった think / surprised だけ採用。talk / worry / laugh /
+# happy / fidget_shy は口元の手や袖まで描き直されてちらついたので口パク無し（ユーザー判断）。
 MOUTH_CLOSED = "(closed mouth:1.4), mouth closed, lips closed, small gentle smile"
 # 口の段では、口の開け閉めや笑いの指定が pose に残っていると効かないので外す言葉。
 MOUTH_DROP_WORDS = ("small open mouth", "open mouth", "closed mouth", "pouting", "cheeks puffed",
