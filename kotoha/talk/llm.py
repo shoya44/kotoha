@@ -4,7 +4,9 @@
 切れたらそこまでを言ったことにする。まとめて受け取る道だけが投げ直す。
 """
 
+import contextlib
 import json
+import threading
 
 import httpx
 
@@ -15,6 +17,33 @@ class LLMError(Exception):
     def __init__(self, message: str, retryable: bool = False):
         super().__init__(message)
         self.retryable = retryable
+
+
+# 糸ごとの「急ぎ」の印。裏の仕事（巡回）が立てる。会話の糸には影響しない。
+_local = threading.local()
+
+
+@contextlib.contextmanager
+def hurried():
+    """この糸の中では、短い上限で1回だけ試す。
+
+    巡回は会話と同じ順番待ちを持ったまま Gemini を待つ。会話と同じ上限
+    （既定180秒）で2回試すと、その6分のあいだ会話が「考え中…」のまま止まる
+    （2026-09-24）。裏の仕事は急がば回れで、駄目なら次の巡回に譲る。
+    """
+    before = getattr(_local, "hurry", False)
+    _local.hurry = True
+    try:
+        yield
+    finally:
+        _local.hurry = before
+
+
+def _budget() -> tuple[float, int]:
+    """いまの糸の待ち上限と試す回数。"""
+    if getattr(_local, "hurry", False):
+        return config.BACKGROUND_TIMEOUT_SECONDS, 1
+    return config.TIMEOUT_SECONDS, config.LLM_ATTEMPTS
 
 
 def _payload(prompt: str, max_tokens: int | None = None) -> dict:
@@ -52,14 +81,15 @@ def chat(prompt: str, max_tokens: int | None = None) -> str:
     payload = _payload(prompt, max_tokens)
     headers = _headers()
     last_error = None
+    timeout, attempts = _budget()
 
-    for _ in range(config.LLM_ATTEMPTS):
+    for _ in range(attempts):
         try:
             resp = httpx.post(
                 f"{config.GEMINI_BASE_URL}/chat/completions",
                 json=payload,
                 headers=headers,
-                timeout=config.TIMEOUT_SECONDS,
+                timeout=timeout,
             )
         except httpx.HTTPError as e:
             last_error = LLMError(f"通信失敗: {e}", retryable=True)
@@ -97,7 +127,7 @@ def stream(prompt: str, max_tokens: int | None = None):
     try:
         with httpx.stream("POST", f"{config.GEMINI_BASE_URL}/chat/completions",
                           json=payload, headers=_headers(),
-                          timeout=config.TIMEOUT_SECONDS) as resp:
+                          timeout=_budget()[0]) as resp:
             if resp.status_code != 200:
                 resp.read()
                 raise _trouble(resp.status_code, resp.text) or LLMError("応答が空。")

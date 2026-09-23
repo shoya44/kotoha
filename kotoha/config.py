@@ -62,6 +62,8 @@ MAX_OUTPUT_TOKENS = _number("KOTOHA_MAX_OUTPUT_TOKENS")
 TIMEOUT_SECONDS = _number("KOTOHA_TIMEOUT_SECONDS", float, minimum=0.1)
 TEMPERATURE = _number("KOTOHA_TEMPERATURE", float, minimum=0, maximum=2)
 LLM_ATTEMPTS = _number("KOTOHA_LLM_ATTEMPTS")
+# 裏の仕事が Gemini を待つ上限。会話の順番待ちを持ったまま待つので、会話より短くする。
+BACKGROUND_TIMEOUT_SECONDS = _number("KOTOHA_BACKGROUND_TIMEOUT_SECONDS", float, minimum=0.1)
 FAST_ENABLED = _boolean("KOTOHA_FAST_ENABLED")
 FAST_MAX_INPUT_CHARS = _number("KOTOHA_FAST_MAX_CHARS")
 DEBUG = _boolean("KOTOHA_DEBUG")

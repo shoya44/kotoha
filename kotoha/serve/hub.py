@@ -370,6 +370,16 @@ def end_turn():
         _busy = max(0, _busy - 1)
 
 
+def talking() -> bool:
+    """誰かが話しかけている最中か（順番待ちに並んでいるぶんも含む）。
+
+    巡回はこれを見て、手を止める。会話は begin_turn を先に呼んでから
+    順番待ちに並ぶので、待たされている人がいれば必ず True になる。
+    """
+    with _lock:
+        return _busy > 0
+
+
 def maybe_move(conn):
     """役割に沿って移る。会話の順番待ちを取った巡回からだけ呼ぶ。"""
     from ..talk import living

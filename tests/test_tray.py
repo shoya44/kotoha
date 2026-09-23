@@ -1,5 +1,7 @@
 """トレイ常駐の見張りの検証。Windowsの画面まわりには触れない。"""
 
+import io
+import json
 import sys
 import tempfile
 import threading
@@ -286,6 +288,57 @@ class FigureTests(unittest.TestCase):
         tray.config.MASCOT_ENABLED = False
         self.assertFalse(self.figure.show())
         self.assertEqual(self.spawned, [])
+
+
+@unittest.skipUnless(sys.platform == "win32", "トレイ常駐はWindows専用")
+class CallBackTests(unittest.TestCase):
+    """姿の窓は生きているのに本人が見えない（外出中）とき、トレイは脳へ呼び戻しを頼む。"""
+
+    def setUp(self):
+        self.addCleanup(setattr, tray, "log", tray.log)
+        tray.log = lambda message: None
+        sup = tray.Supervisor()
+        sup.serving = lambda: False
+        self.tray = tray.Tray(sup, tray.Status(sup))
+        self.tray.figure = tray.Figure()
+        self.called = []
+        self.tray.call_figure = lambda: self.called.append("here")
+
+    def test_a_put_away_figure_is_shown_again_not_called(self):
+        self.tray.figure.show = lambda: True
+        self.tray.show_figure()
+        self.assertEqual(self.called, [])
+
+    def test_a_living_figure_is_called_back(self):
+        self.tray.figure.show = lambda: False
+        self.tray.figure.process = FakeProcess(0)      # 窓は出ている
+        self.tray.show_figure()
+        self.assertEqual(self.called, ["here"])
+
+    def test_nothing_happens_when_the_figure_is_switched_off(self):
+        self.tray.figure.show = lambda: False
+        self.tray.figure.process = None
+        self.tray.show_figure()
+        self.assertEqual(self.called, [])
+
+    def test_the_call_goes_to_the_brain_with_the_token(self):
+        seen = {}
+
+        class Opener:
+            def open(self, request, timeout=None):
+                seen["url"] = request.full_url
+                seen["token"] = request.get_header("X-kotoha-token")
+                seen["body"] = json.loads(request.data.decode("utf-8"))
+                seen["timeout"] = timeout
+                return io.BytesIO(b"{}")
+
+        self.addCleanup(setattr, tray.urllib.request, "build_opener", tray.urllib.request.build_opener)
+        tray.urllib.request.build_opener = lambda *handlers: Opener()
+        self.tray._call_figure()
+        self.assertTrue(seen["url"].endswith("/api/presence/here"))
+        self.assertEqual(seen["token"], tray.config.WEB_TOKEN)
+        self.assertEqual(seen["body"]["vessel"], "desktop")
+        self.assertEqual(seen["timeout"], 5)
 
 
 @unittest.skipUnless(sys.platform == "win32", "トレイ常駐はWindows専用")

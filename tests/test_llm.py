@@ -81,5 +81,35 @@ class LlmTests(unittest.TestCase):
         self.assertEqual(len(self.calls), config.LLM_ATTEMPTS)
 
 
+class HurriedTests(unittest.TestCase):
+    """裏の仕事は短い上限で1回だけ。会話の糸には影響しない。"""
+
+    def setUp(self):
+        self.addCleanup(setattr, config, "BACKGROUND_TIMEOUT_SECONDS", config.BACKGROUND_TIMEOUT_SECONDS)
+        config.BACKGROUND_TIMEOUT_SECONDS = 7.0
+        self.timeouts = []
+
+        def fake_post(url, **kwargs):
+            self.timeouts.append(kwargs.get("timeout"))
+            return httpx.Response(503, text="busy")
+
+        self.addCleanup(setattr, llm.httpx, "post", llm.httpx.post)
+        llm.httpx.post = fake_post
+
+    def test_hurried_tries_once_with_the_short_limit(self):
+        with llm.hurried():
+            with self.assertRaises(llm.LLMError):
+                llm.chat("整理して")
+        self.assertEqual(self.timeouts, [7.0])
+
+    def test_the_hurry_ends_with_the_block(self):
+        with llm.hurried():
+            pass
+        with self.assertRaises(llm.LLMError):
+            llm.chat("やっほー")
+        self.assertEqual(len(self.timeouts), config.LLM_ATTEMPTS)
+        self.assertEqual(self.timeouts[0], config.TIMEOUT_SECONDS)
+
+
 if __name__ == "__main__":
     unittest.main()

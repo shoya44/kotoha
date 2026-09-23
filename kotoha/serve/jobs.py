@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 
 from .. import config, notify
 from ..memory import consolidate, db, diary, embed, habits, remind, retrieve, review
-from ..talk import chat, coding, garbage, living, myself, presence, quake, schedule, upkeep, weather
+from ..talk import chat, coding, garbage, living, llm, myself, presence, quake, schedule, upkeep, weather
 from . import hub
 from .announce import announce, can_speak, collecting, flush_held
 
@@ -32,19 +32,34 @@ def _unprocessed_turns(conn) -> int:
     return row["n"]
 
 
+def _someone_waiting() -> bool:
+    """話しかけた人が順番待ちに並んでいるか。並んでいれば、巡回は手を止める。
+
+    巡回は会話と同じ順番待ちを持ったまま Gemini を呼ぶ。日記・夜の整理・
+    習慣・声かけが同じ分に重なると、そのあいだ会話は「考え中…」のまま
+    数分止まった（2026-09-24）。段と段の間でこれを見て、残りは次の巡回へ譲る。
+    """
+    return hub.talking()
+
+
 def run_periodic_jobs(conn, outside=None) -> None:
     """整理・バックアップ・忘却を、頃合いになったものだけ回す。
 
     順番に意味がある。バックアップは忘却より先に取らないと、
     消えた直後の状態しか残らない。前段の失敗で後段を止めない。
+
+    **話しかけた人が待っていれば、そこで切り上げる。** Gemini を呼ぶ段の前で
+    見る。切り上げても、頃合いの印はそれぞれの段が自分で付けるので、次の
+    巡回（60秒後）でそこから続く。
     """
     myself.heartbeat(conn)   # 生きている印。止まれば、次に起きたとき長さが分かる
     presence.sample(conn)
+    conn.commit()            # 切り上げても、ここまでは残す
     unprocessed = _unprocessed_turns(conn)
     idle = db.overdue(conn, db.LAST_CONVERSATION_AT, config.IDLE_SECONDS)
     # 会話が途切れてからにする。整理は会話と同じ順番待ちに並ぶので、話している
     # 最中に走ると返答が数秒止まる。通話だとそのまま黙り込んで聞こえる。
-    if unprocessed > 0 and idle:
+    if unprocessed > 0 and idle and not _someone_waiting():
         try:
             consolidate.run(conn)
         except Exception as error:
@@ -59,17 +74,21 @@ def run_periodic_jobs(conn, outside=None) -> None:
             notify.log(f"バックアップで失敗: {error!r}")
     if db.overdue(conn, db.LAST_FORGET_AT, config.MAINTENANCE_SECONDS):
         db.run_maintenance(conn)
+    if _someone_waiting():
+        return
     maybe_diary(conn)
-    if review.due(conn):
+    if review.due(conn) and not _someone_waiting():
         try:
             review.run(conn)
         except Exception as error:
             notify.log(f"夜の整理で失敗: {error!r}")
-    if habits.due(conn):
+    if habits.due(conn) and not _someone_waiting():
         try:
             habits.reflect(conn)
         except Exception as error:
             notify.log(f"習慣の振り返りで失敗: {error!r}")
+    if _someone_waiting():
+        return
     # 朝の一言、頼まれごと、見守り、暇なときの声かけ。どれも滅多に鳴らない。
     # この巡回のあいだは鳴らさずに預かる。朝の一言と頼まれごとが同じ分に
     # 重なることがあり、2通に分けると同じ人から立て続けに届く。
@@ -142,7 +161,7 @@ def run_watch_jobs() -> None:
                 db.set_state(conn, key, low)
             conn.commit()
             for closing, plain in said:
-                with turn_lock:
+                with turn_lock, llm.hurried():
                     announce(conn, closing, plain=plain)
         except Exception as error:
             notify.log(f"見張りで失敗: {error!r}")
@@ -440,7 +459,8 @@ def _with_lock() -> None:
     """
     with db.session() as conn:
         outside = briefing_outside(conn)
-    with turn_lock, db.session() as conn:
+    # 順番待ちを持っているあいだの Gemini は、短い上限で1回だけ（llm.hurried）。
+    with turn_lock, llm.hurried(), db.session() as conn:
         run_periodic_jobs(conn, outside)
 
 
