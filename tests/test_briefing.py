@@ -183,6 +183,12 @@ class BriefingTests(DbCase):
         jobs.maybe_briefing(self.conn)
         self.assertIn("傘: いる", self.given[0])
 
+    def test_the_sky_is_kept_for_the_day(self):
+        """取った空模様はその場で覚える。昼の会話でも外がどうかは分かる。"""
+        self.at(8)
+        jobs.maybe_briefing(self.conn)
+        self.assertEqual(jobs.weather.kept, [({"umbrella": True}, datetime.now().strftime("%Y-%m-%d"))])
+
     def test_a_sky_it_cannot_see_is_not_fatal(self):
         jobs.weather = FakeSky(broken=True)
         self.at(8)
@@ -306,6 +312,9 @@ class FakeSky:
 
     def block(self, sky):
         return "" if sky is None else "今日の空模様:\n  傘: いる"
+
+    def remember(self, conn, sky, day=None):
+        self.kept = getattr(self, "kept", []) + [(sky, day)]
 
 
 class Mouth:
@@ -507,3 +516,26 @@ class QuakeTests(unittest.TestCase):
         self.assertIn("02:14", said)
         self.assertIn("茨城県南部", said)
         self.assertIn("震度3", said)
+
+
+class SkyMemoryTests(DbCase):
+    """朝に取った空模様を、その日のあいだ覚えておく。昼の会話でも外がどうかは分かる。"""
+
+    SKY = {"word": "雨", "high": 21.4, "low": 14.2, "chance": 80, "umbrella": True,
+           "clothes": "長袖", "swing": 0.0, "rain_from": None, "fall": 0.0}
+
+    def test_the_line_is_short(self):
+        self.assertEqual(weather.line(self.SKY), "雨、最高21℃、傘はいる")
+        self.assertEqual(weather.line(None), "")
+
+    def test_it_is_kept_for_the_day(self):
+        weather.remember(self.conn, self.SKY, "2026-09-23")
+        self.assertEqual(weather.today_line(self.conn, "2026-09-23"), "雨、最高21℃、傘はいる")
+
+    def test_yesterdays_sky_is_not_todays(self):
+        weather.remember(self.conn, self.SKY, "2026-09-22")
+        self.assertEqual(weather.today_line(self.conn, "2026-09-23"), "")
+
+    def test_a_silent_service_leaves_nothing(self):
+        weather.remember(self.conn, None, "2026-09-23")
+        self.assertEqual(weather.today_line(self.conn, "2026-09-23"), "")

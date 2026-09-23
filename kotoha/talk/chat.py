@@ -4,7 +4,7 @@ from typing import NamedTuple
 
 from .. import clock, config, notify
 from ..memory import db, diary, growth, habits, remind, retrieve
-from . import actions, coding, figure, living, myself, presence, schedule
+from . import actions, coding, figure, living, myself, presence, schedule, weather
 from . import llm, router
 
 FAST_NOTICE = (
@@ -418,6 +418,10 @@ def build_prompt(conn, user_text: str, recent, pinned, related, fast: bool = Fal
         + (f"。{mood_note(conn)}" if why and mood_note(conn) else "")
         + (f"。{mood_words(mood_axes(conn, now.hour))}" if mood_words(mood_axes(conn, now.hour)) else ""),
     ]
+    # 外がどうかは、持ち主と同じ空の下に居るぶん。朝に取れた日だけ。
+    sky = weather.today_line(conn, now.strftime("%Y-%m-%d"))
+    if sky:
+        lines.append(f"外の様子: {sky}")
     trust = habits.trust_line(conn)
     if trust:
         lines.append(trust)

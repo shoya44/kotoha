@@ -328,6 +328,12 @@ LAST_PROCESSED_MESSAGE_ID = "last_processed_message_id"
 LAST_REACH_OUT_AT = "last_reach_out_at"
 LAST_BRIEFING_ON = "last_briefing_on"
 LAST_DIARY_ON = "last_diary_on"
+# 日記が書けなかった時刻と、その日に何度しくじったか（"YYYY-MM-DD:n"）。
+# 1時間おきに数回まで試し直す。その日を捨てないため（serve/jobs.py の maybe_diary）。
+DIARY_FAILED_AT = "diary_failed_at"
+DIARY_FAILS = "diary_fails"
+# 朝に取った今日の空模様（{"on": 日付, "text": 1行}）。その日のあいだ、状況の行に添える。
+SKY_TODAY = "sky_today"
 LAST_HABITS_AT = "last_habits_at"
 # 相手への信頼。習慣と同じ振り返りで週に一度動く。叱るかどうかの根拠。
 TRUST = "trust"

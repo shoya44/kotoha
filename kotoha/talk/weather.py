@@ -4,9 +4,13 @@
 傘と服装はここで決め、言い回しはことはに任せる。型にはめると人格が死ぬ。
 """
 
+import json
+from datetime import datetime
+
 import httpx
 
 from .. import config
+from ..memory import db
 
 ENDPOINT = "https://api.open-meteo.com/v1/forecast"
 TIMEOUT = 8.0
@@ -134,6 +138,42 @@ def today():
         "rain_from": rain_from(rains),
         "fall": biggest_fall(pressures),
     }
+
+
+def line(sky) -> str:
+    """会話の状況に添える1行。朝の一言より短く、空と気温と傘だけ。"""
+    if not sky:
+        return ""
+    return (f"{sky['word']}、最高{sky['high']:.0f}℃、"
+            f"傘は{'いる' if sky['umbrella'] else 'いらない'}")
+
+
+def remember(conn, sky, day: str = None) -> None:
+    """朝に取った空模様を、その日のあいだ覚えておく。
+
+    「今のことは」は日付だけで決まるので、雨の日でも洗濯物を畳んでいた。
+    外を見に行くのは朝の一言の1回だけで足りる。取れなかった朝は何も残さない。
+    """
+    text = line(sky)
+    if not text:
+        return
+    day = day or datetime.now().strftime("%Y-%m-%d")
+    db.set_state(conn, db.SKY_TODAY, json.dumps({"on": day, "text": text}, ensure_ascii=False))
+
+
+def today_line(conn, day: str = None) -> str:
+    """今日の空模様の1行。朝に取れていなければ空。昨日のぶんは渡さない。"""
+    raw = db.get_state(conn, db.SKY_TODAY)
+    if not raw:
+        return ""
+    try:
+        found = json.loads(raw)
+    except ValueError:
+        return ""
+    day = day or datetime.now().strftime("%Y-%m-%d")
+    if not isinstance(found, dict) or found.get("on") != day:
+        return ""
+    return str(found.get("text") or "")
 
 
 def block(sky) -> str:
