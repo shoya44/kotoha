@@ -1,0 +1,127 @@
+{
+ "_tries": {
+  "coffee": 1,
+  "dishes": 1,
+  "fidget_cold": 1,
+  "fidget_cross": 1,
+  "fidget_fan": 1,
+  "fidget_giggle": 1,
+  "fidget_hair": 1,
+  "fidget_hood": 1,
+  "fidget_hum": 1,
+  "fidget_hungry": 1,
+  "fidget_kick": 1,
+  "fidget_lean": 1,
+  "fidget_look": 1,
+  "fidget_nod": 1,
+  "fidget_peek": 1,
+  "fidget_pillow": 1,
+  "fidget_pocket": 1,
+  "fidget_roll": 1,
+  "fidget_shoes": 1,
+  "fidget_shy": 1,
+  "fidget_sit": 1,
+  "fidget_sleeve": 1,
+  "fidget_spin": 1,
+  "fidget_stretch": 1,
+  "fidget_sway": 1,
+  "fidget_yawn": 1,
+  "floor": 1,
+  "happy": 1,
+  "laundry": 1,
+  "nap": 1,
+  "phone": 1,
+  "tired": 1,
+  "walk": 1
+ },
+ "coffee": {
+  "seed": 20260923
+ },
+ "dishes": {
+  "seed": 20260923
+ },
+ "fidget_cold": {
+  "seed": 20260923
+ },
+ "fidget_cross": {
+  "seed": 20260923
+ },
+ "fidget_fan": {
+  "seed": 20260923
+ },
+ "fidget_giggle": {
+  "seed": 20260923
+ },
+ "fidget_hair": {
+  "seed": 20260923
+ },
+ "fidget_hood": {
+  "seed": 20260923
+ },
+ "fidget_hum": {
+  "seed": 20260923
+ },
+ "fidget_hungry": {
+  "seed": 20260923
+ },
+ "fidget_kick": {
+  "seed": 20260923
+ },
+ "fidget_lean": {
+  "seed": 20260923
+ },
+ "fidget_look": {
+  "seed": 20260923
+ },
+ "fidget_nod": {
+  "seed": 20260923
+ },
+ "fidget_peek": {
+  "seed": 20260923
+ },
+ "fidget_pillow": {
+  "seed": 20260923
+ },
+ "fidget_pocket": {
+  "seed": 20260923
+ },
+ "fidget_roll": {
+  "seed": 20260923
+ },
+ "fidget_shoes": {
+  "seed": 20260923
+ },
+ "fidget_shy": {
+  "seed": 20260923
+ },
+ "fidget_sit": {
+  "seed": 20260923
+ },
+ "fidget_sleeve": {
+  "seed": 20260923
+ },
+ "fidget_spin": {
+  "seed": 20260923
+ },
+ "fidget_stretch": {
+  "seed": 20260923
+ },
+ "fidget_sway": {
+  "seed": 20260923
+ },
+ "fidget_yawn": {
+  "seed": 20260923
+ },
+ "floor": {
+  "seed": 20260923
+ },
+ "happy": {
+  "seed": 20260923
+ },
+ "nap": {
+  "seed": 20260923
+ },
+ "phone": {
+  "seed": 20260923
+ }
+}

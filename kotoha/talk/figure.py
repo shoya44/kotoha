@@ -27,19 +27,19 @@ GROUPS = {
         "コーヒーだけ飲んで、二度寝しようか迷っている",
         "布団から出たくなくて、スマホをだらだら見ている",
         "起きてはいるが、まだ何もしていない",
-    ), ("wave", "daydream")),
+    ), ("wave", "daydream", "coffee", "phone")),
     "day": ((
         "家でダラダラしている",
         "洗い物をあとでやろうと思って、先延ばしにしている",
         "昼ごはんを何にするか、まだ決めていない",
         "ノートPCを開いたまま、特に何もしていない",
-    ), ("laptop", "write")),
+    ), ("laptop", "write", "dishes")),
     "afternoon": ((
         "昼寝やおやつでだらけている",
         "プリンをいま食べるか、夕飯のあとに取っておくか迷っている",
         "昼寝から起きたばかりで、まだ半分寝ている",
         "床に寝転がって、天井を見ている",
-    ), ("snack", "bored")),
+    ), ("snack", "bored", "nap", "floor")),
     "evening": ((
         "風呂や夕食をすませたあと",
         "夕飯は食べたが、お風呂はまだ入っていない",
@@ -51,15 +51,15 @@ GROUPS = {
         "寝ようと思いつつ、スマホを見続けている",
         "ゲームがきりのいいところまで行かなくて、やめられない",
         "明日こそ早く起きようと思っている",
-    ), ("cards", "laugh")),
+    ), ("cards", "laugh", "phone")),
     "sleep": (("本当はもう寝ている時間",), ("sleep",)),
 }
 
 # いまの振る舞い。上から順に、最初に当てはまったものを返す（act を参照）。
-ACTS = ("talk", "sleep", "worry", "sulk", "idle")
+ACTS = ("talk", "sleep", "worry", "sulk", "happy", "idle")
 
 # 振る舞いに専用の絵があるもの。無いもの（idle）は、その時間帯の立ち姿のまま。
-ACT_SPRITES = {"talk": "talk", "sleep": "sleep", "worry": "worry", "sulk": "sulk"}
+ACT_SPRITES = {"talk": "talk", "sleep": "sleep", "worry": "worry", "sulk": "sulk", "happy": "happy"}
 
 # 言い終わってから、こちらを向いている時間。
 TALK_SECONDS = 30
@@ -68,6 +68,7 @@ TALK_SECONDS = 30
 # （tests/test_figure.py で見張っている）。
 SLEEPY_MOOD = "眠い"
 SULKY_MOOD = "すねている"
+HAPPY_MOOD = "機嫌がいい"
 
 # 申告が無いときの、時間帯ぶんの機嫌。**chat.MOODS のラベルと同じ文字**で
 # なければ効かない（tests/test_figure.py が見張っている）。
@@ -171,6 +172,8 @@ def act(hour: int, mood: str = "", said_ago: float = None,
         return "worry"
     if mood == SULKY_MOOD:
         return "sulk"
+    if mood == HAPPY_MOOD:
+        return "happy"
     return "idle"
 
 

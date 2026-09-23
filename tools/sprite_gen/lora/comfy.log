@@ -1,0 +1,203 @@
+[32m[INFO][0m setup plugin alembic.autogenerate.schemas
+[32m[INFO][0m setup plugin alembic.autogenerate.tables
+[32m[INFO][0m setup plugin alembic.autogenerate.types
+[32m[INFO][0m setup plugin alembic.autogenerate.constraints
+[32m[INFO][0m setup plugin alembic.autogenerate.defaults
+[32m[INFO][0m setup plugin alembic.autogenerate.comments
+[32m[INFO][0m setup plugin alembic.ext.checkconstraint_byname
+[1m[33m[WARNING][0m On windows we are currently forcing single GPU mode in ComfyUI due to a Nvidia related issue, if you want to disable this use: --cuda-device all
+[32m[INFO][0m Adding extra search path checkpoints C:\StabilityMatrix\Data\Models\StableDiffusion
+[32m[INFO][0m Adding extra search path diffusers C:\StabilityMatrix\Data\Models\Diffusers
+[32m[INFO][0m Adding extra search path loras C:\StabilityMatrix\Data\Models\Lora
+[32m[INFO][0m Adding extra search path loras C:\StabilityMatrix\Data\Models\LyCORIS
+[32m[INFO][0m Adding extra search path clip C:\StabilityMatrix\Data\Models\TextEncoders
+[32m[INFO][0m Adding extra search path clip_vision C:\StabilityMatrix\Data\Models\ClipVision
+[32m[INFO][0m Adding extra search path embeddings C:\StabilityMatrix\Data\Models\Embeddings
+[32m[INFO][0m Adding extra search path vae C:\StabilityMatrix\Data\Models\VAE
+[32m[INFO][0m Adding extra search path vae_approx C:\StabilityMatrix\Data\Models\ApproxVAE
+[32m[INFO][0m Adding extra search path controlnet C:\StabilityMatrix\Data\Models\ControlNet
+[32m[INFO][0m Adding extra search path controlnet C:\StabilityMatrix\Data\Models\T2IAdapter
+[32m[INFO][0m Adding extra search path gligen C:\StabilityMatrix\Data\Models\GLIGEN
+[32m[INFO][0m Adding extra search path upscale_models C:\StabilityMatrix\Data\Models\ESRGAN
+[32m[INFO][0m Adding extra search path upscale_models C:\StabilityMatrix\Data\Models\RealESRGAN
+[32m[INFO][0m Adding extra search path upscale_models C:\StabilityMatrix\Data\Models\SwinIR
+[32m[INFO][0m Adding extra search path hypernetworks C:\StabilityMatrix\Data\Models\Hypernetwork
+[32m[INFO][0m Adding extra search path ipadapter C:\StabilityMatrix\Data\Models\IpAdapter
+[32m[INFO][0m Adding extra search path ipadapter C:\StabilityMatrix\Data\Models\IpAdapters15
+[32m[INFO][0m Adding extra search path ipadapter C:\StabilityMatrix\Data\Models\IpAdaptersXl
+[32m[INFO][0m Adding extra search path prompt_expansion C:\StabilityMatrix\Data\Models\PromptExpansion
+[32m[INFO][0m Adding extra search path ultralytics C:\StabilityMatrix\Data\Models\Ultralytics
+[32m[INFO][0m Adding extra search path ultralytics_bbox C:\StabilityMatrix\Data\Models\Ultralytics\bbox
+[32m[INFO][0m Adding extra search path ultralytics_segm C:\StabilityMatrix\Data\Models\Ultralytics\segm
+[32m[INFO][0m Adding extra search path sams C:\StabilityMatrix\Data\Models\Sams
+[32m[INFO][0m Adding extra search path diffusion_models C:\StabilityMatrix\Data\Models\DiffusionModels
+[32m[INFO][0m Adding extra search path style_models C:\StabilityMatrix\Data\Models\StyleModels
+[32m[INFO][0m Adding extra search path audio_encoders C:\StabilityMatrix\Data\Models\AudioEncoders
+[32m[INFO][0m Adding extra search path model_patches C:\StabilityMatrix\Data\Models\ModelPatches
+[32m[INFO][0m Adding extra search path background_removal C:\StabilityMatrix\Data\Models\BackgroundRemoval
+[START] Security scan
+[DONE] Security scan
+## ComfyUI-Manager: installing dependencies done.
+** ComfyUI startup time: 2026-09-23 10:33:46.398
+** Platform: Windows
+** Python version: 3.12.12 (main, Feb  3 2026, 22:54:57) [MSC v.1944 64 bit (AMD64)]
+** Python executable: C:\StabilityMatrix\Data\Packages\ComfyUI\venv\Scripts\python.exe
+** ComfyUI Path: C:\StabilityMatrix\Data\Packages\ComfyUI
+** ComfyUI Base Folder Path: C:\StabilityMatrix\Data\Packages\ComfyUI
+** User directory: C:\StabilityMatrix\Data\Packages\ComfyUI\user
+** ComfyUI-Manager config path: C:\StabilityMatrix\Data\Packages\ComfyUI\user\__manager\config.ini
+** Log path: C:\StabilityMatrix\Data\Packages\ComfyUI\user\comfyui.log
+[32m[INFO][0m 
+Prestartup times for custom nodes:
+[32m[INFO][0m    9.3 seconds: C:\StabilityMatrix\Data\Packages\ComfyUI\custom_nodes\ComfyUI-Manager
+[32m[INFO][0m 
+[32m[INFO][0m Found comfy_kitchen backend cuda: {'available': True, 'disabled': False, 'unavailable_reason': None, 'capabilities': ['adaln', 'apply_rope', 'apply_rope1', 'apply_rope1_', 'apply_rope_', 'apply_rope_split_half', 'apply_rope_split_half1', 'apply_rope_split_half1_', 'apply_rope_split_half_', 'convrot_w4a4_linear', 'dequantize_convrot_w4a4_weight', 'dequantize_int8_convrot_weight', 'dequantize_int8_convrot_weight_dtype', 'dequantize_int8_simple', 'dequantize_int8_simple_dtype', 'dequantize_nvfp4', 'dequantize_per_tensor_fp8', 'dequantize_w4a8_int8_weight', 'fp16_conv3d', 'fp16_linear', 'gemv_awq_w4a16', 'group_norm_silu_pad3d', 'int8_linear', 'na3d', 'prepare_int4_weight_for_int8_linear', 'quantize_and_rotate_rowwise', 'quantize_convrot_w4a4_weight', 'quantize_int8_convrot_weight', 'quantize_int8_rowwise', 'quantize_int8_tensorwise', 'quantize_mxfp8', 'quantize_nvfp4', 'quantize_per_tensor_fp8', 'quantize_svdquant_w4a4', 'quantize_w4a8_int8_weight', 'rms_adaln', 'rms_rope', 'rms_rope1', 'rms_rope1_', 'rms_rope_', 'rms_rope_split_half', 'rms_rope_split_half1', 'rms_rope_split_half1_', 'rms_rope_split_half_', 'rotate_int8_convrot_weight', 'scaled_mm_nvfp4', 'scaled_mm_svdquant_w4a4', 'sol_attn', 'stochastic_rounding_fp8', 'w4a8_int8_linear']}
+[32m[INFO][0m Found comfy_kitchen backend eager: {'available': True, 'disabled': False, 'unavailable_reason': None, 'capabilities': ['adaln', 'apply_rope', 'apply_rope1', 'apply_rope1_', 'apply_rope_', 'apply_rope_split_half', 'apply_rope_split_half1', 'apply_rope_split_half1_', 'apply_rope_split_half_', 'convrot_w4a4_linear', 'dequantize_convrot_w4a4_weight', 'dequantize_int8_convrot_weight', 'dequantize_int8_convrot_weight_dtype', 'dequantize_int8_embedding', 'dequantize_int8_simple', 'dequantize_int8_simple_dtype', 'dequantize_mxfp8', 'dequantize_nvfp4', 'dequantize_per_tensor_fp8', 'dequantize_w4a8_int8_weight', 'fp16_conv3d', 'fp16_linear', 'gemv_awq_w4a16', 'group_norm_silu_pad3d', 'int8_linear', 'na3d', 'prepare_int4_weight_for_int8_linear', 'quantize_and_rotate_rowwise', 'quantize_convrot_w4a4_weight', 'quantize_int8_convrot_weight', 'quantize_int8_rowwise', 'quantize_int8_tensorwise', 'quantize_mxfp8', 'quantize_nvfp4', 'quantize_per_tensor_fp8', 'quantize_svdquant_w4a4', 'quantize_w4a8_int8_weight', 'rms_adaln', 'rms_rope', 'rms_rope1', 'rms_rope1_', 'rms_rope_', 'rms_rope_split_half', 'rms_rope_split_half1', 'rms_rope_split_half1_', 'rms_rope_split_half_', 'rotate_int8_convrot_weight', 'scaled_mm_mxfp8', 'scaled_mm_nvfp4', 'scaled_mm_svdquant_w4a4', 'sol_attn', 'stochastic_rounding_fp8', 'w4a8_int8_linear']}
+[32m[INFO][0m Found comfy_kitchen backend triton: {'available': False, 'disabled': True, 'unavailable_reason': "ImportError: No module named 'triton'", 'capabilities': []}
+[32m[INFO][0m Found comfy_kitchen backend hip: {'available': False, 'disabled': False, 'unavailable_reason': 'PyTorch ROCm/HIP runtime not available', 'capabilities': []}
+[32m[INFO][0m Checkpoint files will always be loaded safely.
+[32m[INFO][0m Total VRAM 8192 MB, total RAM 32670 MB
+[32m[INFO][0m pytorch version: 2.14.0+cu130
+[32m[INFO][0m Set vram state to: NORMAL_VRAM
+[32m[INFO][0m Device: cuda:0 NVIDIA GeForce RTX 3070 : cudaMallocAsync
+[32m[INFO][0m Using async weight offloading with 2 streams
+[32m[INFO][0m Enabled pinned memory 13068.0
+[32m[INFO][0m Using pytorch attention
+[32m[INFO][0m aimdo: src-win/cuda-detour.c:38:INFO:aimdo_setup_hooks: installing 6 hooks
+[32m[INFO][0m aimdo: src/control.c:269:INFO:comfy-aimdo NVML pressure enabled
+[32m[INFO][0m aimdo: src-win/shmem-detect.c:80:INFO:comfy-aimdo WDDM adapter match: NVIDIA GeForce RTX 3070 runtime_luid=00000000:0000f634 dxgi_luid=00000000:0000f634
+[32m[INFO][0m aimdo: src/control.c:284:INFO:comfy-aimdo inited for GPU: NVIDIA GeForce RTX 3070 (VRAM: 8191 MB)
+[32m[INFO][0m DynamicVRAM support detected and enabled
+[32m[INFO][0m Python version: 3.12.12 (main, Feb  3 2026, 22:54:57) [MSC v.1944 64 bit (AMD64)]
+[32m[INFO][0m ComfyUI version: 0.37.0
+[32m[INFO][0m comfy-aimdo version: 0.5.5
+[32m[INFO][0m comfy-kitchen version: 0.2.35
+[32m[INFO][0m comfyui-frontend-package version: 1.52.7
+[32m[INFO][0m comfyui-workflow-templates version: 0.11.66
+[32m[INFO][0m comfyui-embedded-docs version: 0.5.12
+[32m[INFO][0m comfy-kitchen version: 0.2.35
+[32m[INFO][0m comfy-aimdo version: 0.5.5
+[32m[INFO][0m [Prompt Server] web root: C:\StabilityMatrix\Data\Packages\ComfyUI\venv\Lib\site-packages\comfyui_frontend_package\static
+[32m[INFO][0m Asset seeder disabled
+C:\StabilityMatrix\Data\Packages\ComfyUI\venv\Lib\site-packages\torch\jit\_script.py:1491: FutureWarning: `torch.jit.script` is deprecated. Please switch to `torch.compile` or `torch.export`.
+  warnings.warn(
+[32m[INFO][0m No OpenGL_accelerate module loaded: No module named 'OpenGL_accelerate'
+[32m[INFO][0m ### Loading: ComfyUI-Manager (V3.41)
+[32m[INFO][0m [ComfyUI-Manager] network_mode: public
+[32m[INFO][0m [ComfyUI-Manager] ComfyUI per-queue preview override detected (PR #11261). Manager's preview method feature is disabled. Use ComfyUI's --preview-method CLI option or 'Settings > Execution > Live preview method'.
+[32m[INFO][0m ### ComfyUI Revision: 5983 [73c9bad4] *DETACHED | Released on '2026-09-20'
+[32m[INFO][0m [ComfyUI-Manager] default cache updated: https://raw.githubusercontent.com/ltdrdata/ComfyUI-Manager/main/model-list.json
+[32m[INFO][0m [ComfyUI-Manager] default cache updated: https://raw.githubusercontent.com/ltdrdata/ComfyUI-Manager/main/alter-list.json
+[32m[INFO][0m [ComfyUI-Manager] default cache updated: https://raw.githubusercontent.com/ltdrdata/ComfyUI-Manager/main/github-stats.json
+[32m[INFO][0m [ComfyUI-Manager] default cache updated: https://raw.githubusercontent.com/ltdrdata/ComfyUI-Manager/main/custom-node-list.json
+[32m[INFO][0m [ComfyUI-Manager] default cache updated: https://raw.githubusercontent.com/ltdrdata/ComfyUI-Manager/main/extension-node-map.json
+Error loading C:\StabilityMatrix\Data\Packages\ComfyUI\custom_nodes\ComfyUI-RMBG\py\AILab_Florence2.py: No module named 'matplotlib'
+Error loading C:\StabilityMatrix\Data\Packages\ComfyUI\custom_nodes\ComfyUI-RMBG\py\AILab_SAM2Segment.py: No module named 'hydra'
+Error loading C:\StabilityMatrix\Data\Packages\ComfyUI\custom_nodes\ComfyUI-RMBG\py\AILab_SAM3Segment.py: No module named 'iopath'
+Warning: diffusers/transformers not available. SDMatte functionality will be limited.
+Error loading C:\StabilityMatrix\Data\Packages\ComfyUI\custom_nodes\ComfyUI-RMBG\py\AILab_Segment.py: No module named 'segment_anything'
+Error loading C:\StabilityMatrix\Data\Packages\ComfyUI\custom_nodes\ComfyUI-RMBG\py\AILab_SegmentV2.py: No module named 'segment_anything'
+Error loading C:\StabilityMatrix\Data\Packages\ComfyUI\custom_nodes\ComfyUI-RMBG\py\AILab_Florence2.py: No module named 'matplotlib'
+Error loading C:\StabilityMatrix\Data\Packages\ComfyUI\custom_nodes\ComfyUI-RMBG\py\AILab_SAM2Segment.py: No module named 'hydra'
+Error loading C:\StabilityMatrix\Data\Packages\ComfyUI\custom_nodes\ComfyUI-RMBG\py\AILab_SAM3Segment.py: No module named 'iopath'
+Warning: diffusers/transformers not available. SDMatte functionality will be limited.
+Error loading C:\StabilityMatrix\Data\Packages\ComfyUI\custom_nodes\ComfyUI-RMBG\py\AILab_Segment.py: No module named 'segment_anything'
+Error loading C:\StabilityMatrix\Data\Packages\ComfyUI\custom_nodes\ComfyUI-RMBG\py\AILab_SegmentV2.py: No module named 'segment_anything'
+[34m[ComfyUI-RMBG][0m v[93m3.1.0[0m | [93m38 nodes[0m [92mLoaded[0m
+[1m[33m[WARNING][0m Traceback (most recent call last):
+  File "C:\StabilityMatrix\Data\Packages\ComfyUI\nodes.py", line 2266, in load_custom_node
+    module_spec.loader.exec_module(module)
+  File "<frozen importlib._bootstrap_external>", line 995, in exec_module
+  File "<frozen importlib._bootstrap_external>", line 1132, in get_code
+  File "<frozen importlib._bootstrap_external>", line 1190, in get_data
+FileNotFoundError: [Errno 2] No such file or directory: 'C:\\StabilityMatrix\\Data\\Packages\\ComfyUI\\custom_nodes\\sd-webui-regional-prompter\\__init__.py'
+
+[1m[33m[WARNING][0m Cannot import C:\StabilityMatrix\Data\Packages\ComfyUI\custom_nodes\sd-webui-regional-prompter module for custom nodes: [Errno 2] No such file or directory: 'C:\\StabilityMatrix\\Data\\Packages\\ComfyUI\\custom_nodes\\sd-webui-regional-prompter\\__init__.py'
+[32m[INFO][0m 
+Import times for custom nodes:
+[32m[INFO][0m    0.0 seconds: C:\StabilityMatrix\Data\Packages\ComfyUI\custom_nodes\websocket_image_save.py
+[32m[INFO][0m    0.0 seconds (IMPORT FAILED): C:\StabilityMatrix\Data\Packages\ComfyUI\custom_nodes\sd-webui-regional-prompter
+[32m[INFO][0m    0.0 seconds: C:\StabilityMatrix\Data\Packages\ComfyUI\custom_nodes\ComfyUI_IPAdapter_plus
+[32m[INFO][0m    1.2 seconds: C:\StabilityMatrix\Data\Packages\ComfyUI\custom_nodes\ComfyUI-Manager
+[32m[INFO][0m    2.0 seconds: C:\StabilityMatrix\Data\Packages\ComfyUI\custom_nodes\ComfyUI-RMBG
+[32m[INFO][0m 
+[32m[INFO][0m Context impl SQLiteImpl.
+[32m[INFO][0m Will assume non-transactional DDL.
+[32m[INFO][0m Using RAM pressure cache.
+[32m[INFO][0m Starting server
+
+[32m[INFO][0m To see the GUI go to: http://127.0.0.1:8188
+[32m[INFO][0m got prompt
+[32m[INFO][0m model weight dtype torch.float16, manual cast: None
+[32m[INFO][0m model_type EPS
+[32m[INFO][0m Model storage policy: fast_disk=True paths=['C:\\StabilityMatrix\\Data\\Models\\StableDiffusion\\animagineXL40_v4Opt.safetensors']
+[32m[INFO][0m Model storage policy: fast_disk=True paths=['C:\\StabilityMatrix\\Data\\Models\\StableDiffusion\\animagineXL40_v4Opt.safetensors']
+[32m[INFO][0m Using pytorch attention in VAE
+[32m[INFO][0m Using pytorch attention in VAE
+[32m[INFO][0m VAE load device: cuda:0, offload device: cpu, dtype: torch.bfloat16
+[32m[INFO][0m Model storage policy: fast_disk=True paths=['C:\\StabilityMatrix\\Data\\Models\\StableDiffusion\\animagineXL40_v4Opt.safetensors']
+[32m[INFO][0m CLIP/text encoder model load device: cuda:0, offload device: cpu, current: cpu, dtype: torch.float16
+[32m[INFO][0m Requested to load AutoencoderKL
+[32m[INFO][0m Model AutoencoderKL prepared for dynamic VRAM loading. 159MB Staged. 0 patches attached. Force pre-loaded 112 weights: 91 KB.
+[32m[INFO][0m Requested to load SDXLClipModel
+[32m[INFO][0m Model SDXLClipModel prepared for dynamic VRAM loading. 1560MB Staged. 0 patches attached. Force pre-loaded 180 weights: 400 KB.
+[32m[INFO][0m Model SDXLClipModel prepared for dynamic VRAM loading. 1560MB Staged. 0 patches attached. Force pre-loaded 180 weights: 400 KB.
+[32m[INFO][0m Requested to load SDXL
+[32m[INFO][0m Model SDXL prepared for dynamic VRAM loading. 4896MB Staged. 722 patches attached. Force pre-loaded 512 weights: 1197 KB.
+  0%|          | 0/28 [00:00<?, ?it/s]  0%|          | 0/28 [00:00<?, ?it/s,   Model Initializing ...  ]  0%|          | 0/28 [00:07<?, ?it/s,  Model Initialization complete!  ]  4%|▎         | 1/28 [00:07<03:22,  7.51s/it,  Model Initialization complete!  ]  4%|▎         | 1/28 [00:01<03:22,  7.51s/it]                                     7%|▋         | 2/28 [00:01<00:17,  1.48it/s] 11%|█         | 3/28 [00:01<00:15,  1.63it/s] 14%|█▍        | 4/28 [00:02<00:14,  1.66it/s] 18%|█▊        | 5/28 [00:03<00:15,  1.53it/s] 21%|██▏       | 6/28 [00:04<00:19,  1.10it/s] 25%|██▌       | 7/28 [00:04<00:14,  1.43it/s] 29%|██▊       | 8/28 [00:05<00:11,  1.68it/s] 32%|███▏      | 9/28 [00:06<00:12,  1.49it/s] 36%|███▌      | 10/28 [00:06<00:10,  1.65it/s] 39%|███▉      | 11/28 [00:07<00:10,  1.67it/s] 43%|████▎     | 12/28 [00:07<00:09,  1.62it/s] 46%|████▋     | 13/28 [00:08<00:14,  1.02it/s] 50%|█████     | 14/28 [00:09<00:08,  1.69it/s] 54%|█████▎    | 15/28 [00:10<00:07,  1.63it/s] 57%|█████▋    | 16/28 [00:10<00:07,  1.57it/s] 61%|██████    | 17/28 [00:11<00:07,  1.54it/s] 64%|██████▍   | 18/28 [00:11<00:06,  1.64it/s] 68%|██████▊   | 19/28 [00:12<00:05,  1.71it/s] 71%|███████▏  | 20/28 [00:13<00:04,  1.64it/s] 75%|███████▌  | 21/28 [00:13<00:04,  1.59it/s] 79%|███████▊  | 22/28 [00:14<00:03,  1.52it/s] 82%|████████▏ | 23/28 [00:15<00:03,  1.52it/s] 86%|████████▌ | 24/28 [00:15<00:02,  1.59it/s] 89%|████████▉ | 25/28 [00:16<00:01,  1.53it/s] 93%|█████████▎| 26/28 [00:17<00:01,  1.57it/s] 96%|█████████▋| 27/28 [00:17<00:00,  1.44it/s]100%|██████████| 28/28 [00:18<00:00,  1.63it/s]100%|██████████| 28/28 [00:18<00:00,  1.52it/s]
+[32m[INFO][0m 0 models unloaded.
+[32m[INFO][0m Model AutoencoderKL prepared for dynamic VRAM loading. 159MB Staged. 0 patches attached. Force pre-loaded 112 weights: 91 KB.
+C:\StabilityMatrix\Data\Packages\ComfyUI\venv\Lib\site-packages\timm\models\layers\__init__.py:49: FutureWarning: Importing from timm.models.layers is deprecated, please import via timm.layers
+  warnings.warn(f"Importing from {__name__} is deprecated, please import via timm.layers", FutureWarning)
+C:\StabilityMatrix\Data\Packages\ComfyUI\venv\Lib\site-packages\timm\models\registry.py:4: FutureWarning: Importing from timm.models.registry is deprecated, please import via timm.models
+  warnings.warn(f"Importing from {__name__} is deprecated, please import via timm.models", FutureWarning)
+[32m[INFO][0m [32mPrompt executed in 44.84 seconds[0m
+[32m[INFO][0m got prompt
+[32m[INFO][0m 0 models unloaded.
+[32m[INFO][0m Model AutoencoderKL prepared for dynamic VRAM loading. 159MB Staged. 0 patches attached. Force pre-loaded 112 weights: 91 KB.
+[32m[INFO][0m Model SDXLClipModel prepared for dynamic VRAM loading. 1560MB Staged. 0 patches attached. Force pre-loaded 180 weights: 400 KB.
+[32m[INFO][0m 0 models unloaded.
+[32m[INFO][0m Model SDXL prepared for dynamic VRAM loading. 4896MB Staged. 722 patches attached. Force pre-loaded 512 weights: 1197 KB.
+  0%|          | 0/28 [00:00<?, ?it/s]  0%|          | 0/28 [00:00<?, ?it/s,   Model Initializing ...  ]  0%|          | 0/28 [00:03<?, ?it/s,  Model Initialization complete!  ]  4%|▎         | 1/28 [00:03<01:31,  3.38s/it,  Model Initialization complete!  ]  4%|▎         | 1/28 [00:02<01:31,  3.38s/it]                                     7%|▋         | 2/28 [00:02<00:38,  1.48s/it] 11%|█         | 3/28 [00:03<00:21,  1.18it/s] 14%|█▍        | 4/28 [00:04<00:24,  1.04s/it] 18%|█▊        | 5/28 [00:05<00:19,  1.16it/s] 21%|██▏       | 6/28 [00:06<00:17,  1.27it/s] 25%|██▌       | 7/28 [00:07<00:17,  1.22it/s] 29%|██▊       | 8/28 [00:08<00:16,  1.24it/s] 32%|███▏      | 9/28 [00:08<00:13,  1.39it/s] 36%|███▌      | 10/28 [00:09<00:13,  1.35it/s] 39%|███▉      | 11/28 [00:10<00:12,  1.42it/s] 43%|████▎     | 12/28 [00:11<00:12,  1.31it/s] 46%|████▋     | 13/28 [00:11<00:11,  1.33it/s] 50%|█████     | 14/28 [00:12<00:10,  1.31it/s] 54%|█████▎    | 15/28 [00:13<00:10,  1.22it/s] 57%|█████▋    | 16/28 [00:14<00:09,  1.31it/s] 61%|██████    | 17/28 [00:14<00:08,  1.24it/s] 64%|██████▍   | 18/28 [00:15<00:07,  1.27it/s] 68%|██████▊   | 19/28 [00:16<00:07,  1.22it/s] 71%|███████▏  | 20/28 [00:17<00:06,  1.31it/s] 75%|███████▌  | 21/28 [00:18<00:05,  1.25it/s] 79%|███████▊  | 22/28 [00:18<00:04,  1.34it/s] 82%|████████▏ | 23/28 [00:19<00:03,  1.29it/s] 86%|████████▌ | 24/28 [00:20<00:03,  1.30it/s] 89%|████████▉ | 25/28 [00:21<00:02,  1.34it/s] 93%|█████████▎| 26/28 [00:21<00:01,  1.33it/s] 96%|█████████▋| 27/28 [00:22<00:00,  1.29it/s]100%|██████████| 28/28 [00:23<00:00,  1.19it/s]100%|██████████| 28/28 [00:23<00:00,  1.19it/s]
+[32m[INFO][0m 0 models unloaded.
+[32m[INFO][0m Model AutoencoderKL prepared for dynamic VRAM loading. 159MB Staged. 0 patches attached. Force pre-loaded 112 weights: 91 KB.
+[32m[INFO][0m [32mPrompt executed in 30.89 seconds[0m
+[32m[INFO][0m got prompt
+[32m[INFO][0m 0 models unloaded.
+[32m[INFO][0m Model AutoencoderKL prepared for dynamic VRAM loading. 159MB Staged. 0 patches attached. Force pre-loaded 112 weights: 91 KB.
+[32m[INFO][0m Model SDXLClipModel prepared for dynamic VRAM loading. 1560MB Staged. 0 patches attached. Force pre-loaded 180 weights: 400 KB.
+[32m[INFO][0m 0 models unloaded.
+[32m[INFO][0m Model SDXL prepared for dynamic VRAM loading. 4896MB Staged. 722 patches attached. Force pre-loaded 512 weights: 1197 KB.
+  0%|          | 0/28 [00:00<?, ?it/s]  0%|          | 0/28 [00:00<?, ?it/s,   Model Initializing ...  ]  0%|          | 0/28 [00:02<?, ?it/s,  Model Initialization complete!  ]  4%|▎         | 1/28 [00:02<01:20,  2.99s/it,  Model Initialization complete!  ]  4%|▎         | 1/28 [00:02<01:20,  2.99s/it]                                     7%|▋         | 2/28 [00:02<00:28,  1.09s/it] 11%|█         | 3/28 [00:03<00:21,  1.17it/s] 14%|█▍        | 4/28 [00:03<00:16,  1.45it/s] 18%|█▊        | 5/28 [00:04<00:17,  1.28it/s] 21%|██▏       | 6/28 [00:05<00:15,  1.42it/s] 25%|██▌       | 7/28 [00:05<00:15,  1.33it/s] 29%|██▊       | 8/28 [00:06<00:14,  1.43it/s] 32%|███▏      | 9/28 [00:07<00:14,  1.32it/s] 36%|███▌      | 10/28 [00:08<00:15,  1.17it/s] 39%|███▉      | 11/28 [00:09<00:14,  1.18it/s] 43%|████▎     | 12/28 [00:09<00:12,  1.30it/s] 46%|████▋     | 13/28 [00:10<00:11,  1.29it/s] 50%|█████     | 14/28 [00:11<00:11,  1.20it/s] 54%|█████▎    | 15/28 [00:12<00:09,  1.41it/s] 57%|█████▋    | 16/28 [00:12<00:08,  1.37it/s] 61%|██████    | 17/28 [00:13<00:08,  1.35it/s] 64%|██████▍   | 18/28 [00:14<00:09,  1.08it/s] 68%|██████▊   | 19/28 [00:15<00:06,  1.33it/s] 71%|███████▏  | 20/28 [00:16<00:05,  1.35it/s] 75%|███████▌  | 21/28 [00:16<00:04,  1.42it/s] 79%|███████▊  | 22/28 [00:17<00:04,  1.43it/s] 82%|████████▏ | 23/28 [00:18<00:03,  1.40it/s] 86%|████████▌ | 24/28 [00:18<00:02,  1.34it/s] 89%|████████▉ | 25/28 [00:19<00:02,  1.34it/s] 93%|█████████▎| 26/28 [00:20<00:01,  1.46it/s] 96%|█████████▋| 27/28 [00:21<00:00,  1.37it/s]100%|██████████| 28/28 [00:21<00:00,  1.28it/s]100%|██████████| 28/28 [00:21<00:00,  1.28it/s]
+[32m[INFO][0m 0 models unloaded.
+[32m[INFO][0m Model AutoencoderKL prepared for dynamic VRAM loading. 159MB Staged. 0 patches attached. Force pre-loaded 112 weights: 91 KB.
+[32m[INFO][0m [32mPrompt executed in 29.29 seconds[0m
+FETCH ComfyRegistry Data [DONE]
+[32m[INFO][0m [ComfyUI-Manager] default cache updated: https://api.comfy.org/nodes
+[1m[31m[ERROR][0m [ComfyUI-Manager] An invalid channel was used: https://raw.githubusercontent.com/ltdrdata/ComfyUI-Manager/main
+Exception in thread Thread-6 (<lambda>):
+Traceback (most recent call last):
+  File "C:\StabilityMatrix\Data\Assets\Python\cpython-3.12.12-windows-x86_64-none\Lib\threading.py", line 1075, in _bootstrap_inner
+    self.run()
+  File "C:\StabilityMatrix\Data\Assets\Python\cpython-3.12.12-windows-x86_64-none\Lib\threading.py", line 1012, in run
+    self._target(*self._args, **self._kwargs)
+  File "C:\StabilityMatrix\Data\Packages\ComfyUI\custom_nodes\ComfyUI-Manager\glob\manager_server.py", line 2094, in <lambda>
+    threading.Thread(target=lambda: asyncio.run(default_cache_update())).start()
+                                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\StabilityMatrix\Data\Assets\Python\cpython-3.12.12-windows-x86_64-none\Lib\asyncio\runners.py", line 195, in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+  File "C:\StabilityMatrix\Data\Assets\Python\cpython-3.12.12-windows-x86_64-none\Lib\asyncio\runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\StabilityMatrix\Data\Assets\Python\cpython-3.12.12-windows-x86_64-none\Lib\asyncio\base_events.py", line 691, in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+  File "C:\StabilityMatrix\Data\Packages\ComfyUI\custom_nodes\ComfyUI-Manager\glob\manager_server.py", line 2089, in default_cache_update
+    await core.unified_manager.get_custom_nodes(channel_url, 'remote')
+  File "C:\StabilityMatrix\Data\Packages\ComfyUI\custom_nodes\ComfyUI-Manager\glob\manager_core.py", line 885, in get_custom_nodes
+    nodes = await self.load_nightly(channel, mode)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\StabilityMatrix\Data\Packages\ComfyUI\custom_nodes\ComfyUI-Manager\glob\manager_core.py", line 855, in load_nightly
+    raise InvalidChannel(channel_url)
+manager_core.InvalidChannel: https://raw.githubusercontent.com/ltdrdata/ComfyUI-Manager/main

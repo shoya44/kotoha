@@ -1,13 +1,13 @@
 {
-  "generated": "2026-09-22",
+  "generated": "2026-09-23",
   "source": "img/dot",
   "sizes": {
     "full": [
-      197,
+      201,
       200
     ],
     "web": [
-      413,
+      422,
       420
     ],
     "face": [
@@ -26,7 +26,91 @@
     "cards": {
       "blink": true
     },
+    "coffee": {
+      "blink": true
+    },
     "daydream": {
+      "blink": true
+    },
+    "dishes": {
+      "blink": false
+    },
+    "fidget_cold": {
+      "blink": false
+    },
+    "fidget_cross": {
+      "blink": false
+    },
+    "fidget_fan": {
+      "blink": true
+    },
+    "fidget_giggle": {
+      "blink": true
+    },
+    "fidget_hair": {
+      "blink": true
+    },
+    "fidget_hood": {
+      "blink": true
+    },
+    "fidget_hum": {
+      "blink": true
+    },
+    "fidget_hungry": {
+      "blink": false
+    },
+    "fidget_kick": {
+      "blink": false
+    },
+    "fidget_lean": {
+      "blink": true
+    },
+    "fidget_look": {
+      "blink": true
+    },
+    "fidget_nod": {
+      "blink": true
+    },
+    "fidget_peek": {
+      "blink": false
+    },
+    "fidget_pillow": {
+      "blink": true
+    },
+    "fidget_pocket": {
+      "blink": true
+    },
+    "fidget_roll": {
+      "blink": false
+    },
+    "fidget_shoes": {
+      "blink": true
+    },
+    "fidget_shy": {
+      "blink": true
+    },
+    "fidget_sit": {
+      "blink": false
+    },
+    "fidget_sleeve": {
+      "blink": true
+    },
+    "fidget_spin": {
+      "blink": true
+    },
+    "fidget_stretch": {
+      "blink": false
+    },
+    "fidget_sway": {
+      "blink": true
+    },
+    "fidget_yawn": {
+      "blink": true
+    },
+    "floor": {
+      "blink": false
+    },
+    "happy": {
       "blink": true
     },
     "laptop": {
@@ -34,6 +118,12 @@
     },
     "laugh": {
       "blink": true
+    },
+    "nap": {
+      "blink": true
+    },
+    "phone": {
+      "blink": false
     },
     "sleep": {
       "blink": false
