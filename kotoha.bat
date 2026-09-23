@@ -3,10 +3,18 @@ rem The one entry point. Everything else is a subcommand of this file.
 rem Keeping a single door means nothing has to be remembered about which
 rem file to click, and shortcuts and the docs can all point at one name.
 rem The long parts live in scripts\ and are not meant to be run directly.
+rem
+rem   double-click / no argument  -> live in the task tray (the normal way)
+rem   kotoha.bat console          -> run in this window, with the log visible
 setlocal
 cd /d "%~dp0"
 set "PYTHONUTF8=1"
 set "PY=.venv\Scripts\python.exe"
+
+rem Was this file double-clicked? Then the window closes as soon as it ends,
+rem so wait at the end to leave any message readable. A console call stays quiet.
+set "CLICKED="
+echo %cmdcmdline% | find /i "%~f0" >nul && set "CLICKED=1"
 
 rem setup and rescue have to work before the Python environment exists.
 if /i "%~1"=="setup"  goto :setup
@@ -17,17 +25,35 @@ if /i "%~1"=="/?"     goto :help
 
 if not exist "%PY%" goto :nopython
 
+if "%~1"==""            goto :tray
+if /i "%~1"=="tray"     goto :tray
+if /i "%~1"=="console"  goto :console
 if /i "%~1"=="menu"     goto :menu
 if /i "%~1"=="settings" goto :settings
-if "%~1"=="" goto :run
 
 rem The rest goes straight to the CLI: status, backup, memory, note, ...
 "%PY%" -m kotoha %*
 exit /b %errorlevel%
 
 rem --------------------------------------------------------------
-:run
+:tray
+rem Starts (or finds) the tray and opens the browser. The tray itself runs
+rem under pythonw, so this window only carries the message.
 title Kotoha
+"%PY%" -m kotoha tray
+set "tray_result=%errorlevel%"
+if not "%tray_result%"=="0" (
+    echo.
+    echo Kotoha could not start in the tray. Check the message above,
+    echo or run "kotoha.bat console" to watch the log in a window.
+    if defined CLICKED pause
+    exit /b %tray_result%
+)
+if defined CLICKED timeout /t 3 >nul 2>&1
+exit /b 0
+
+:console
+title Kotoha (console)
 :loop
 "%PY%" -m kotoha.launcher
 rem 42 is the restart request from the app. errorlevel is a "greater or equal"
@@ -77,10 +103,11 @@ exit /b 1
 
 :help
 echo.
-echo   kotoha.bat               start Kotoha (web + browser). Double-click this
+echo   kotoha.bat               live in the task tray and open the browser.
+echo                            Double-click this. Same as "kotoha.bat tray"
+echo   kotoha.bat console       run in a window instead, with the log visible
 echo   kotoha.bat setup         create the Python environment. Once, at the start
 echo   kotoha.bat settings      edit and check .env
-echo   kotoha.bat tray          live in the task tray
 echo   kotoha.bat autostart on  start the tray at logon (off / status too)
 echo   kotoha.bat menu          a menu of the usual things
 echo   kotoha.bat rescue        prepare remote recovery (needs administrator)

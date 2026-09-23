@@ -46,14 +46,20 @@ class LauncherFixture:
         # 常駐の登録は本物のレジストリとタスクを触る。テストでは何もしない。
         self.autostart = types.ModuleType("kotoha.autostart")
         self.autostart.repair = Mock()
+        # 二重起動の印は本物のミューテックス。テストでは掴めたことにする。
+        self.single = types.ModuleType("kotoha.single")
+        self.single.BODY = "kotoha-body-test"
+        self.single.claim = Mock(return_value=True)
+        self.single.taken = Mock(return_value=False)
         package = types.ModuleType("kotoha")
         package.config = self.config
         package.autostart = self.autostart
+        package.single = self.single
         spec = importlib.util.spec_from_file_location("kotoha.launcher", ROOT / "kotoha/launcher.py")
         self.launcher = importlib.util.module_from_spec(spec)
         self.modules = patch.dict("sys.modules", {
             "kotoha": package, "kotoha.config": self.config,
-            "kotoha.autostart": self.autostart})
+            "kotoha.autostart": self.autostart, "kotoha.single": self.single})
         self.modules.start()
         self.addCleanup(self.modules.stop)
         spec.loader.exec_module(self.launcher)
@@ -122,9 +128,36 @@ class LauncherTests(LauncherFixture, unittest.TestCase):
         connection.__exit__ = Mock()
         with patch.object(self.launcher.importlib.util, "find_spec", return_value=True), \
              patch.object(self.launcher.socket, "create_connection", return_value=connection), \
+             patch.object(self.launcher.single, "claim", return_value=True), \
              patch.object(self.launcher, "is_kotoha", return_value=False), \
              patch.object(self.launcher, "open_browser") as browser:
             with self.assertRaisesRegex(SystemExit, "使用中"):
+                self.launcher.main()
+        browser.assert_not_called()
+
+    def test_second_body_backs_off_and_opens_the_first(self):
+        """印を持てなければ二重には上げない。先に居るほうが答えたら、画面だけ開く。"""
+        with patch.object(self.launcher.importlib.util, "find_spec", return_value=True), \
+             patch.object(self.launcher.single, "claim", return_value=False), \
+             patch.object(self.launcher.socket, "create_connection") as probe, \
+             patch.object(self.launcher, "is_kotoha", side_effect=[False, True, True]), \
+             patch.object(self.launcher.time, "sleep"), \
+             patch.object(self.launcher, "start_tailscale"), \
+             patch.object(self.launcher, "start_aivis"), patch.object(self.launcher, "start_ollama"), \
+             patch.object(self.launcher, "open_browser") as browser, \
+             patch("builtins.print"):
+            self.launcher.main()
+        browser.assert_called_once_with("http://127.0.0.1:8000")
+        probe.assert_not_called()
+
+    def test_second_body_gives_up_when_the_first_never_answers(self):
+        with patch.object(self.launcher.importlib.util, "find_spec", return_value=True), \
+             patch.object(self.launcher.single, "claim", return_value=False), \
+             patch.object(self.launcher, "is_kotoha", return_value=False), \
+             patch.object(self.launcher.time, "sleep"), \
+             patch.object(self.launcher.config, "STARTUP_TIMEOUT_SECONDS", 0.0), \
+             patch.object(self.launcher, "open_browser") as browser:
+            with self.assertRaisesRegex(SystemExit, "二重には起動しません"):
                 self.launcher.main()
         browser.assert_not_called()
 

@@ -153,18 +153,39 @@ def _autostart(args) -> None:
 
 
 def _tray() -> None:
-    """いますぐ常駐させる。コンソールを残さないよう pythonw に渡す。"""
+    """いますぐ常駐させ、会話画面を開く。コンソールを残さないよう pythonw に渡す。
+
+    すでに居るなら黙って終わらず、そう言って画面だけ開く。ダブルクリックした
+    人には「何も起きない」のがいちばん分かりにくい。
+    """
     import subprocess
+    import time
+    import webbrowser
 
-    from . import autostart
+    from . import autostart, tray
+    from .launcher import local_url
 
+    url, _ = local_url(config.WEB_HOST, config.WEB_PORT)
+    if tray.resident():
+        print(f"すでにタスクトレイに常駐しています。会話画面を開きます: {url}")
+        webbrowser.open(url)
+        return
     runner = config.BASE_DIR / ".venv" / "Scripts" / "pythonw.exe"
     if not runner.is_file():
         raise SystemExit("pythonw.exe が見つかりません。kotoha.bat setup を実行してください。")
-    subprocess.Popen([str(runner), str(autostart.TRAY)],
-                     cwd=str(config.BASE_DIR),
-                     creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-    print("タスクトレイに常駐しました。アイコンから開けます。")
+    process = subprocess.Popen([str(runner), str(autostart.TRAY)],
+                               cwd=str(config.BASE_DIR),
+                               creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    # 窓が出るまで少し待つ。出ずに終わったなら、理由は tray.log にある。
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        if tray.resident():
+            print(f"タスクトレイに常駐しました。会話画面は起き次第ひらきます: {url}")
+            return
+        if process.poll() is not None:
+            break
+        time.sleep(0.2)
+    raise SystemExit(f"常駐できませんでした。{tray.LOG_PATH} を確認してください。")
 
 
 def _start() -> None:
