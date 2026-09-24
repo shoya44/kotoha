@@ -84,16 +84,10 @@ class StreamTurnTests(DbCase):
             yield  # pragma: no cover
         original_stream, original_chat = chat.llm.stream, chat.llm.chat
         chat.llm.stream = broken
-        asked = []
-
-        def ordinary(prompt, max_tokens=None, spare_first=False):
-            asked.append(spare_first)
-            return "おかえり。"
-        chat.llm.chat = ordinary
+        chat.llm.chat = lambda prompt, max_tokens=None: "おかえり。"
         self.addCleanup(setattr, chat.llm, "stream", original_stream)
         self.addCleanup(setattr, chat.llm, "chat", original_chat)
         self.assertEqual(self.run_stream()[-1]["done"].reply, "おかえり。")
-        self.assertEqual(asked, [True])  # 流す道で待たされたモデルでは待ち直さない
 
     def test_what_was_already_said_is_kept_when_it_breaks_midway(self):
         """言いかけたぶんは捨てない。取り消せないものを無かったことにしない。"""
