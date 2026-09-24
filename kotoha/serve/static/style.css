@@ -167,8 +167,9 @@ body.typing .mini-avatar { height: 0; }
   object-position: center bottom;
   transform-origin: center bottom;
   transition: opacity var(--duration) ease;
-  /* 呼吸。足元を留めて、胸から上がわずかに縮む（トレイの1ドットと同じ量感）。 */
-  animation: avatar-breathe 3.4s ease-in-out infinite;
+  /* 呼吸。足元を留めて、胸から上がわずかに縮む（トレイの1ドットと同じ量感）。
+     速さは絵ごとに app.js が --breath で渡す（寝ているときは遅く、はしゃいでいるときは速く）。 */
+  animation: avatar-breathe var(--breath, 3.4s) ease-in-out infinite;
 }
 
 @keyframes avatar-breathe {
@@ -186,8 +187,30 @@ body.typing .mini-avatar { height: 0; }
   50%      { transform: translateY(-4%); }
 }
 
+/* 小さな動き。絵は替えずに、体を揺らす・首をかしげる（トレイの1ドットのずらしと同じ量感）。
+   出ているあいだは呼吸を止める（同じ transform を使うため）。 */
+.mini-avatar img.avatar-sway {
+  animation: avatar-sway 2.4s ease-in-out;
+}
+
+@keyframes avatar-sway {
+  0%, 100% { transform: translateX(0); }
+  25%      { transform: translateX(1px); }
+  75%      { transform: translateX(-1px); }
+}
+
+.mini-avatar img.avatar-tilt {
+  animation: avatar-tilt 2s ease-in-out;
+}
+
+@keyframes avatar-tilt {
+  0%, 100% { transform: rotate(0); }
+  30%, 70% { transform: rotate(1.2deg); }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .mini-avatar img, .mini-avatar img.avatar-hop { animation: none; }
+  .mini-avatar img, .mini-avatar img.avatar-hop,
+  .mini-avatar img.avatar-sway, .mini-avatar img.avatar-tilt { animation: none; }
 }
 
 /* 姿がこちらに無いあいだ。絵を隠して、立て札だけを出す。 */

@@ -1166,10 +1166,17 @@ async function showPicture(name) {
     return;                             // 読めないなら、いまの絵のまま
   }
   if (wantedPicture !== name) return;   // 待つあいだに次が来ていた
-  $("miniAvatarImage").src = src;
+  const image = $("miniAvatarImage");
+  image.src = src;
+  image.style.setProperty("--breath", `${BREATH_BY_NAME[name] || BREATH_SECONDS}s`);
   currentPicture = name;
   scheduleBlink();
 }
+
+// 呼吸の速さ。寝ているときは深くゆっくり、はしゃいでいるときは少し速い。
+// トレイ（mascot/__main__.py の BREATH_BY_NAME）と同じ表。
+const BREATH_SECONDS = 3.4;
+const BREATH_BY_NAME = { sleep: 5.2, nap: 4.6, doze: 4.6, happy: 2.6, laugh: 2.6 };
 
 // 脳からの姿。所作の途中なら、それをやめて従う。
 function showBrainPicture(name, act, off) {
@@ -1182,6 +1189,26 @@ function showBrainPicture(name, act, off) {
   showPicture(brainPicture);
   if (currentAct === "happy" && wasAct !== "happy") reactAvatar("avatar-hop");
   scheduleFidget();
+  scheduleMicro();
+}
+
+// 小さな動き。絵は替えずに、体を揺らす・首をかしげる（CSS の avatar-sway / avatar-tilt）。
+// 所作より短い間で挟み、所作の間を埋める。トレイの MICRO_MIN/MAX と同じ。
+const MICRO_MIN_MS = 20000, MICRO_MAX_MS = 60000;
+let microTimer = null;
+
+function scheduleMicro() {
+  clearTimeout(microTimer);
+  microTimer = null;
+  if (!embodied || document.hidden) return;
+  if (currentAct !== "idle" && currentAct !== "happy") return;
+  microTimer = setTimeout(() => {
+    microTimer = null;
+    if (embodied && (currentAct === "idle" || currentAct === "happy") && !document.hidden) {
+      reactAvatar(Math.random() < 0.5 ? "avatar-sway" : "avatar-tilt");
+    }
+    scheduleMicro();
+  }, MICRO_MIN_MS + Math.random() * (MICRO_MAX_MS - MICRO_MIN_MS));
 }
 
 // 暇なとき、数秒だけ所作を出して戻る。間はまばたきよりずっと長い（トレイと同じ 2〜5分）。
@@ -1245,10 +1272,12 @@ function setEmbodied(here, where = "") {
   if (!here) {
     clearTimeout(blinkTimer);
     clearTimeout(fidgetTimer);
-    fidgetTimer = null;
+    clearTimeout(microTimer);
+    fidgetTimer = microTimer = null;
     currentPicture = "";
   } else {
     scheduleFidget();
+    scheduleMicro();
   }
 }
 

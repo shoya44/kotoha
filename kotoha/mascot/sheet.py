@@ -21,18 +21,25 @@ MANIFEST = SPRITE_DIR / "sprites.json"
 # 器はこの実寸を使う。会話画面と同じもの。
 SIZE = "full"
 BLINK_SUFFIX = "-blink"
-# 呼吸で1行抜くときの、抜く高さ（上からの割合）。脚のあたり。
+# 呼吸で1行抜くときの、抜く高さ（上からの割合）。脚のあたり。揺れと足踏みの境でもある。
 SEAM = 0.72
+# 首のあたり（上からの割合）。首かしげは、ここより上だけをずらす。
+NECK = 0.48
 
 
 class Frame:
-    """1枚ぶん。転送用の並びと、当たり判定用の不透明さ。"""
+    """1枚ぶん。転送用の並びと、当たり判定用の不透明さ。
 
-    __slots__ = ("width", "height", "bgra", "alpha", "_squashed", "_mirrored")
+    呼吸・揺れ・首かしげ・足踏みは、**行の帯を1ドットずらした同じ絵**で作る。
+    行単位のコピーだけなので速く、一度作ったら持っておく（`_variants`）。
+    """
+
+    __slots__ = ("width", "height", "bgra", "alpha", "_squashed", "_mirrored", "_variants")
 
     def __init__(self, image: png.Image):
         self._squashed = None
         self._mirrored = None
+        self._variants = {}
         self.width = image.width
         self.height = image.height
         self.bgra = bytearray(len(image.px))
@@ -51,6 +58,29 @@ class Frame:
             self.bgra[i + 3] = a
             self.alpha[i >> 2] = a
 
+    def _blank(self) -> "Frame":
+        """同じ大きさの空の1枚。変形した絵の入れ物。"""
+        other = Frame.__new__(Frame)
+        other.width, other.height = self.width, self.height
+        other.bgra = bytearray(self.width * self.height * 4)
+        other.alpha = bytearray(self.width * self.height)
+        other._squashed, other._mirrored, other._variants = None, None, {}
+        return other
+
+    def _copy_row(self, other: "Frame", y: int, source_y: int, dx: int = 0) -> None:
+        """元の source_y 行を、other の y 行へ dx ドット横にずらして写す。はみ出たぶんは捨てる。"""
+        width = self.width
+        src = source_y * width
+        dst = y * width
+        if dx >= 0:
+            count = width - dx
+            other.bgra[(dst + dx) * 4:(dst + width) * 4] = self.bgra[src * 4:(src + count) * 4]
+            other.alpha[dst + dx:dst + width] = self.alpha[src:src + count]
+        else:
+            count = width + dx
+            other.bgra[dst * 4:(dst + count) * 4] = self.bgra[(src - dx) * 4:(src + width) * 4]
+            other.alpha[dst:dst + count] = self.alpha[src - dx:src + width]
+
     def squashed(self) -> "Frame":
         """1ドットぶん縮めた同じ絵。**足元は動かさない。**
 
@@ -58,59 +88,57 @@ class Frame:
         息を吸うのは胸から上なので、下を留めたまま縦だけ詰める。1ドットあれば、
         動いていることは分かる。
 
-        行を1本抜くだけなので作るのは速い。一度作ったら持っておく。
+        抜く1行は脚のあたり（SEAM）から。顔の中で抜くと、目や口が歪んで見える。
         """
         if self._squashed is not None:
             return self._squashed
-        width, height = self.width, self.height
-        bgra = bytearray(width * height * 4)
-        alpha = bytearray(width * height)
-        # 抜く1行は、脚のあたりから。顔の中で抜くと、目や口が歪んで見える。
-        seam = int(height * SEAM)
-        for y in range(1, height):
-            source = y - 1 if y < seam else y
-            bgra[y * width * 4:(y + 1) * width * 4] =                 self.bgra[source * width * 4:(source + 1) * width * 4]
-            alpha[y * width:(y + 1) * width] =                 self.alpha[source * width:(source + 1) * width]
-        self._squashed = Frame.__new__(Frame)
-        self._squashed.width, self._squashed.height = width, height
-        self._squashed.bgra, self._squashed.alpha = bgra, alpha
-        self._squashed._squashed = self._squashed
-        return self._squashed
-        width, height = self.width, self.height
-        bgra = bytearray(width * height * 4)
-        alpha = bytearray(width * height)
-        # 上の1行は空けて、残りへ元の絵を詰める（下端が揃う）。
-        for y in range(1, height):
-            source = min(height - 1, round((y - 1) * height / (height - 1)))
-            bgra[y * width * 4:(y + 1) * width * 4] = \
-                self.bgra[source * width * 4:(source + 1) * width * 4]
-            alpha[y * width:(y + 1) * width] = \
-                self.alpha[source * width:(source + 1) * width]
-        self._squashed = Frame.__new__(Frame)
-        self._squashed.width, self._squashed.height = width, height
-        self._squashed.bgra, self._squashed.alpha = bgra, alpha
-        self._squashed._squashed = self._squashed
-        return self._squashed
+        other = self._blank()
+        seam = int(self.height * SEAM)
+        for y in range(1, self.height):
+            self._copy_row(other, y, y - 1 if y < seam else y)
+        other._squashed = other
+        self._squashed = other
+        return other
+
+    def shifted(self, top: float, bottom: float, dx: int) -> "Frame":
+        """上から top〜bottom（高さの割合）の帯だけを、横に dx ドットずらした同じ絵。
+
+        - 揺れ: 脚より上（0〜SEAM）を ±1。足元は動かない
+        - 首かしげ: 首より上（0〜NECK）を ±1
+        - 足踏み: 脚（SEAM〜1）を ±1。歩きのコマが無くても足が動いて見える
+
+        帯の外の行はそのまま。ずらしてはみ出た1列は捨て、空いた1列は透明。
+        """
+        key = (top, bottom, dx)
+        cached = self._variants.get(key)
+        if cached is not None:
+            return cached
+        if dx == 0:
+            self._variants[key] = self
+            return self
+        other = self._blank()
+        first, last = int(self.height * top), int(self.height * bottom)
+        for y in range(self.height):
+            self._copy_row(other, y, y, dx if first <= y < last else 0)
+        self._variants[key] = other
+        return other
 
     def mirrored(self) -> "Frame":
         """左右を返した同じ絵。歩く向きに合わせるのに使う。一度作ったら持っておく。"""
         if self._mirrored is not None:
             return self._mirrored
         width, height = self.width, self.height
-        bgra = bytearray(width * height * 4)
-        alpha = bytearray(width * height)
+        other = self._blank()
         for y in range(height):
             row = self.bgra[y * width * 4:(y + 1) * width * 4]
             flipped = bytearray(width * 4)
             for x in range(width):
                 flipped[x * 4:(x + 1) * 4] = row[(width - 1 - x) * 4:(width - x) * 4]
-            bgra[y * width * 4:(y + 1) * width * 4] = flipped
-            alpha[y * width:(y + 1) * width] = self.alpha[y * width:(y + 1) * width][::-1]
-        self._mirrored = Frame.__new__(Frame)
-        self._mirrored.width, self._mirrored.height = width, height
-        self._mirrored.bgra, self._mirrored.alpha = bgra, alpha
-        self._mirrored._squashed, self._mirrored._mirrored = None, self
-        return self._mirrored
+            other.bgra[y * width * 4:(y + 1) * width * 4] = flipped
+            other.alpha[y * width:(y + 1) * width] = self.alpha[y * width:(y + 1) * width][::-1]
+        other._mirrored = self
+        self._mirrored = other
+        return other
 
     def opaque_at(self, x: int, y: int) -> bool:
         if not (0 <= x < self.width and 0 <= y < self.height):
