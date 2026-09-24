@@ -216,6 +216,15 @@ class RememberingTests(HubCase):
         with db.session() as conn:
             self.assertEqual(db.get_state(conn, db.BODY_WHERE), "web-1")
 
+    def test_the_picture_can_be_read_back(self):
+        """ことは自身に「いま何をしているか」を言わせるための写し。実体が無ければ空。"""
+        self.assertEqual(hub.picture(), "")
+        self.connect(hub.DESKTOP)
+        hub.show("snack", "idle")
+        self.assertEqual(hub.picture(), "snack")
+        hub.reset()
+        self.assertEqual(hub.picture(), "")
+
     def test_the_place_stays_written_when_she_is_not_watched(self):
         vessel = self.connect(hub.DESKTOP)
         hub.leave(vessel)

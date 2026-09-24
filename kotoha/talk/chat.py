@@ -278,6 +278,21 @@ def where_she_is(conn) -> str:
     return "いまは会話画面のほうに姿を出している"
 
 
+def what_she_looks_like() -> str:
+    """いま画面に出ている姿。**「プリン食べてる？」に「そうだよー」と返すための1行。**
+
+    絵は脳が決めて器へ押し出しているので、その写し（hub.picture）を言葉にする。
+    時間帯の様子（situation）と同じ日の同じ式で選ばれた絵なら言葉と揃っているが、
+    話した直後の顔や、寝ている・すねているの絵はここでしか分からない。
+    姿がどこにも出ていなければ空で、その行は載せない。
+    """
+    from ..serve import hub
+    look = figure.describe(hub.picture())
+    if not look:
+        return ""
+    return f"いまの姿（画面に出ている絵）: {look}。姿のことを聞かれたら、これのとおりに答える"
+
+
 def _read(name: str) -> str:
     """プロンプトを1枚読む。**同じ名前が data/prompts にあれば、そちらを使う。**
 
@@ -431,6 +446,9 @@ def build_prompt(conn, user_text: str, recent, pinned, related, fast: bool = Fal
     place = where_she_is(conn)
     if place:
         lines.append(place)
+    look = what_she_looks_like()
+    if look:
+        lines.append(look)
     quiet_line = living.block(conn)
     if quiet_line:
         lines.append(quiet_line)
