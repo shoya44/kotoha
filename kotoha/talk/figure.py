@@ -66,8 +66,9 @@ ACTS = ("talk", "sleep", "doze", "worry", "sulk", "happy", "idle")
 # 振る舞いに専用の絵があるもの。無いもの（idle）は、その時間帯の立ち姿のまま。
 ACT_SPRITES = {"talk": "talk", "sleep": "sleep", "doze": "doze", "worry": "worry", "sulk": "sulk", "happy": "happy"}
 
-# 言い終わってから、こちらを向いている時間。
-TALK_SECONDS = 30
+# 言い終わってから、こちらを向いている時間。返事の顔もこのあいだ残る。
+# 30秒だと、返事を読み終わる前に元の姿へ戻って、絵がせわしなく替わって見えた（2026-09-24）。
+TALK_SECONDS = 90
 
 # 返事のときの顔。返答の [FACE:] のラベルと、その絵。**効くのは話した直後（talk）だけ。**
 # 顔が来なければ talk のまま。絵がまだ無い顔も talk に置いておき、絵ができたら右を書き換える。

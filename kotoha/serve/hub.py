@@ -228,11 +228,17 @@ def refresh(conn=None, said_ago: float = None) -> bool:
 
     材料はDBの中（機嫌）と、すでに数えてある前面アプリだけ。**新しく覗くものは
     無い。** 呼ぶのは巡回と、会話のあとと、器が繋がってきたとき。
+
+    said_ago を渡されなければ、最後の返事からの経過で埋める。巡回が渡さないと
+    返事の直後でも次の巡回（最長60秒）で元の姿へ戻り、`figure.TALK_SECONDS` が
+    効いていなかった（2026-09-24）。
     """
     if conn is None:
         with db.session() as fresh:
             return refresh(fresh, said_ago)
     now = clock.now()
+    if said_ago is None:
+        said_ago = db.seconds_since(db.get_state(conn, db.FACE_AT))
     found = presence.streak(conn)
     mood = chat.current_mood(conn, now.hour)
     picture, act = figure.look(

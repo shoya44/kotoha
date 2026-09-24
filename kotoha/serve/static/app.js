@@ -1184,8 +1184,8 @@ function showBrainPicture(name, act, off) {
   scheduleFidget();
 }
 
-// 暇なとき、数秒だけ所作を出して戻る。間はまばたきよりずっと長い。
-const FIDGET_MIN_MS = 30000, FIDGET_MAX_MS = 90000, FIDGET_MS = 3200;
+// 暇なとき、数秒だけ所作を出して戻る。間はまばたきよりずっと長い（トレイと同じ 2〜5分）。
+const FIDGET_MIN_MS = 120000, FIDGET_MAX_MS = 300000, FIDGET_MS = 3200;
 
 function scheduleFidget() {
   clearTimeout(fidgetTimer);

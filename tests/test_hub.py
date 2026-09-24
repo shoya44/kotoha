@@ -6,6 +6,7 @@
 import asyncio
 import json
 import unittest
+from datetime import datetime
 
 from tests.support import DbCase, use_temp_db
 
@@ -182,16 +183,26 @@ class SpeakingTests(HubCase):
                          {"type": "act", "picture": "laptop", "act": "idle", "fidgets_off": []})
 
     def test_the_face_of_the_reply_is_shown_while_talking(self):
-        """返事の [FACE:] は、話した直後の絵になる。巡回（said_ago なし）では元に戻る。"""
-        from kotoha.talk import chat
-        self.connect(hub.DESKTOP)
-        turn_id = db.start_turn(self.conn, "user", "ねえ聞いて")
-        chat._finish(self.conn, turn_id, "あはは", [], "slow", face="笑う")
-        hub.refresh(self.conn, said_ago=0)
-        self.assertEqual(self.last(hub.DESKTOP)["picture"], "laugh")
-        hub.refresh(self.conn)
-        self.assertNotEqual(self.last(hub.DESKTOP)["act"], "talk")
-        self.assertIn("fidgets_off", self.last(hub.DESKTOP))
+        """返事の [FACE:] は、話した直後の絵になる。
+
+        巡回（said_ago なし）でも、`figure.TALK_SECONDS` のあいだは残る。
+        過ぎれば元に戻る。
+        """
+        from kotoha.talk import chat, figure
+        from tests.support import Clock
+        with Clock(datetime(2026, 9, 24, 12, 0)) as tick:
+            self.connect(hub.DESKTOP)
+            turn_id = db.start_turn(self.conn, "user", "ねえ聞いて")
+            chat._finish(self.conn, turn_id, "あはは", [], "slow", face="笑う")
+            hub.refresh(self.conn, said_ago=0)
+            self.assertEqual(self.last(hub.DESKTOP)["picture"], "laugh")
+            tick.advance(seconds=figure.TALK_SECONDS - 1)
+            hub.refresh(self.conn)
+            self.assertEqual(self.last(hub.DESKTOP)["picture"], "laugh")
+            tick.advance(seconds=2)
+            hub.refresh(self.conn)
+            self.assertNotEqual(self.last(hub.DESKTOP)["act"], "talk")
+            self.assertIn("fidgets_off", self.last(hub.DESKTOP))
 
 
 class RememberingTests(HubCase):
