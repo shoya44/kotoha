@@ -45,6 +45,10 @@ def _boolean(key):
 
 GEMINI_API_KEY = _text("GEMINI_API_KEY", allow_empty=True)
 GEMINI_MODEL = _text("GEMINI_MODEL")
+# 投げ直す先。空欄なら GEMINI_MODEL にそのまま投げ直す。
+GEMINI_FALLBACK_MODEL = _text("GEMINI_FALLBACK_MODEL", allow_empty=True)
+# 控えに回したときだけ送る reasoning_effort。空欄なら送らない。
+GEMINI_FALLBACK_REASONING = _text("GEMINI_FALLBACK_REASONING", allow_empty=True)
 GEMINI_BASE_URL = _text("GEMINI_BASE_URL").rstrip("/")
 _db_path = Path(_text("KOTOHA_DB_PATH"))
 DB_PATH = _db_path if _db_path.is_absolute() else BASE_DIR / _db_path
