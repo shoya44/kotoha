@@ -321,6 +321,18 @@ class MoodTests(DbCase):
         line = next(l for l in prompt.split("\n") if l.startswith("今の機嫌:"))
         self.assertNotIn("きっかけ", line)
 
+    def test_the_prompt_says_what_she_looks_like(self):
+        """画面に出ている絵を、本人が言えるように1行渡す。出ていなければ載せない。"""
+        from kotoha.serve import hub
+        hub.reset()
+        self.assertNotIn("いまの姿", chat.build_prompt(self.conn, "やっほー", [], [], []))
+        hub._body, hub._look = hub.DESKTOP, {"picture": "snack", "act": "idle"}
+        try:
+            prompt = chat.build_prompt(self.conn, "やっほー", [], [], [])
+        finally:
+            hub.reset()
+        self.assertIn("いまの姿（画面に出ている絵）: " + figure.LOOKS["snack"], prompt)
+
     def test_the_face_is_read_and_kept_briefly(self):
         clean, face = chat.parse_face("あはは [FACE: 笑う]")
         self.assertEqual((clean, face), ("あはは", "笑う"))

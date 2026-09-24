@@ -181,6 +181,19 @@ def body():
         return _body
 
 
+def picture() -> str:
+    """いま器に出している絵の名前。**実体がどこにも無ければ空。**
+
+    最後に押し出した姿の写し。器が勝手に挟む所作や散歩は含まない
+    （脳は関わらない。[11 動き]）。ことは自身に「いま何をしているか」を
+    言わせるために読む（chat.what_she_looks_like）。
+    """
+    with _lock:
+        if _body is None or not _look:
+            return ""
+        return _look.get("picture") or ""
+
+
 def body_kind():
     """実体のある器の種類。"desktop" / "web" / None。"""
     with _lock:

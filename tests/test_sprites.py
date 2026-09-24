@@ -42,6 +42,17 @@ class ManifestTests(unittest.TestCase):
             with self.subTest(face=face):
                 self.assertIn(choice, names)
 
+    def test_every_sprite_can_be_put_into_words(self):
+        """姿を本人に言わせる表（figure.LOOKS）は、絵と同じ数だけ要る。
+
+        足りない絵はその時間だけ「いまの姿」が載らず、余った名前は打ち間違い。
+        """
+        names = set(self.manifest["sprites"])
+        self.assertEqual(set(figure.LOOKS), names)
+        for name, words in figure.LOOKS.items():
+            with self.subTest(sprite=name):
+                self.assertTrue(words.strip())
+
     def test_fidget_table_names_real_fidgets(self):
         """表の名前を打ち間違えると、絞ったつもりで何も絞れていない。"""
         names = set(self.manifest["sprites"])
