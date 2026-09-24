@@ -42,15 +42,17 @@ DIM = 120
 # 画面の端から空けるぶん。壁に貼り付いているように見えると窮屈。
 MARGIN_RIGHT, MARGIN_BOTTOM = 28, 10
 
-# 暇なときの動き。間をばらつかせる。**動きすぎると邪魔**なので、散歩は数分に一度。
-STROLL_MIN, STROLL_MAX = 150.0, 420.0
+# 暇なときの動き。間をばらつかせる。**動きすぎると邪魔**なので、散歩は10分に一度ほど。
+# 所作も数分に一度。30〜90秒だと、机の端で始終そわそわしているように見えた（2026-09-24）。
+STROLL_MIN, STROLL_MAX = 300.0, 720.0
 STROLL_PX_MIN, STROLL_PX_MAX = 60, 220       # 一度に歩く距離
 STROLL_SPEED = 1                             # 1ティックに進むドット（40msなので 25px/s）
 STROLL_STEP_SECONDS = 0.26                   # 足のコマを替える間
 STROLL_BOB = 1                               # 歩くとき一歩おきに浮くドット（コマが無くても歩いて見せる）
-# 歩きの絵が向いている側。左へ行くときは返す。
-WALK_FACES_RIGHT = True
-FIDGET_MIN, FIDGET_MAX, FIDGET_SECONDS = 30.0, 90.0, 3.2
+# 歩きの絵が向いている側。向いていない側へ行くときは返す。
+# いまの walk.png は**左**を向いている。True のままだと両方向とも後ろ歩きになる（2026-09-24）。
+WALK_FACES_RIGHT = False
+FIDGET_MIN, FIDGET_MAX, FIDGET_SECONDS = 120.0, 300.0, 3.2
 # 跳ね。足元から HOP_HEIGHT ドット浮いて戻る。
 HOP_SECONDS, HOP_HEIGHT = 0.36, 6
 # 押されたときの顔。この絵があれば、一瞬だけ出して元の姿に戻る（暇でなくても出す）。
