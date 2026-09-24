@@ -1152,6 +1152,11 @@ async function readyPicture(src) {
   await preload.decode();
 }
 
+// 呼吸の速さ。寝ているときは深くゆっくり、はしゃいでいるときは少し速い。
+// トレイ（mascot/__main__.py の BREATH_BY_NAME）と同じ表。
+const BREATH_SECONDS = 3.4;
+const BREATH_BY_NAME = { sleep: 5.2, nap: 4.6, doze: 4.6, happy: 2.6, laugh: 2.6 };
+
 // いちばん新しく頼まれた絵。読み込みを待つあいだに次が届くことがあり、
 // **先に読めたほうが後から当たると、古い姿で止まる。**
 let wantedPicture = "";
@@ -1172,11 +1177,6 @@ async function showPicture(name) {
   currentPicture = name;
   scheduleBlink();
 }
-
-// 呼吸の速さ。寝ているときは深くゆっくり、はしゃいでいるときは少し速い。
-// トレイ（mascot/__main__.py の BREATH_BY_NAME）と同じ表。
-const BREATH_SECONDS = 3.4;
-const BREATH_BY_NAME = { sleep: 5.2, nap: 4.6, doze: 4.6, happy: 2.6, laugh: 2.6 };
 
 // 脳からの姿。所作の途中なら、それをやめて従う。
 function showBrainPicture(name, act, off) {
@@ -1395,6 +1395,13 @@ function reactAvatar(className = "avatar-react") {
   void image.offsetWidth;
   image.classList.add(className);
 }
+
+// 一度きりの動き（跳ね・触られた・揺れ・首かしげ）は、終わったら class を外す。
+// 残したままだと animation が上書きされたままで、**呼吸が止まる**（2026-09-24 に気づいた）。
+const ONE_SHOT_MOTIONS = ["avatar-hop", "avatar-tap", "avatar-react", "avatar-sway", "avatar-tilt"];
+$("miniAvatarImage").addEventListener("animationend", event => {
+  if (event.animationName !== "avatar-breathe") event.target.classList.remove(...ONE_SHOT_MOTIONS);
+});
 
 // ===== Voice =====
 // 読み上げは会話とは独立させる。エンジンが止まっていても会話は続ける。
