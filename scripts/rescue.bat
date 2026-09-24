@@ -1,25 +1,31 @@
 @echo off
+rem "kotoha.bat rescue" から呼ばれます。直接は実行しません。
+rem
+rem 出先から「ことは」を立て直せるように、このPCを家で1回だけ整えます。
+rem 見張り番の登録（推奨）、OpenSSH（最後の手段）、スリープ対策（ふつう不要）の
+rem 3つを、1つずつ確かめてから聞いて、はいと答えたぶんだけ変えます。
+rem Windows の設定を触るので管理者権限が要ります。足りなければ自分で昇格します。
+rem
+rem このファイルは Shift_JIS（CP932）で保存します。UTF-8 だと cmd が行を読み飛ばします。
+rem 管理者に昇格すると環境変数が引き継がれないので、合図は引数 elevated でも受け付ける。
+if /i "%~1"=="elevated" goto :entry
+if not defined KOTOHA_ENTRY goto :direct
+:entry
 setlocal
 cd /d "%~dp0.."
-title Kotoha Rescue
-
-rem Called by "kotoha.bat rescue". Not meant to be run directly.
-rem
-rem Prepare this PC so Kotoha can be brought back from outside the house.
-rem Run this ONCE, at home. What you do from the phone later is printed
-rem at the end (and written in docs/07).
-rem
-rem Three steps, checked and applied one at a time. Nothing is changed
-rem without asking. Steps 2 and 3 alter Windows settings, so this needs
-rem administrator rights.
+title ことは - 出先から立て直す準備
 
 net session >nul 2>&1
 if not errorlevel 1 goto :elevated
-echo Administrator rights are needed. A confirmation dialog will appear.
-powershell -NoProfile -Command "Start-Process -FilePath '%~f0' -Verb RunAs" >nul 2>&1
+echo.
+echo  この準備には管理者権限が要ります。
+echo  このあと「変更を許可しますか」と聞かれるので「はい」を押してください。
+echo.
+powershell -NoProfile -Command "Start-Process -FilePath '%~f0' -ArgumentList 'elevated' -Verb RunAs" >nul 2>&1
 if errorlevel 1 (
-    echo Could not elevate. Right-click kotoha.bat, pick "Run as administrator",
-echo and then run "kotoha.bat rescue" from there.
+    echo  昇格できませんでした。
+    echo  kotoha-menu.bat を右クリックして「管理者として実行」を選び、
+    echo  開いたメニューで 7 を押してください。
     pause
 )
 exit /b 0
@@ -28,165 +34,183 @@ exit /b 0
 set "TASK=Kotoha Watchdog"
 set "PYW=%~dp0..\.venv\Scripts\pythonw.exe"
 set "TRAY=%~dp0tray.pyw"
-set "DID1=no"
-set "DID2=no"
-set "DID3=no"
-set "SSHSTATE=unknown"
+set "DID1=していない"
+set "DID2=していない"
+set "DID3=していない"
+set "SSHSTATE=不明"
 
 cls
-echo ===============================================
-echo  Kotoha Rescue - remote recovery preparation
-echo ===============================================
+echo ==================================================
+echo   ことは - 出先から立て直す準備
+echo ==================================================
 echo.
-echo  1. Watchdog    bring the tray back by itself      (do this one)
-echo  2. OpenSSH     start it by hand from a phone       (last resort)
-echo  3. Wake        let the PC wake from sleep          (only if it sleeps)
+echo  出先から戻せるのは「PCは起きているのに、ことはだけが落ちた」ときです。
+echo  PCが寝ている・電源が落ちているときは、外からは戻せません。
+echo.
+echo  これから3つを順に聞きます。「N」を押せば何も変えずに次へ進みます。
+echo.
+echo   1. 見張り番   5分ごとに見回り、落ちていれば上げ直す   ← これだけで十分
+echo   2. OpenSSH    iPhoneのSSHアプリからPCに入って手で起こす ← 最後の手段
+echo   3. スリープ   寝たPCを起こす準備                         ← ふつう不要
 echo.
 pause
 
 rem --------------------------------------------------------------
-rem  1. Watchdog
+rem  1. 見張り番（Watchdog）
 rem --------------------------------------------------------------
 :step1
 cls
-echo === 1. Watchdog ===
+echo === 1. 見張り番（タスク スケジューラ「%TASK%」） ===
 echo.
-echo Kotoha only restarts itself when it asks for it (exit code 42).
-echo Any other crash leaves kotoha.bat waiting at "pause", which nobody
-echo can clear from outside. A scheduled task every 5 minutes fixes that.
+echo  ことはが自分で上げ直せるのは、自分から「入れ直す」と言ったときだけです。
+echo  それ以外の落ち方をすると、誰かがPCの前で操作するまで止まったままです。
+echo  そこで Windows のタスクに、5分ごとにトレイを起こす係を登録します。
 echo.
-echo Starting the tray twice is safe: tray.py holds a mutex and the second
-echo one quietly backs off. So no liveness check is needed here.
+echo  二重に起こしても大丈夫です。すでに居れば、あとから来たほうが黙って引き下がります。
 echo.
 if not exist "%PYW%" (
-    echo   [warn] %PYW% not found. Run "kotoha.bat setup" first.
-    echo       Skipping this step.
+    echo   [注意] Python 環境が見つかりません: %PYW%
+    echo          先に  kotoha.bat setup  を実行してください。この手順は飛ばします。
     pause
     goto :step2
 )
 schtasks /query /tn "%TASK%" >nul 2>&1
 if errorlevel 1 (
-    echo   Current state: not registered
+    echo   いまの状態: 未登録
 ) else (
-    echo   Current state: already registered ^(it will be replaced^)
+    echo   いまの状態: 登録ずみ（登録し直します。フォルダを移した後はこれで直ります）
 )
 echo.
-choice /c YN /n /m "Register the watchdog task? [Y/N] "
+choice /c YN /n /m "  見張り番を登録しますか？ [Y=はい / N=いいえ] "
 if errorlevel 2 goto :step2
 schtasks /create /f /it /tn "%TASK%" /sc minute /mo 5 ^
     /tr "\"%PYW%\" \"%TRAY%\"" >nul
 if errorlevel 1 (
-    echo   [warn] Could not register the task.
+    echo   [失敗] タスクを登録できませんでした。
 ) else (
-    echo   Registered. It runs every 5 minutes while you are logged on.
-    set "DID1=yes"
+    echo   登録しました。ログオンしているあいだ、5分ごとに見回ります。
+    set "DID1=した"
 )
 echo.
 pause
 
 rem --------------------------------------------------------------
-rem  2. OpenSSH Server
+rem  2. OpenSSH サーバー
 rem --------------------------------------------------------------
 :step2
 cls
-echo === 2. OpenSSH Server ===
+echo === 2. OpenSSH サーバー（最後の手段） ===
 echo.
-echo With this on, you can reach the PC over Tailscale from an SSH app on
-echo the phone and start Kotoha again:  schtasks /run /tn "%TASK%"
+echo  見張り番でも戻らないとき、iPhone の SSH アプリから Tailscale 経由でPCに入り、
+echo  手でトレイを起こせるようにします。
 echo.
-echo   [warn] This opens a way in. Keep it inside the tailnet, and prefer
-echo       key authentication over passwords.
+echo   [注意] PCへの入口を1つ開けます。Tailscale の中だけで使い、
+echo          できればパスワードではなく鍵で入ってください。
 echo.
 for /f "delims=" %%S in ('powershell -NoProfile -Command "(Get-WindowsCapability -Online -Name OpenSSH.Server*).State" 2^>nul') do set "SSHSTATE=%%S"
-echo   Current state: %SSHSTATE%
+echo   いまの状態: %SSHSTATE%   （Installed なら入っています）
 echo.
-choice /c YN /n /m "Install and enable the OpenSSH server? [Y/N] "
+choice /c YN /n /m "  OpenSSH サーバーを入れて有効にしますか？ [Y=はい / N=いいえ] "
 if errorlevel 2 goto :step3
-rem PowerShell returns 0 even when a cmdlet fails, unless it is told to stop.
+rem PowerShell は止めるよう言わないと、失敗しても 0 を返す。
 powershell -NoProfile -Command "$ErrorActionPreference='Stop'; try { Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0 | Out-Null; Set-Service -Name sshd -StartupType Automatic; Start-Service sshd } catch { exit 1 }"
 if errorlevel 1 (
-    echo   [warn] Could not enable the OpenSSH server.
+    echo   [失敗] OpenSSH サーバーを有効にできませんでした。
 ) else (
-    echo   Enabled and set to start with Windows.
-    set "DID2=yes"
+    echo   有効にしました。Windows と一緒に起動します。
+    set "DID2=した"
 )
 echo.
 pause
 
 rem --------------------------------------------------------------
-rem  3. Wake from sleep
+rem  3. スリープ対策
 rem --------------------------------------------------------------
 :step3
 cls
-echo === 3. Wake from sleep ===
+echo === 3. スリープ対策（ふつう不要） ===
 echo.
-echo Tailscale does not answer while the PC sleeps. Waking it needs
-echo Wake-on-LAN, and a magic packet can only come from the same LAN -
-echo a router, a smart plug or another always-on machine at home.
+echo  PCが寝ると Tailscale は応えません。外から起こすには Wake-on-LAN が要りますが、
+echo  その合図は家のLANの中からしか送れません（ルーター、スマートプラグなど）。
 echo.
-echo The easier way is not to sleep at all: set KOTOHA_KEEP_AWAKE=true in
-echo .env and the tray keeps the PC awake while it runs. The screen still
-echo turns off, and the power plan itself is left alone. If that is on,
-echo and the power plan does not sleep on AC, you can skip this step.
+echo  楽なのは「寝かせない」ことです。.env に  KOTOHA_KEEP_AWAKE=true  と書けば、
+echo  トレイが居るあいだPCは寝ません（画面は消えます。電源設定は触りません）。
+echo  それで足りるなら、この手順は「N」で飛ばしてください。
 echo.
-echo Fast startup has to be off, or the network card stays asleep.
+echo  ここで変えるのは「高速スタートアップ」を切ることだけです。
+echo  これが入っていると、シャットダウン後にネットワークカードが眠ったままになります。
 echo.
-echo   Devices allowed to wake this PC now:
+echo   いまPCを起こせる機器:
 powercfg -devicequery wake_armed
 echo.
-choice /c YN /n /m "Turn off fast startup? [Y/N] "
+choice /c YN /n /m "  高速スタートアップを切りますか？ [Y=はい / N=いいえ] "
 if errorlevel 2 goto :done
 reg add "HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Power" ^
     /v HiberbootEnabled /t REG_DWORD /d 0 /f >nul
 if errorlevel 1 (
-    echo   [warn] Could not change the setting.
+    echo   [失敗] 設定を変えられませんでした。
 ) else (
-    echo   Fast startup is off. Hibernation itself is untouched.
-    set "DID3=yes"
+    echo   高速スタートアップを切りました。休止状態そのものは触っていません。
+    set "DID3=した"
 )
 echo.
-echo   Two things are left, and neither can be done from here:
+echo   残り2つは、ここからはできません:
 echo.
-echo     - Arm the network card. Pick yours from the list below and run:
-echo         powercfg -deviceenablewake "the exact name"
+echo     - ネットワークカードに起こす許可を出す。下の一覧から名前を選んで:
+echo         powercfg -deviceenablewake "一覧にある正確な名前"
 echo.
 powercfg -devicequery wake_from_any
 echo.
-echo     - Turn on Wake-on-LAN in the BIOS/UEFI.
+echo     - BIOS/UEFI で Wake-on-LAN を有効にする。
 echo.
 pause
 
 rem --------------------------------------------------------------
 :done
 cls
-echo === Done ===
+echo ==================================================
+echo   できあがり
+echo ==================================================
 echo.
-echo   1. Watchdog        %DID1%
-echo   2. OpenSSH server  %DID2%
-echo   3. Fast startup    %DID3%
+echo   1. 見張り番の登録          %DID1%
+echo   2. OpenSSH サーバー        %DID2%
+echo   3. 高速スタートアップ停止  %DID3%
 echo.
-echo ===============================================
-echo  From the phone, in this order
-echo ===============================================
+echo  この画面の内容は docs/07_運用と設定.md「出先から立て直す」にもあります。
 echo.
-echo   1. Tailscale app: is this PC online?
-echo        offline -^> it is asleep or off. Nothing can be done from
-echo        outside; Wake-on-LAN only reaches it from inside the house.
-echo   2. The URL opens, but she is acting strangely
-echo        settings (gear) -^> "Restart". The tray brings her back up.
-echo   3. The URL does not open
-echo        wait 5 minutes. The watchdog task starts the tray again.
-echo   4. Still nothing
-echo        SSH in and run:  schtasks /run /tn "%TASK%"
-echo        That starts the tray in YOUR desktop session, so the icon and
-echo        the figure come back too. Without the watchdog task, run
-echo        cd /d "%~dp0.." ^&^& kotoha.bat tray - the chat screen works,
-echo        but nothing appears on the desktop at home.
+echo --------------------------------------------------
+echo   iPhone から戻すときは、上から順に
+echo --------------------------------------------------
 echo.
-echo To undo:
+echo   (1) Tailscale アプリで、このPCが「Connected」か見る
+echo        → 灰色（オフライン）なら寝ているか電源が落ちている。外からは戻せない。
+echo.
+echo   (2) 会話画面は開くが、様子がおかしい
+echo        → 画面の歯車 → 「再起動する」。トレイが上げ直す。
+echo.
+echo   (3) 会話画面が開かない
+echo        → 5分待って開き直す。見張り番がトレイを起こす。
+echo.
+echo   (4) 5分たっても開かない（OpenSSH を入れてあるとき）
+echo        SSH アプリ（Termius など）で次の宛先につなぐ:
+echo          ホスト:   Tailscale アプリに出ているこのPCの名前（%COMPUTERNAME%）
+echo          ユーザー: %USERNAME%
+echo        つながったら、この1行を打つ:
+echo          schtasks /run /tn "%TASK%"
+echo        これで自分のデスクトップ側にトレイが立ち、姿もアイコンも戻る。
+echo        ※ kotoha.bat tray を直接打つと SSH 側で動くので、会話画面は使えても
+echo          家のPCの画面には何も出ない。見張り番を走らせるほうを使うこと。
+echo.
+echo --------------------------------------------------
+echo   元に戻すとき（管理者のコマンド プロンプトで）
+echo --------------------------------------------------
 echo   1. schtasks /delete /tn "%TASK%" /f
 echo   2. powershell -Command "Remove-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0"
 echo   3. reg add "HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Power" /v HiberbootEnabled /t REG_DWORD /d 1 /f
 echo.
 pause
 exit /b 0
+:direct
+echo  このファイルは直接実行しません。1つ上の  kotoha-menu.bat  の 7 か、kotoha.bat rescue  を使ってください。
+pause
+exit /b 1
