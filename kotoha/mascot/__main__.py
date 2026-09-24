@@ -6,6 +6,8 @@
 呼吸とまばたき、それと**暇なときの動き**だけは、ここで作る。1ドット上下させ、
 まばたきの差分があるものは時々差し替える。止まっている絵は、止まって見える。
 どれも**行の帯を1ドットずらすだけ**（`sheet.Frame.shifted`）で、絵は増やさない。
+姿が替わる瞬間は前の絵から次の絵へ短く溶かす（`fade.Crossfade`。器は毎ティック
+出す絵を通すだけで、いつ溶かすかはあちらが決める）。
 
 暇なときの動き（散歩・所作・揺れ・首かしげ）は `motion.py` にある。1つの動きは
 1つのクラスで、ここは **どれかを始めて、終わったら片づける** だけ（`motion.Idle`）。
@@ -21,7 +23,7 @@ import time
 import webbrowser
 
 from .. import config
-from . import client, motion, sheet, window
+from . import client, fade, motion, sheet, window
 from .bubble import Bubble
 from .client import Brain
 from .window import Dot, kernel32, user32
@@ -87,6 +89,7 @@ class Mascot:
         self.next_blink = time.time() + random.uniform(BLINK_MIN, BLINK_MAX)
         self.bubble_until = 0.0
         self.last_drawn = None
+        self.fade = fade.Crossfade()          # 姿の切り替えを溶かす
         # 暇なときの動き
         self.act = "idle"
         self.idle = motion.Idle(time.time())
@@ -157,19 +160,23 @@ class Mascot:
         period = BREATH_BY_NAME.get(name, BREATH_SECONDS)
         breathing_out = breathes and (now % period) < period / 2
         hop += self._hop(now)
-        state = (name, tag, mirror, self.blinking, breathing_out, opacity, hop, shift)
+        state = (name, tag, mirror, self.blinking, breathing_out, opacity, hop, shift,
+                 self.fade.step(now))
         if state == self.last_drawn and not force:
             return
         self.last_drawn = state
         frame = self.sheet.frame(name, self.blinking, tag)
         if frame is None:
-            frame = self.sheet.frame(self.sheet.any_name())
+            name = self.sheet.any_name()
+            frame = self.sheet.frame(name)
         if frame is not None and mirror:
             frame = frame.mirrored()
         if frame is not None and shift and shift[2]:
             frame = frame.shifted(*shift)
         if frame is not None and breathing_out:
             frame = frame.squashed()
+        # 姿（名前と向き）が替わったら、前の絵から溶かす。まばたきや呼吸は鍵に入れない。
+        frame = self.fade.frame((name, mirror), frame, now)
         self.dot.draw(frame, opacity=opacity)
         self.dot.lift(hop)
 
@@ -286,6 +293,7 @@ class Mascot:
         self.bubble_until = 0
         if "wave" in self.sheet.frames:
             self.picture = "wave"
+            self.fade.cut()                   # 待つあいだ時計が止まるので、溶かさずに出す
             self.draw(force=True)
             time.sleep(0.45)
         self.dot.visible(False)

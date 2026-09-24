@@ -140,10 +140,47 @@ class Frame:
         self._mirrored = other
         return other
 
+    def blended(self, other: "Frame", weight: float) -> "Frame":
+        """other を weight（0〜1）だけ重ねた同じ大きさの絵。姿の切り替えの途中の1枚。
+
+        不透明さを先に掛けた並びどうしは、**そのまま足し合わせてよい**（線形なので、
+        縁に黒が出ない）。1バイトずつ Python で回すと 40ms に間に合わないので、
+        `bytes.translate` で両方を縮めてから、大きな整数の足し算で一度に合わせる。
+        縮めた値の和は 255 を超えないので、桁上がりは起きない。持ち回らない
+        （切り替えの間だけの絵なので、持つと素材のぶんだけ増える）。
+        """
+        if self.width != other.width or self.height != other.height:
+            raise ValueError("大きさの違う絵は混ぜられない")
+        keep, take = _scale_tables(weight)
+        blend = self._blank()
+        blend.bgra = _add_bytes(self.bgra.translate(keep), other.bgra.translate(take))
+        blend.alpha = _add_bytes(self.alpha.translate(keep), other.alpha.translate(take))
+        return blend
+
     def opaque_at(self, x: int, y: int) -> bool:
         if not (0 <= x < self.width and 0 <= y < self.height):
             return False
         return self.alpha[y * self.width + x] > 16
+
+
+_SCALE_TABLES = {}
+
+
+def _scale_tables(weight: float):
+    """(1-weight 倍する表, weight 倍する表)。同じ重さなら同じ表を使い回す。"""
+    weight = min(1.0, max(0.0, weight))
+    tables = _SCALE_TABLES.get(weight)
+    if tables is None:
+        take = bytes(round(v * weight) for v in range(256))
+        keep = bytes(v - take[v] for v in range(256))     # 足して元の値になる
+        tables = _SCALE_TABLES[weight] = (keep, take)
+    return tables
+
+
+def _add_bytes(a: bytes, b: bytes) -> bytearray:
+    """同じ長さの並びを1バイトずつ足す。**どの桁も 255 を超えないこと**が前提。"""
+    total = int.from_bytes(a, "little") + int.from_bytes(b, "little")
+    return bytearray(total.to_bytes(len(a), "little"))
 
 
 class Sheet:

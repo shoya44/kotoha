@@ -1161,7 +1161,7 @@ const BREATH_BY_NAME = { sleep: 5.2, nap: 4.6, doze: 4.6, happy: 2.6, laugh: 2.6
 // **先に読めたほうが後から当たると、古い姿で止まる。**
 let wantedPicture = "";
 
-async function showPicture(name) {
+async function showPicture(name, { fade = true } = {}) {
   if (!name || name === currentPicture) return;
   wantedPicture = name;
   const src = `${SPRITE_URL}${name}.png`;
@@ -1172,10 +1172,37 @@ async function showPicture(name) {
   }
   if (wantedPicture !== name) return;   // 待つあいだに次が来ていた
   const image = $("miniAvatarImage");
-  image.src = src;
+  crossfade(image, src, fade && !FADE_INSTANT.has(name));
   image.style.setProperty("--breath", `${BREATH_BY_NAME[name] || BREATH_SECONDS}s`);
   currentPicture = name;
   scheduleBlink();
+}
+
+// 姿の切り替えを、前の絵から次の絵へ短く溶かす（トレイの mascot/fade.py と同じ癖）。
+// 本体の img は1枚のまま。**前の絵の写し（ghost）を上に重ねて薄くしていく**だけなので、
+// まばたき・口パクのように src を直接触るところは、何も知らずに今までどおり動く。
+// 溶かす長さは style.css の .avatar-ghost と同じ 200ms。長いと二重写しに見える。
+const FADE_MS = 200;
+// 溶かさずにパッと替える絵。驚いた顔は、驚きらしく一瞬で。
+const FADE_INSTANT = new Set(["surprised"]);
+
+function crossfade(image, src, fade = true) {
+  const before = image.currentSrc || image.src;
+  const canFade = fade && before && before !== src && !image.classList.contains("unloaded")
+    && !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (canFade) {
+    // 同じ場所に前の絵を重ね、次のフレームで薄くし始める（同じフレームだと transition が効かない）。
+    const ghost = document.createElement("img");
+    ghost.className = "avatar-ghost";
+    ghost.alt = "";
+    ghost.src = before;
+    image.after(ghost);
+    const done = () => ghost.remove();
+    ghost.addEventListener("transitionend", done, { once: true });
+    setTimeout(done, FADE_MS + 100);        // transitionend が来なくても片づける
+    requestAnimationFrame(() => requestAnimationFrame(() => ghost.classList.add("gone")));
+  }
+  image.src = src;
 }
 
 // 脳からの姿。所作の途中なら、それをやめて従う。
@@ -1251,7 +1278,7 @@ avatarImage.addEventListener("click", async () => {
   clearTimeout(fidgetTimer);
   fidgetTimer = null;
   clearTimeout(reactTimer);
-  await showPicture(REACT_NAME);
+  await showPicture(REACT_NAME, { fade: false });
   reactTimer = setTimeout(() => {
     reactTimer = null;
     showPicture(brainPicture);
