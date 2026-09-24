@@ -177,6 +177,19 @@ body.typing .mini-avatar { height: 0; }
   50%      { transform: scaleY(.994); }
 }
 
+/* 姿の切り替え。前の絵の写しを上に重ね、200ms で薄くして消す（app.js の crossfade）。
+   呼吸や跳ねの transform は本体だけに掛け、写しは止めておく。長さは app.js の FADE_MS と同じ。 */
+.mini-avatar .avatar-ghost {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  animation: none;
+  opacity: 1;
+  transition: opacity .2s ease;
+}
+
+.mini-avatar .avatar-ghost.gone { opacity: 0; }
+
 /* 跳ね。話したとき・機嫌がよくなったとき、足元から少し浮いて戻る。 */
 .mini-avatar img.avatar-hop {
   animation: avatar-hop .36s ease-out 2;
