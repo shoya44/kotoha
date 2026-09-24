@@ -300,11 +300,12 @@ class LauncherTests(LauncherFixture, unittest.TestCase):
             # 読めない字は置き換えて、行は残す。
             result = subprocess.run(
                 ["cmd.exe", "/d", "/c", "call", str(target)],
-                cwd=ROOT, input="\n", capture_output=True, text=True, timeout=10,
+                # ダブルクリック扱いになると「いまここで作りますか？」と聞くので、N で断る。
+                cwd=ROOT, input="N\n", capture_output=True, text=True, timeout=10,
                 encoding="utf-8", errors="replace",
             )
             self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
-            self.assertIn('Run "kotoha.bat setup" first', result.stdout)
+            self.assertIn("kotoha.bat setup", result.stdout)
 
 
 class EngineStartTests(LauncherFixture):

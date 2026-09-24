@@ -25,16 +25,16 @@ PCの中で暮らしている話し相手です。同じPCの中に記憶を持�
 
 ## 始め方
 
-叩くのは **`kotoha.bat` の1枚だけ**です。あとはその後ろに言葉を付けます。
+ダブルクリックするのは **`kotoha.bat`（起動）** と **`kotoha-menu.bat`（それ以外）** の2枚だけです。引数は要りません。
 
 | 順 | やること |
 |---|---|
-| 1 | **`kotoha.bat setup`** ── Python環境と依存を用意します |
-| 2 | **`kotoha.bat settings`** ── Geminiの鍵と合言葉を入れます |
-| 3 | **`kotoha.bat`** をダブルクリック ── タスクトレイに常駐し、画面に姿が出て、会話画面が開きます。ログオン時に自動で上げるなら `kotoha.bat autostart on` |
+| 1 | **`kotoha.bat`** をダブルクリック ── Python環境がなければ「いまここで作りますか？」と聞くので Y。依存まで入ります |
+| 2 | **`kotoha-menu.bat`** をダブルクリック → **5** ── Geminiの鍵と合言葉を入れます |
+| 3 | もう一度 **`kotoha.bat`** をダブルクリック ── タスクトレイに常駐し、画面に姿が出て、会話画面が開きます。ログオン時に自動で上げるなら メニューの **6** |
 
-動きを窓で見たいときは `kotoha.bat console`。すでに常駐しているときにダブルクリックすると、会話画面だけが開きます。
-`kotoha.bat help` で、できることが並びます。
+動きを窓で見たいときはメニューの **2**。すでに常駐しているときに `kotoha.bat` をダブルクリックすると、会話画面だけが開きます。
+コマンドで使うなら `kotoha.bat` の後ろに言葉を付けます（`kotoha.bat help` で一覧）。`scripts/` の中の bat は部品なので直接は実行しません。
 
 Gemini の鍵は [Google AI Studio](https://aistudio.google.com/) で取れます。通知を使うなら [OneSignal](https://onesignal.com/) の登録も要りますが、無くても動きます。Ollama と AivisSpeech は入れてあれば起動時に起こします。
 
