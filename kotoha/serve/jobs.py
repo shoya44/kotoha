@@ -499,3 +499,14 @@ def start_background() -> None:
         return
     _thread = threading.Thread(target=_bg_loop, name=JOBS_THREAD_NAME, daemon=True)
     _thread.start()
+    threading.Thread(target=_checkup_once, name="kotoha-checkup", daemon=True).start()
+
+
+def _checkup_once() -> None:
+    """起きてしばらくしてから、一度だけ体調を見る（talk/myself.checkup）。"""
+    time.sleep(myself.CHECKUP_GRACE_SECONDS)
+    try:
+        with db.session() as conn:
+            myself.checkup(conn)
+    except Exception as error:
+        notify.log(f"起きたあとの体調見で失敗: {error!r}")
