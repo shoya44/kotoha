@@ -5,11 +5,13 @@
 
 呼吸とまばたき、それと**暇なときの動き**だけは、ここで作る。1ドット上下させ、
 まばたきの差分があるものは時々差し替える。止まっている絵は、止まって見える。
+どれも**行の帯を1ドットずらすだけ**（`sheet.Frame.shifted`）で、絵は増やさない。
 
 暇なときの動き（脳は関わらない。まばたきと同じ「器の癖」）:
 - 散歩: `walk` の絵で、机の端を少し歩いて止まる。コマ（f1, f2）があれば足で交互に出し、
   無ければ一歩おきに 1 ドット浮かせる。左へ行くときは絵を返す。歩いた先は置き場所として覚える
 - 所作: `fidget_*` の絵を数秒だけ出して、元の姿に戻る
+- 小さな動き: 絵は替えずに、上半身を1ドット揺らす・首をかしげる。所作の間を埋める
 - 跳ね: 話したとき・機嫌がいいとき、足元から少し跳ねる
 脳から姿が届いたら、動きは途中でもやめてそれに従う。
 """
@@ -17,6 +19,7 @@
 import ctypes
 import ctypes.wintypes as w
 import json
+import math
 import random
 import time
 import webbrowser
@@ -33,6 +36,9 @@ LOG_PATH = config.BASE_DIR / "data" / "mascot.log"
 TICK_MS = 40
 # 呼吸。この周期で、1ドットぶん縮んでは戻る（足元は動かない）。
 BREATH_SECONDS = 3.4
+# 絵によって息の速さを変える。寝ているときは深くゆっくり、はしゃいでいるときは少し速い。
+# 会話画面（app.js の BREATH_BY_NAME）と同じ表。
+BREATH_BY_NAME = {"sleep": 5.2, "nap": 4.6, "doze": 4.6, "happy": 2.6, "laugh": 2.6}
 # まばたきの間。ばらつかせないと、機械に見える。
 BLINK_MIN, BLINK_MAX, BLINK_MS = 4.0, 10.0, 0.13
 # ふきだしが残る時間。頼まれごとは読み終わるまで置いておきたい。
@@ -53,6 +59,12 @@ STROLL_BOB = 1                               # 歩くとき一歩おきに浮く
 # いまの walk.png は**左**を向いている。True のままだと両方向とも後ろ歩きになる（2026-09-24）。
 WALK_FACES_RIGHT = False
 FIDGET_MIN, FIDGET_MAX, FIDGET_SECONDS = 120.0, 300.0, 3.2
+# 小さな動き。絵を替えないぶん軽いので、所作より短い間で挟む。
+# 揺れ: 脚より上を右・戻す・左・戻す（SWAY_SECONDS で一往復）。首かしげ: 首より上を片側へ TILT_SECONDS。
+MICRO_MIN, MICRO_MAX = 20.0, 60.0
+SWAY_SECONDS, TILT_SECONDS = 2.4, 2.0
+# 歩くとき、脚の帯を一歩おきに左右へずらす（コマが無くても足が動いて見える）。
+STROLL_STEP_DX = 1
 # 跳ね。足元から HOP_HEIGHT ドット浮いて戻る。
 HOP_SECONDS, HOP_HEIGHT = 0.36, 6
 # 押されたときの顔。この絵があれば、一瞬だけ出して元の姿に戻る（暇でなくても出す）。
@@ -99,6 +111,7 @@ class Mascot:
         # 暇なときの動き
         self.act = "idle"
         self.motion = None                    # None | ("stroll", 向き, 残り) | ("fidget", 名前, 終わり)
+                                              #      | ("micro", "sway"/"tilt", 始まり, 終わり, 向き)
         self.step_at = 0.0
         self.step = 0
         self.hops = []                        # 跳ねの始まり（time）の並び
@@ -108,6 +121,7 @@ class Mascot:
         now = time.time()
         self.next_stroll = now + random.uniform(STROLL_MIN, STROLL_MAX)
         self.next_fidget = now + random.uniform(FIDGET_MIN, FIDGET_MAX)
+        self.next_micro = now + random.uniform(MICRO_MIN, MICRO_MAX)
 
         width, height = self.sheet.size
         self.dot = Dot(width, height, on_click=self.tapped, on_menu=self.opened_menu,
@@ -154,10 +168,10 @@ class Mascot:
 
     def draw(self, force: bool = False) -> None:
         now = time.time()
-        # 息を吐いているあいだだけ、1ドットぶん縮む。浮かせると跳ねて見える。
-        breathing_out = (now % BREATH_SECONDS) < BREATH_SECONDS / 2
         opacity = 255 if self.online else DIM
         name, tag, mirror = self.picture, None, False
+        # 行の帯のずらし。(上, 下, dx)。無ければ None。
+        shift = None
         if now < self.react_until and REACT_NAME in self.sheet.frames:
             name = REACT_NAME
         elif self.motion and self.motion[0] == "stroll":
@@ -165,14 +179,22 @@ class Mascot:
             tags = self.sheet.tags(name)
             tag = tags[self.step % len(tags)] if tags else None
             mirror = (self.motion[1] < 0) == WALK_FACES_RIGHT
-            breathing_out = False
+            if not tags and STROLL_STEP_DX:
+                # 脚のコマが無い絵でも、脚の帯を一歩おきに左右へずらせば足が動いて見える
+                shift = (sheet.SEAM, 1.0, STROLL_STEP_DX if self.step % 2 else -STROLL_STEP_DX)
         elif self.motion and self.motion[0] == "fidget":
             name = self.motion[1]
+        elif self.motion and self.motion[0] == "micro":
+            shift = self._micro_shift(now)
+        # 息を吐いているあいだだけ、1ドットぶん縮む。浮かせると跳ねて見える。歩くときは止める。
+        period = BREATH_BY_NAME.get(name, BREATH_SECONDS)
+        strolling = bool(self.motion and self.motion[0] == "stroll")
+        breathing_out = (now % period) < period / 2 and not strolling
         hop = self._hop(now)
-        if self.motion and self.motion[0] == "stroll" and self.step % 2:
-            # 一歩おきに 1 ドット浮く。脚のコマが無い絵でも、横に動くだけよりは歩いて見える
+        if strolling and self.step % 2:
+            # 一歩おきに 1 ドット浮く。横に動くだけよりは歩いて見える
             hop += STROLL_BOB
-        state = (name, tag, mirror, self.blinking, breathing_out, opacity, hop)
+        state = (name, tag, mirror, self.blinking, breathing_out, opacity, hop, shift)
         if state == self.last_drawn and not force:
             return
         self.last_drawn = state
@@ -181,10 +203,21 @@ class Mascot:
             frame = self.sheet.frame(self.sheet.any_name())
         if frame is not None and mirror:
             frame = frame.mirrored()
+        if frame is not None and shift and shift[2]:
+            frame = frame.shifted(*shift)
         if frame is not None and breathing_out:
             frame = frame.squashed()
         self.dot.draw(frame, opacity=opacity)
         self.dot.lift(hop)
+
+    def _micro_shift(self, now: float):
+        """小さな動きの、いまのずらし。(上, 下, dx)。"""
+        _, kind, started, _, side = self.motion
+        if kind == "tilt":
+            return (0.0, sheet.NECK, side)
+        # 揺れ: 一往復を正弦で。丸めると 0, +1, 0, -1 の4段になる
+        phase = (now - started) / SWAY_SECONDS
+        return (0.0, sheet.SEAM, side * round(math.sin(2 * math.pi * phase)))
 
     # --- 暇なときの動き ---
 
@@ -239,6 +272,10 @@ class Mascot:
                 self.step_at, self.step = now, 0
             elif now >= self.next_fidget and self._fidgets():
                 self.motion = ("fidget", random.choice(self._fidgets()), now + FIDGET_SECONDS)
+            elif now >= self.next_micro:
+                kind = random.choice(("sway", "tilt"))
+                length = SWAY_SECONDS if kind == "sway" else TILT_SECONDS
+                self.motion = ("micro", kind, now, now + length, random.choice((-1, 1)))
             return
         kind = self.motion[0]
         if kind == "stroll":
@@ -255,12 +292,17 @@ class Mascot:
         elif kind == "fidget":
             if now >= self.motion[2] or not self._idle():
                 self._stop_motion()
+        elif kind == "micro":
+            if now >= self.motion[3] or not self._idle():
+                self._stop_motion()
 
     def _stop_motion(self) -> None:
         now = time.time()
         if self.motion and self.motion[0] == "stroll":
             self.remember_place(self.dot.x, self.dot.y)
             self.next_stroll = now + random.uniform(STROLL_MIN, STROLL_MAX)
+        elif self.motion and self.motion[0] == "micro":
+            self.next_micro = now + random.uniform(MICRO_MIN, MICRO_MAX)
         else:
             self.next_fidget = now + random.uniform(FIDGET_MIN, FIDGET_MAX)
         self.motion = None
