@@ -130,6 +130,37 @@ class SettingsChangedTests(MyselfCase):
             self.assertEqual(myself.settings_changed(self.conn), "声が入れられた")
 
 
+class CheckupTests(MyselfCase):
+    UP = (lambda: True, "声が出ない")
+    DOWN = (lambda: False, "声が出ない")
+
+    def test_all_well_says_nothing(self):
+        with Clock(NOON):
+            self.assertEqual(myself.checkup(self.conn, {"音声エンジン": self.UP}), "")
+        self.assertEqual(self.line(), "")
+
+    def test_down_part_is_told_in_her_words(self):
+        with Clock(NOON):
+            said = myself.checkup(self.conn, {"音声エンジン": self.DOWN})
+            self.assertIn("声が出ない", said)
+            self.assertIn("音声エンジンが動いていない", self.line())
+
+    def test_joins_the_wake_note_of_the_same_morning(self):
+        with Clock(NOON) as clock:
+            myself.wake(self.conn)
+            myself.heartbeat(self.conn)
+            clock.advance(hours=3)
+            myself.wake(self.conn)
+            clock.advance(seconds=90)
+            said = myself.checkup(self.conn, {"音声エンジン": self.DOWN})
+        self.assertIn("止まっていて", said)
+        self.assertIn("声が出ない", said)
+
+    def test_switched_off_parts_are_not_checked(self):
+        config.VOICE_ENABLED = False
+        self.assertNotIn("音声エンジン", myself.body_probes())
+
+
 class FingerprintTests(unittest.TestCase):
     def test_fingerprint_changes_with_content(self):
         import tempfile

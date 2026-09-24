@@ -105,6 +105,60 @@ def wake(conn) -> str:
     return "。".join(parts)
 
 
+def body_probes() -> dict:
+    """起きたあとに一度だけ確かめる、身体の調子。呼び名 → (確かめ方, 言い方)。
+
+    入れていない機能は確かめない。止めてあるものを「動かない」とは言わない。
+    Gemini のキーは無ければ起動そのものが止まる（config.require_keys）ので見ない。
+    """
+    from .. import launcher
+
+    probes = {}
+    if config.VOICE_ENABLED:
+        probes["音声エンジン"] = (launcher.aivis_is_up, "声が出ない")
+    if config.EMBED_ENABLED:
+        probes["Ollama"] = (launcher.ollama_is_up, "意味で思い出すことができない")
+    if config.TAILSCALE_SERVE_ENABLED:
+        probes["Tailscale"] = (_tailscale_is_up, "スマホからは届かない")
+    return probes
+
+
+def _tailscale_is_up() -> bool:
+    from .. import launcher
+
+    try:
+        return launcher.tailscale_json("status", "--json").get("BackendState") == "Running"
+    except launcher.ServeError:
+        return False
+
+
+# 起きてから確かめるまでの間。音声エンジンはモデルの読み込みを待たずに
+# 起こしているので、上がった直後に確かめると、動くものまで止まって見える。
+CHECKUP_GRACE_SECONDS = 90
+
+
+def checkup(conn, probes: dict = None) -> str:
+    """起きたあとの体調。止まっているものを、ことはの言葉で様子に足す。
+
+    **起動のあと一度だけ**（serve/jobs.py の start_background）。鳴らさない。
+    落ちたときに知らせるのは見張り（run_watch_jobs）の仕事で、こちらは
+    「起きたらもう動かなかった」ぶん。見張りは立ち上がりでは黙るので重ならない。
+    """
+    probes = body_probes() if probes is None else probes
+    down = [f"{say}（{label}が動いていない）"
+            for label, (probe, say) in probes.items() if not probe()]
+    if not down:
+        return ""
+    text = "起きてみたら" + "、".join(down)
+    before, at = note(conn)
+    # 起きたときの様子がまだ新しければ、同じ目覚めの話として続ける。
+    if before and db.seconds_since(at) < CHECKUP_GRACE_SECONDS * 3:
+        text = before + "。" + text
+    _note(conn, text)
+    conn.commit()
+    return text
+
+
 def settings_changed(conn) -> str:
     """設定シートから変えられた。止めずに効く道なので、ここで気づく。"""
     now = settings_now()
