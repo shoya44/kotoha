@@ -7,25 +7,21 @@
 まばたきの差分があるものは時々差し替える。止まっている絵は、止まって見える。
 どれも**行の帯を1ドットずらすだけ**（`sheet.Frame.shifted`）で、絵は増やさない。
 
-暇なときの動き（脳は関わらない。まばたきと同じ「器の癖」）:
-- 散歩: `walk` の絵で、机の端を少し歩いて止まる。コマ（f1, f2）があれば足で交互に出し、
-  無ければ一歩おきに 1 ドット浮かせる。左へ行くときは絵を返す。歩いた先は置き場所として覚える
-- 所作: `fidget_*` の絵を数秒だけ出して、元の姿に戻る
-- 小さな動き: 絵は替えずに、上半身を1ドット揺らす・首をかしげる。所作の間を埋める
-- 跳ね: 話したとき・機嫌がいいとき、足元から少し跳ねる
+暇なときの動き（散歩・所作・揺れ・首かしげ）は `motion.py` にある。1つの動きは
+1つのクラスで、ここは **どれかを始めて、終わったら片づける** だけ（`motion.Idle`）。
+跳ねだけは動きではなく重ね（話したとき・機嫌がいいとき、足元から少し浮く）。
 脳から姿が届いたら、動きは途中でもやめてそれに従う。
 """
 
 import ctypes
 import ctypes.wintypes as w
 import json
-import math
 import random
 import time
 import webbrowser
 
 from .. import config
-from . import client, sheet, window
+from . import client, motion, sheet, window
 from .bubble import Bubble
 from .client import Brain
 from .window import Dot, kernel32, user32
@@ -48,23 +44,6 @@ DIM = 120
 # 画面の端から空けるぶん。壁に貼り付いているように見えると窮屈。
 MARGIN_RIGHT, MARGIN_BOTTOM = 28, 10
 
-# 暇なときの動き。間をばらつかせる。**動きすぎると邪魔**なので、散歩は10分に一度ほど。
-# 所作も数分に一度。30〜90秒だと、机の端で始終そわそわしているように見えた（2026-09-24）。
-STROLL_MIN, STROLL_MAX = 300.0, 720.0
-STROLL_PX_MIN, STROLL_PX_MAX = 60, 220       # 一度に歩く距離
-STROLL_SPEED = 1                             # 1ティックに進むドット（40msなので 25px/s）
-STROLL_STEP_SECONDS = 0.26                   # 足のコマを替える間
-STROLL_BOB = 1                               # 歩くとき一歩おきに浮くドット（コマが無くても歩いて見せる）
-# 歩きの絵が向いている側。向いていない側へ行くときは返す。
-# いまの walk.png は**左**を向いている。True のままだと両方向とも後ろ歩きになる（2026-09-24）。
-WALK_FACES_RIGHT = False
-FIDGET_MIN, FIDGET_MAX, FIDGET_SECONDS = 120.0, 300.0, 3.2
-# 小さな動き。絵を替えないぶん軽いので、所作より短い間で挟む。
-# 揺れ: 脚より上を右・戻す・左・戻す（SWAY_SECONDS で一往復）。首かしげ: 首より上を片側へ TILT_SECONDS。
-MICRO_MIN, MICRO_MAX = 20.0, 60.0
-SWAY_SECONDS, TILT_SECONDS = 2.4, 2.0
-# 歩くとき、脚の帯を一歩おきに左右へずらす（コマが無くても足が動いて見える）。
-STROLL_STEP_DX = 1
 # 跳ね。足元から HOP_HEIGHT ドット浮いて戻る。
 HOP_SECONDS, HOP_HEIGHT = 0.36, 6
 # 押されたときの顔。この絵があれば、一瞬だけ出して元の姿に戻る（暇でなくても出す）。
@@ -110,18 +89,11 @@ class Mascot:
         self.last_drawn = None
         # 暇なときの動き
         self.act = "idle"
-        self.motion = None                    # None | ("stroll", 向き, 残り) | ("fidget", 名前, 終わり)
-                                              #      | ("micro", "sway"/"tilt", 始まり, 終わり, 向き)
-        self.step_at = 0.0
-        self.step = 0
+        self.idle = motion.Idle(time.time())
         self.hops = []                        # 跳ねの始まり（time）の並び
         self.react_until = 0.0                # 押されて驚いている終わり（time）
         self.fidgets_off = set()              # 脳が「いまは合わない」と言った所作
         self.reloaded_for = set()             # 読み直しても無かった絵の名前（何度も読み直さない）
-        now = time.time()
-        self.next_stroll = now + random.uniform(STROLL_MIN, STROLL_MAX)
-        self.next_fidget = now + random.uniform(FIDGET_MIN, FIDGET_MAX)
-        self.next_micro = now + random.uniform(MICRO_MIN, MICRO_MAX)
 
         width, height = self.sheet.size
         self.dot = Dot(width, height, on_click=self.tapped, on_menu=self.opened_menu,
@@ -169,31 +141,22 @@ class Mascot:
     def draw(self, force: bool = False) -> None:
         now = time.time()
         opacity = 255 if self.online else DIM
-        name, tag, mirror = self.picture, None, False
-        # 行の帯のずらし。(上, 下, dx)。無ければ None。
-        shift = None
+        name, tag, mirror, shift, breathes, hop = self.picture, None, False, None, True, 0
+        moving = self.idle.current
         if now < self.react_until and REACT_NAME in self.sheet.frames:
             name = REACT_NAME
-        elif self.motion and self.motion[0] == "stroll":
-            name = "walk"
-            tags = self.sheet.tags(name)
-            tag = tags[self.step % len(tags)] if tags else None
-            mirror = (self.motion[1] < 0) == WALK_FACES_RIGHT
-            if not tags and STROLL_STEP_DX:
-                # 脚のコマが無い絵でも、脚の帯を一歩おきに左右へずらせば足が動いて見える
-                shift = (sheet.SEAM, 1.0, STROLL_STEP_DX if self.step % 2 else -STROLL_STEP_DX)
-        elif self.motion and self.motion[0] == "fidget":
-            name = self.motion[1]
-        elif self.motion and self.motion[0] == "micro":
-            shift = self._micro_shift(now)
-        # 息を吐いているあいだだけ、1ドットぶん縮む。浮かせると跳ねて見える。歩くときは止める。
+        elif moving is not None:
+            # 動きが自分の見え方を答える。ここでは種類を見ない。
+            name = moving.picture(name) or name
+            tag = moving.tag(self)
+            mirror = moving.mirror()
+            shift = moving.shift(now)
+            breathes = moving.breathes()
+            hop = moving.lift()
+        # 息を吐いているあいだだけ、1ドットぶん縮む。浮かせると跳ねて見える。
         period = BREATH_BY_NAME.get(name, BREATH_SECONDS)
-        strolling = bool(self.motion and self.motion[0] == "stroll")
-        breathing_out = (now % period) < period / 2 and not strolling
-        hop = self._hop(now)
-        if strolling and self.step % 2:
-            # 一歩おきに 1 ドット浮く。横に動くだけよりは歩いて見える
-            hop += STROLL_BOB
+        breathing_out = breathes and (now % period) < period / 2
+        hop += self._hop(now)
         state = (name, tag, mirror, self.blinking, breathing_out, opacity, hop, shift)
         if state == self.last_drawn and not force:
             return
@@ -209,15 +172,6 @@ class Mascot:
             frame = frame.squashed()
         self.dot.draw(frame, opacity=opacity)
         self.dot.lift(hop)
-
-    def _micro_shift(self, now: float):
-        """小さな動きの、いまのずらし。(上, 下, dx)。"""
-        _, kind, started, _, side = self.motion
-        if kind == "tilt":
-            return (0.0, sheet.NECK, side)
-        # 揺れ: 一往復を正弦で。丸めると 0, +1, 0, -1 の4段になる
-        phase = (now - started) / SWAY_SECONDS
-        return (0.0, sheet.SEAM, side * round(math.sin(2 * math.pi * phase)))
 
     # --- 暇なときの動き ---
 
@@ -258,55 +212,6 @@ class Mascot:
         self.last_drawn = None
         log(f"知らない絵「{name}」が来たので素材を読み直した（{len(fresh.frames)}種類）")
 
-    def _fidgets(self):
-        """出してよい所作。持っている絵から、脳が「いまは合わない」と言ったものを除く。"""
-        return [n for n in self.sheet.fidgets() if n not in self.fidgets_off]
-
-    def _move(self, now: float) -> None:
-        if self.motion is None:
-            if not self._idle():
-                return
-            if now >= self.next_stroll and "walk" in self.sheet.frames:
-                direction = random.choice((-1, 1))
-                self.motion = ("stroll", direction, random.randint(STROLL_PX_MIN, STROLL_PX_MAX))
-                self.step_at, self.step = now, 0
-            elif now >= self.next_fidget and self._fidgets():
-                self.motion = ("fidget", random.choice(self._fidgets()), now + FIDGET_SECONDS)
-            elif now >= self.next_micro:
-                kind = random.choice(("sway", "tilt"))
-                length = SWAY_SECONDS if kind == "sway" else TILT_SECONDS
-                self.motion = ("micro", kind, now, now + length, random.choice((-1, 1)))
-            return
-        kind = self.motion[0]
-        if kind == "stroll":
-            _, direction, left = self.motion
-            if not self._idle() or left <= 0:
-                self._stop_motion()
-                return
-            if now - self.step_at >= STROLL_STEP_SECONDS:
-                self.step_at, self.step = now, self.step + 1
-            if not self.dot.walk(direction * STROLL_SPEED):
-                self._stop_motion()           # 画面の端。引き返さず、ここで止まる
-                return
-            self.motion = ("stroll", direction, left - STROLL_SPEED)
-        elif kind == "fidget":
-            if now >= self.motion[2] or not self._idle():
-                self._stop_motion()
-        elif kind == "micro":
-            if now >= self.motion[3] or not self._idle():
-                self._stop_motion()
-
-    def _stop_motion(self) -> None:
-        now = time.time()
-        if self.motion and self.motion[0] == "stroll":
-            self.remember_place(self.dot.x, self.dot.y)
-            self.next_stroll = now + random.uniform(STROLL_MIN, STROLL_MAX)
-        elif self.motion and self.motion[0] == "micro":
-            self.next_micro = now + random.uniform(MICRO_MIN, MICRO_MAX)
-        else:
-            self.next_fidget = now + random.uniform(FIDGET_MIN, FIDGET_MAX)
-        self.motion = None
-
     def say(self, text: str, asking: bool = False) -> None:
         # 打つときのふきだしは、姿と同じ幅に揃える。言葉のほうは読める幅に任せる。
         self.bubble.say(text, self.anchor(), asking=asking,
@@ -330,7 +235,7 @@ class Mascot:
         if self.bubble_until and now >= self.bubble_until and not self.bubble.asking:
             self.bubble.hide()
             self.bubble_until = 0
-        self._move(now)
+        self.idle.tick(self, now, self._idle())
         self.draw()
 
     def drain(self) -> None:
@@ -358,9 +263,8 @@ class Mascot:
                 if act != self.act and act == "happy":
                     self.hop(2)
                 self.act = act
-                if self.motion:
-                    # 脳が姿を替えた。動きは途中でもやめて従う。
-                    self._stop_motion()
+                # 脳が姿を替えた。動きは途中でもやめて従う。
+                self.idle.stop(self, time.time())
             elif kind == "say":
                 self.hop()
                 self.say(event.get("text") or "")
@@ -399,8 +303,7 @@ class Mascot:
             return
         # 触られたら一瞬だけ驚いた顔。動きの途中ならやめる。
         self.react_until = time.time() + REACT_SECONDS
-        if self.motion:
-            self._stop_motion()
+        self.idle.stop(self, time.time())
         self.say("", asking=True)
         self.bubble.focus_input()
 
