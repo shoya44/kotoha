@@ -2,11 +2,17 @@
 
 **流す道はやり直さない。** 一度口に出したものは取り消せないので、途中で
 切れたらそこまでを言ったことにする。まとめて受け取る道だけが投げ直す。
+
+**投げ直す前にひと息おく。** 混んで 503 を返したモデルに間を置かず投げ直すと、
+また 503 が返りやすい。数秒あければ通ることが多い（2026-09-25）。
+控えのモデル（flash）へ回す案は、無料枠が1日20回しかなく使い切ると 429 で
+止まり、かえって返事が付かなくなったのでやめた（2026-09-25）。
 """
 
 import contextlib
 import json
 import threading
+import time
 
 import httpx
 
@@ -37,6 +43,10 @@ def hurried():
         yield
     finally:
         _local.hurry = before
+
+
+# 投げ直す前に置く間（秒）。すぐ投げ直すと同じ 503 が返りやすい。
+BREATH_SECONDS = 2.0
 
 
 def _budget() -> tuple[float, int]:
@@ -84,6 +94,8 @@ def chat(prompt: str, max_tokens: int | None = None) -> str:
     timeout, attempts = _budget()
 
     for _ in range(attempts):
+        if last_error is not None:
+            time.sleep(BREATH_SECONDS)
         try:
             resp = httpx.post(
                 f"{config.GEMINI_BASE_URL}/chat/completions",

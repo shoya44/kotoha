@@ -23,6 +23,12 @@ def reply(text="おかえり。"):
 
 
 class LlmTests(unittest.TestCase):
+    def setUp(self):
+        # 試験では息をつかない。置いた間の長さだけ記録する。
+        self.naps = []
+        self.addCleanup(setattr, llm.time, "sleep", llm.time.sleep)
+        llm.time.sleep = self.naps.append
+
     def use(self, *responses):
         """呼ばれた順に返す。呼ばれた回数を数えたいので記録もする。"""
         self.calls = []
@@ -58,6 +64,17 @@ class LlmTests(unittest.TestCase):
         self.assertEqual(llm.chat("やっほー"), "ただいま。")
         self.assertEqual(len(self.calls), 2)
 
+    def test_breathes_before_retrying_but_not_before_the_first_try(self):
+        """混んだモデルに間を置かず投げ直しても、また 503 が返る（2026-09-25）。"""
+        self.use(httpx.Response(503, text="busy"), reply("ただいま。"))
+        llm.chat("やっほー")
+        self.assertEqual(self.naps, [llm.BREATH_SECONDS])
+
+    def test_no_breath_when_the_first_try_answers(self):
+        self.use(reply("おかえり。"))
+        llm.chat("やっほー")
+        self.assertEqual(self.naps, [])
+
     def test_connection_error_is_retried(self):
         self.use(httpx.ConnectError("boom"), reply("ただいま。"))
         self.assertEqual(llm.chat("やっほー"), "ただいま。")
@@ -88,6 +105,8 @@ class HurriedTests(unittest.TestCase):
         self.addCleanup(setattr, config, "BACKGROUND_TIMEOUT_SECONDS", config.BACKGROUND_TIMEOUT_SECONDS)
         config.BACKGROUND_TIMEOUT_SECONDS = 7.0
         self.timeouts = []
+        self.addCleanup(setattr, llm.time, "sleep", llm.time.sleep)
+        llm.time.sleep = lambda seconds: None
 
         def fake_post(url, **kwargs):
             self.timeouts.append(kwargs.get("timeout"))
