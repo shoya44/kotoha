@@ -30,6 +30,11 @@ ICON_OFF_PATH = _STATIC / "kotoha_off.ico"
 LOG_PATH = config.BASE_DIR / "data" / "tray.log"
 # 本体（uvicorn）の画面出力。トレイから上げると窓が無いので、ここに落とす。
 BODY_LOG_PATH = config.BASE_DIR / "data" / "kotoha.log"
+# 姿の画面出力。姿が自分で書く記録と同じ1本に落とす。
+FIGURE_LOG_PATH = config.BASE_DIR / "data" / "mascot.log"
+# 画面出力の1本がこれを超えたら、起こすときに .1 へ回す。前の1本だけ残す。
+# DEBUG でアクセスログを出すと、放っておけば際限なく伸びる。
+OUTPUT_LIMIT = 1024 * 1024
 # 同じものを二重に常駐させない。名前は書き換えないこと。
 MUTEX_NAME = "kotoha-tray-single-instance"
 # 落ちたときに上げ直すまでの間。すぐ上げ直すと、壊れていたとき暴れ続ける。
@@ -128,6 +133,36 @@ def log(message: str) -> None:
         pass
 
 
+def child_output(path: pathlib.Path):
+    """子の画面出力の落とし先を開く。開けなければ None（出力は捨てる）。
+
+    起こすたびに時刻入りの区切りを1行書く。uvicorn の出力には時刻が無く、
+    どの回の出力なのか後から分からない。
+    """
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if path.exists() and path.stat().st_size > OUTPUT_LIMIT:
+            path.replace(path.with_name(path.name + ".1"))
+        output = path.open("ab")
+        output.write(f"==== {time.strftime('%Y-%m-%d %H:%M:%S')} 起動 ====\n"
+                     .encode("utf-8"))
+        output.flush()
+        return output
+    except OSError:
+        return None
+
+
+def child_environment(**extra) -> dict:
+    """子に渡す環境。**出力をためずに、UTF-8 で書かせる。**
+
+    ファイルに向けた出力は 8KB たまるまで書き出されない。起動の挨拶も
+    ためたまま、止められるとためた分ごと消える。9/23 から kotoha.log に
+    1行も増えていなかった（2026-09-25）。文字コードは、ほかの記録と同じ
+    UTF-8 にそろえる（何も言わないと CP932 で書く）。
+    """
+    return dict(os.environ, PYTHONUNBUFFERED="1", PYTHONIOENCODING="utf-8", **extra)
+
+
 class Supervisor:
     """ことは本体を動かし続ける。落ちたら上げ直し、42なら作り直す。"""
 
@@ -136,6 +171,9 @@ class Supervisor:
         self.stopping = threading.Event()
         self.on_change = on_change or (lambda: None)
         self._thread = None
+        # トレイの「入れ直す」で止めた印。止めると終了コードは 1 になり、
+        # 落ちたのと見分けがつかない。
+        self._asked = False
 
     def mine(self) -> bool:
         return self.process is not None and self.process.poll() is None
@@ -154,13 +192,9 @@ class Supervisor:
 
     def spawn(self):
         # 起動時にブラウザーを開かない。開くのはトレイの役目になった。
-        environment = dict(os.environ, KOTOHA_BROWSER_AUTO_OPEN="false")
+        environment = child_environment(KOTOHA_BROWSER_AUTO_OPEN="false")
         # 窓が無いぶん、落ちた理由をどこにも残せない。画面出力はファイルに。
-        try:
-            BODY_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
-            output = BODY_LOG_PATH.open("ab")
-        except OSError:
-            output = None
+        output = child_output(BODY_LOG_PATH)
         try:
             return subprocess.Popen(
                 [sys.executable, "-m", "kotoha.launcher"],
@@ -196,6 +230,10 @@ class Supervisor:
             if code == RESTART_EXIT_CODE:
                 log("再起動の合図を受けた")
                 continue
+            if self._asked:
+                self._asked = False
+                log("トレイから入れ直した")
+                continue
             log(f"本体が終了した（コード {code}）。{RESPAWN_WAIT:.0f}秒後に上げ直す"
                 f"（理由は {BODY_LOG_PATH.name} に）")
             self.stopping.wait(RESPAWN_WAIT)
@@ -207,6 +245,7 @@ class Supervisor:
     def restart(self):
         """いま動いているものを止める。上げ直すのは見張りの仕事。"""
         if self.mine():
+            self._asked = True
             self.process.terminate()
 
     def stop(self):
@@ -236,14 +275,21 @@ class Figure:
 
     def spawn(self):
         runner = pathlib.Path(sys.executable).with_name("pythonw.exe")
-        return subprocess.Popen(
-            [str(runner if runner.exists() else sys.executable),
-             str(config.BASE_DIR / "scripts" / "mascot.pyw")],
-            cwd=str(config.BASE_DIR),
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-        )
+        # 落ちたときの理由を残す。捨てていたので「姿が落ちた」の訳が分からなかった。
+        output = child_output(FIGURE_LOG_PATH)
+        try:
+            return subprocess.Popen(
+                [str(runner if runner.exists() else sys.executable),
+                 str(config.BASE_DIR / "scripts" / "mascot.pyw")],
+                cwd=str(config.BASE_DIR),
+                env=child_environment(),
+                stdout=output or subprocess.DEVNULL,
+                stderr=subprocess.STDOUT if output else subprocess.DEVNULL,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+        finally:
+            if output is not None:
+                output.close()
 
     def _loop(self):
         while not self.stopping.is_set():

@@ -133,6 +133,24 @@ class SupervisorTests(unittest.TestCase):
         self.run_loop(sup)
         self.assertGreaterEqual(tries["n"], 3)
 
+    def test_a_restart_from_the_tray_is_not_called_a_crash(self):
+        """止めると終了コードは 1。落ちたと書くと、無い理由を kotoha.log に探しに行く。"""
+        said = []
+        tray.log = said.append
+        sup = self.make(codes=[1, 0])
+        sup._asked = True                    # restart() が付ける印
+        self.run_loop(sup)
+        self.assertEqual(len(self.spawned), 2)
+        self.assertEqual(said[0], "トレイから入れ直した")   # 2本目の終わりは試験の都合
+        self.assertFalse(sup._asked)
+
+    def test_restart_marks_its_own_child(self):
+        sup = tray.Supervisor()
+        sup.process = FakeProcess()
+        sup.restart()
+        self.assertTrue(sup.process.terminated)
+        self.assertTrue(sup._asked)
+
     def test_restart_only_touches_its_own_child(self):
         sup = tray.Supervisor()
         sup.serving = lambda: True          # 誰かが動かしているだけの状態
@@ -210,6 +228,37 @@ class StatusTests(unittest.TestCase):
         self.status.stop()
         thread.join(timeout=2)
         self.assertFalse(thread.is_alive())
+
+
+@unittest.skipUnless(sys.platform == "win32", "トレイ常駐はWindows専用")
+class ChildOutputTests(unittest.TestCase):
+    """子の画面出力は、ためずに UTF-8 で、起こした時刻の区切り付きで残す。"""
+
+    def setUp(self):
+        folder = tempfile.TemporaryDirectory(prefix="kotoha out ")
+        self.addCleanup(folder.cleanup)
+        self.path = Path(folder.name) / "kotoha.log"
+
+    def test_each_start_is_marked_with_the_time(self):
+        self.path.write_bytes(b"old\n")
+        tray.child_output(self.path).close()
+        text = self.path.read_text(encoding="utf-8")
+        self.assertTrue(text.startswith("old\n==== "))
+        self.assertTrue(text.endswith(" 起動 ====\n"))
+
+    def test_a_long_log_is_moved_aside_once(self):
+        self.addCleanup(setattr, tray, "OUTPUT_LIMIT", tray.OUTPUT_LIMIT)
+        tray.OUTPUT_LIMIT = 10
+        self.path.write_bytes(b"x" * 11)
+        tray.child_output(self.path).close()
+        self.assertEqual(self.path.with_name("kotoha.log.1").read_bytes(), b"x" * 11)
+        self.assertNotIn(b"x", self.path.read_bytes())
+
+    def test_children_write_at_once_in_utf8(self):
+        env = tray.child_environment(KOTOHA_BROWSER_AUTO_OPEN="false")
+        self.assertEqual(env["PYTHONUNBUFFERED"], "1")
+        self.assertEqual(env["PYTHONIOENCODING"], "utf-8")
+        self.assertEqual(env["KOTOHA_BROWSER_AUTO_OPEN"], "false")
 
 
 if __name__ == "__main__":
