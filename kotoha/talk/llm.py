@@ -2,10 +2,6 @@
 
 **流す道はやり直さない。** 一度口に出したものは取り消せないので、途中で
 切れたらそこまでを言ったことにする。まとめて受け取る道だけが投げ直す。
-
-**投げ直しは控えのモデルへ。** 混んでいるモデルは、すぐ投げ直しても
-また 503 を返す。lite が 8 回中 7 回しくじるあいだ、無印の flash は
-毎回 2〜5 秒で返していた（2026-09-25）。
 """
 
 import contextlib
@@ -50,23 +46,13 @@ def _budget() -> tuple[float, int]:
     return config.TIMEOUT_SECONDS, config.LLM_ATTEMPTS
 
 
-def _spare(model: str) -> str:
-    """しくじったあとに回す先。控えが無ければ同じモデル。"""
-    return config.GEMINI_FALLBACK_MODEL or model
-
-
-def _payload(prompt: str, max_tokens: int | None = None,
-             model: str | None = None) -> dict:
-    payload = {
-        "model": model or config.GEMINI_MODEL,
+def _payload(prompt: str, max_tokens: int | None = None) -> dict:
+    return {
+        "model": config.GEMINI_MODEL,
         "messages": [{"role": "user", "content": prompt}],
         "max_tokens": max_tokens or config.MAX_OUTPUT_TOKENS,
         "temperature": config.TEMPERATURE,
     }
-    # 控えの flash は放っておくと長く考え、上限の小さい日記では答えまで届かない。
-    if payload["model"] != config.GEMINI_MODEL and config.GEMINI_FALLBACK_REASONING:
-        payload["reasoning_effort"] = config.GEMINI_FALLBACK_REASONING
-    return payload
 
 
 def _headers() -> dict:
@@ -91,44 +77,27 @@ def _trouble(status: int, body: str):
     return None
 
 
-def chat(prompt: str, max_tokens: int | None = None, spare_first: bool = False) -> str:
-    """まとめて受け取る。しくじったら控えのモデルへ回して投げ直す。
-
-    spare_first は、流す道がもうしくじったあと。同じモデルで待ち直さない。
-
-    **5xx で断られたぶんは数えない（一度だけ）。** 断られたのはモデルの混雑で、
-    控えは空いていることが多い。1回しか試さない裏の仕事も、これで控えに
-    逃げられる。たいてい1秒ほどで断られるが、30秒待たされてからのことも
-    ある（2026-09-25）。それでも控えへ回すのは一度きりなので、待ちは倍まで。
-    待ちきれなかったとき（上限まで待った）は数える。順番待ちを持ったまま、
-    もう一度同じだけ待つことになるので。
-    """
+def chat(prompt: str, max_tokens: int | None = None) -> str:
+    payload = _payload(prompt, max_tokens)
     headers = _headers()
     last_error = None
     timeout, attempts = _budget()
-    model = _spare(config.GEMINI_MODEL) if spare_first else config.GEMINI_MODEL
-    tries = 0
 
-    while tries < attempts:
-        tries += 1
+    for _ in range(attempts):
         try:
             resp = httpx.post(
                 f"{config.GEMINI_BASE_URL}/chat/completions",
-                json=_payload(prompt, max_tokens, model),
+                json=payload,
                 headers=headers,
                 timeout=timeout,
             )
         except httpx.HTTPError as e:
             last_error = LLMError(f"通信失敗: {e}", retryable=True)
-            model = _spare(model)
             continue
 
         trouble = _trouble(resp.status_code, resp.text)
         if trouble is not None:
             last_error = trouble
-            if _spare(model) != model:
-                tries -= 1            # すぐ断られた。控えへ回すのは数えない
-            model = _spare(model)
             continue
 
         data = resp.json()
@@ -138,19 +107,10 @@ def chat(prompt: str, max_tokens: int | None = None, spare_first: bool = False) 
             raise LLMError("応答形式が不正。")
         if not content or not content.strip():
             last_error = LLMError("応答が空。", retryable=True)
-            model = _spare(model)
             continue
         return content.strip()
 
     raise last_error or LLMError("不明なエラー。")
-
-
-class _Busy(Exception):
-    """流し始める前に 5xx で断られた。控えへ回してよい。"""
-
-    def __init__(self, error: LLMError):
-        super().__init__(str(error))
-        self.error = error
 
 
 def stream(prompt: str, max_tokens: int | None = None):
@@ -162,33 +122,15 @@ def stream(prompt: str, max_tokens: int | None = None):
     **やり直しはしない。** 途中まで喋ったものは取り消せない。1文字も
     受け取れていないうちの失敗だけを投げて、呼ぶ側がまとめて受け取る道へ
     落とせるようにする。
-
-    例外は、混雑の 5xx ですぐ断られたとき。まだ何も言っていないので、
-    控えのモデルで一度だけ流し直す。
     """
-    model = config.GEMINI_MODEL
-    while True:
-        try:
-            yield from _stream_once(prompt, max_tokens, model)
-            return
-        except _Busy as busy:
-            if _spare(model) == model:
-                raise busy.error from None
-            model = _spare(model)
-
-
-def _stream_once(prompt: str, max_tokens: int | None, model: str):
-    payload = _payload(prompt, max_tokens, model) | {"stream": True}
+    payload = _payload(prompt, max_tokens) | {"stream": True}
     try:
         with httpx.stream("POST", f"{config.GEMINI_BASE_URL}/chat/completions",
                           json=payload, headers=_headers(),
                           timeout=_budget()[0]) as resp:
             if resp.status_code != 200:
                 resp.read()
-                trouble = _trouble(resp.status_code, resp.text)
-                if trouble is not None and resp.status_code >= 500:
-                    raise _Busy(trouble)
-                raise trouble or LLMError("応答が空。")
+                raise _trouble(resp.status_code, resp.text) or LLMError("応答が空。")
             for line in resp.iter_lines():
                 if not line.startswith("data:"):
                     continue

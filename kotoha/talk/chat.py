@@ -761,8 +761,7 @@ def stream_turn(conn, user_text: str):
                 yield {"say": ready}
     except llm.LLMError:
         if not raw:
-            # 流す道でもう待たされた。同じモデルで待ち直さず、控えから。
-            raw = llm.chat(prompt, spare_first=True)
+            raw = llm.chat(prompt)
 
     clean, ids = parse_used_ids(raw)
     clean, mood, why = parse_mood(clean)
