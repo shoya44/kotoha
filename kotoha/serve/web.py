@@ -305,6 +305,16 @@ def ring_answer(request: Request, payload: dict):
     return {"text": text}
 
 
+@app.post("/api/ring/pickup")
+def ring_pickup(request: Request):
+    """通話を始めた。ことはから掛けた電話（鳴っている・さっき出られなかった）なら
+    第一声を返す。無ければ空で、相手から話す。"""
+    _check_token(request)
+    with db.session() as conn:          # 並ばない理由は ring_answer と同じ
+        text = announce.pick_up(conn)
+    return {"text": text}
+
+
 @app.post("/api/ring/decline")
 def ring_decline(request: Request, payload: dict):
     """「あとで」。出なかったのと同じに扱う（頼まれた電話なら掛け直す）。"""

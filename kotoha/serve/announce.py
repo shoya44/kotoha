@@ -391,6 +391,8 @@ def miss(conn, ring=None) -> bool:
     if not ring:
         return False
     _put_ring(conn, None)
+    db.set_state(conn, db.MISSED_RING, json.dumps(
+        {"at": db.now_utc(), "text": ring["text"]}, ensure_ascii=False))
     chat.remember(conn, MISSED_TEXT, keep=False)
     if ring.get("kind") == ASKED and not ring.get("chain") and ring.get("remind_text"):
         when = datetime.now() + timedelta(minutes=config.RING_RETRY_MINUTES)
@@ -398,6 +400,40 @@ def miss(conn, ring=None) -> bool:
     conn.commit()
     hub.hang_up()
     return True
+
+
+# かけ直してもらえたときの頭の一言。出てもらえなかった第一声の前に付ける。
+CALLBACK_LEAD = "あ、かけ直してくれたんだ。"
+# 不在着信のあと、これより遅いかけ直しは、ふつうの電話として受ける。
+CALLBACK_HOURS = 3
+
+
+def pick_up(conn) -> str:
+    """通話が始まった。**ことはから掛けた電話なら、第一声はことはが言う。**
+
+    着信画面の「出る」を通らなくても同じにする（着信中に通話ボタンを押した、
+    不在着信からかけ直した）。言うことが無ければ空。相手から話してもらう。
+    """
+    ring = ringing(conn)
+    if ring:
+        return answer(conn, ring["id"]) or ""
+    try:
+        missed = json.loads(db.get_state(conn, db.MISSED_RING) or "null")
+    except ValueError:
+        missed = None
+    if not isinstance(missed, dict) or not missed.get("text"):
+        return ""
+    db.set_state(conn, db.MISSED_RING, "")
+    spoke = db.get_state(conn, db.LAST_CONVERSATION_AT) or ""
+    if spoke > missed.get("at", "") or \
+            db.seconds_since(missed.get("at")) >= CALLBACK_HOURS * 3600:
+        conn.commit()          # もう話したか、時間が経った。用は古い
+        return ""
+    text = CALLBACK_LEAD + missed["text"]
+    chat.remember(conn, text, keep=False)   # 中身は掛けたときに残してある
+    remind.answered(conn)      # かけ直してくれた。頼まれた電話の掛け直しは要らない
+    conn.commit()
+    return text
 
 
 def check_ring(conn) -> None:

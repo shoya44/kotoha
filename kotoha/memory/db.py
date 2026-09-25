@@ -380,6 +380,8 @@ HELD_ANNOUNCEMENTS = "held_announcements"
 HELD_FAILS = "held_fails"
 # いま鳴らしている着信（JSON）。出るか、出ないまま時間が来たら消える。
 RING = "ring"
+# 出てもらえなかった着信（JSON）。かけ直してもらったとき、ことはが先に話すのに使う。
+MISSED_RING = "missed_ring"
 LAST_REACH_CALL_ON = "last_reach_call_on"
 FRONT_TALLY = "front_tally"
 FRONT_TALLY_HOUR = "front_tally_hour"

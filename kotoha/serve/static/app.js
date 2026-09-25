@@ -2008,6 +2008,18 @@ function updateCallButton() {
   );
 }
 
+// 通話ボタンから始めても、鳴っている・さっき出られなかった電話があれば、
+// それに出たことにする。**ことはから掛けた電話は、ことはが先に話す。**
+async function pickUp() {
+  try {
+    const data = await (await api("/api/ring/pickup", { method: "POST", body: {} })).json();
+    if (data.text) catchUp();  // 第一声はもう履歴にある
+    return data.text || "";
+  } catch {
+    return "";  // 聞けなければ、ふつうの電話として相手から話す
+  }
+}
+
 // greeting は、ことはのほうから掛けてきた電話の第一声。言い終えてから聞く。
 async function startCall({ greeting = "" } = {}) {
   if (calling) return;
@@ -2018,6 +2030,9 @@ async function startCall({ greeting = "" } = {}) {
   setStatus("通話中", "calling");
   keepScreenOn();
   prepareFillers();  // 待たない。間に合ったぶんから使う。
+  closeRing();
+  if (!greeting) greeting = await pickUp();
+  if (!calling) return;  // 待つあいだに切られた
   if (greeting) {
     callBusy = true;
     Promise.resolve(speak(greeting)).catch(() => {}).finally(() => {
@@ -2112,8 +2127,7 @@ async function answerRing() {
   // **指の流れの中で音を起こす。** iOS はここを逃すと声を出させない。
   audioReady();
   if (ringMissed) {
-    closeRing();
-    startCall();
+    startCall();  // かけ直し。出られなかった話は、ことはが先に言う
     return;
   }
   const id = ringId;
@@ -2131,7 +2145,6 @@ async function answerRing() {
     $("ringAnswer").disabled = $("ringDecline").disabled = false;
     return;
   }
-  closeRing();
   catchUp();  // 第一声はもう履歴にある
   startCall({ greeting: data.text || "" });
 }

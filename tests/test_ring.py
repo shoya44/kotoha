@@ -153,6 +153,48 @@ class MissedTests(RingCase):
         self.assertEqual(remind.pending(self.conn), [])
 
 
+class PickUpTests(RingCase):
+    """ことはから掛けた電話は、どう繋がっても、ことはが先に話す。"""
+
+    def test_calling_while_it_rings_answers_it(self):
+        self.ring()
+        self.assertEqual(announce.pick_up(self.conn), OPENER)
+        self.assertIsNone(announce.ringing(self.conn))
+
+    def test_a_plain_call_has_no_first_words(self):
+        self.assertEqual(announce.pick_up(self.conn), "")
+
+    def test_calling_back_brings_back_the_topic(self):
+        self.ring()
+        announce.miss(self.conn)
+        text = announce.pick_up(self.conn)
+        self.assertEqual(text, announce.CALLBACK_LEAD + OPENER)
+        self.assertEqual(self.history()[-1], text)
+        self.assertEqual(announce.pick_up(self.conn), "")   # 1回きり
+
+    def test_calling_back_cancels_the_repeat(self):
+        self.ring(announce.ASKED, remind_text="起こす")
+        announce.miss(self.conn)
+        announce.pick_up(self.conn)
+        self.assertEqual(remind.pending(self.conn), [])
+
+    def test_after_talking_the_missed_topic_is_old(self):
+        self.ring()
+        announce.miss(self.conn)
+        later = clock.utc_now() + timedelta(seconds=5)
+        db.set_state(self.conn, db.LAST_CONVERSATION_AT, later.strftime("%Y-%m-%dT%H:%M:%SZ"))
+        self.assertEqual(announce.pick_up(self.conn), "")
+
+    def test_a_late_call_back_is_a_plain_call(self):
+        self.ring()
+        announce.miss(self.conn)
+        missed = json.loads(db.get_state(self.conn, db.MISSED_RING))
+        then = clock.utc_now() - timedelta(hours=announce.CALLBACK_HOURS + 1)
+        missed["at"] = then.strftime("%Y-%m-%dT%H:%M:%SZ")
+        db.set_state(self.conn, db.MISSED_RING, json.dumps(missed))
+        self.assertEqual(announce.pick_up(self.conn), "")
+
+
 class TriggerTests(RingCase):
     def setUp(self):
         super().setUp()
@@ -223,6 +265,12 @@ class RingApiTests(RingCase):
         announce.miss(self.conn)
         answer = self.client.post("/api/ring/answer", json={"id": ring_id}, headers=self.headers)
         self.assertEqual(answer.status_code, 410)
+
+    def test_picking_up_hands_over_the_first_words(self):
+        self.ring()
+        self.conn.commit()
+        answer = self.client.post("/api/ring/pickup", json={}, headers=self.headers)
+        self.assertEqual(answer.json(), {"text": OPENER})
 
     def test_later_counts_as_missed(self):
         self.ring(announce.ASKED, remind_text="起こす")
