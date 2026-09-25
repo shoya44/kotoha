@@ -37,8 +37,10 @@ BREATH_SECONDS = 3.4
 # 絵によって息の速さを変える。寝ているときは深くゆっくり、はしゃいでいるときは少し速い。
 # 会話画面（app.js の BREATH_BY_NAME）と同じ表。
 BREATH_BY_NAME = {"sleep": 5.2, "nap": 4.6, "doze": 4.6, "happy": 2.6, "laugh": 2.6}
-# まばたきの間。ばらつかせないと、機械に見える。
-BLINK_MIN, BLINK_MAX, BLINK_MS = 4.0, 10.0, 0.13
+# まばたきの長さ。間は blink_gap が配る。
+BLINK_MS = 0.13
+# マウスの方へ首を向ける。動いてから GAZE_REST 秒で戻る。真上や遠くは見ない。
+GAZE_REST, GAZE_NEAR, GAZE_FAR = 3.0, 40, 700
 # ふきだしが残る時間。頼まれごとは読み終わるまで置いておきたい。
 BUBBLE_SECONDS = 12.0
 # 繋がっていないときの濃さ。沈んだ色で座って待つ。
@@ -71,6 +73,17 @@ def log(message: str) -> None:
         pass
 
 
+def blink_gap() -> float:
+    """次のまばたきまでの秒。**人の間はばらつく**: たいていは数秒、ときどき長く
+    見つめ、ときどき2回続ける。会話画面（app.js の blinkGap）と同じ配り方。"""
+    roll = random.random()
+    if roll < 0.15:
+        return random.uniform(0.18, 0.30)      # 続けてもう1回
+    if roll < 0.85:
+        return random.uniform(2.5, 6.0)
+    return random.uniform(6.0, 11.0)          # じっと見ている
+
+
 def chat_url(extra: str = "") -> str:
     return f"{client.base_url()}/{extra}"
 
@@ -86,7 +99,9 @@ class Mascot:
         self.online = False
         self.blinking = False
         self.busy = False                     # 返事を待っているあいだ
-        self.next_blink = time.time() + random.uniform(BLINK_MIN, BLINK_MAX)
+        self.next_blink = time.time() + blink_gap()
+        self.cursor_at = None                 # 前に見たマウスの場所
+        self.cursor_moved = 0.0               # マウスが最後に動いた時刻
         self.bubble_until = 0.0
         self.last_drawn = None
         self.fade = fade.Crossfade()          # 姿の切り替えを溶かす
@@ -156,6 +171,8 @@ class Mascot:
             shift = moving.shift(now)
             breathes = moving.breathes()
             hop = moving.lift()
+        else:
+            shift = self._gaze(now)
         # 息を吐いているあいだだけ、1ドットぶん縮む。浮かせると跳ねて見える。
         period = BREATH_BY_NAME.get(name, BREATH_SECONDS)
         breathing_out = breathes and (now % period) < period / 2
@@ -181,6 +198,26 @@ class Mascot:
         self.dot.lift(hop)
 
     # --- 暇なときの動き ---
+
+    def _gaze(self, now: float):
+        """マウスの方へ首を向ける（首より上を1ドット）。目を動かす絵が無いので、視線の代わり。
+
+        動いてから GAZE_REST 秒だけ。真上（GAZE_NEAR 以内）と遠く（GAZE_FAR より先）は
+        見ない。運ばれているあいだ・寝ているときは向かない。
+        """
+        if not (self.embodied and self.online) or self.dot.dragging() or self.act == "sleep":
+            return None
+        spot = self.dot.cursor()
+        if spot != self.cursor_at:
+            if self.cursor_at is not None:
+                self.cursor_moved = now
+            self.cursor_at = spot
+        if now - self.cursor_moved > GAZE_REST:
+            return None
+        dx = spot[0] - self.dot.center()[0]
+        if not GAZE_NEAR < abs(dx) < GAZE_FAR:
+            return None
+        return (0.0, sheet.NECK, 1 if dx > 0 else -1)
 
     def _hop(self, now: float) -> int:
         """いま何ドット浮いているか。放物線で上がって戻る。"""
@@ -236,7 +273,7 @@ class Mascot:
                 self.next_blink = now + BLINK_MS
             elif self.blinking and now >= self.next_blink:
                 self.blinking = False
-                self.next_blink = now + random.uniform(BLINK_MIN, BLINK_MAX)
+                self.next_blink = now + blink_gap()
         elif self.blinking:
             self.blinking = False
         if self.bubble_until and now >= self.bubble_until and not self.bubble.asking:
@@ -263,7 +300,12 @@ class Mascot:
                 self.embodied = False
                 self.wave_goodbye()
             elif kind == "act":
+                before = self.picture
                 self.picture = event.get("picture") or self.picture
+                if self.picture != before and not self.blinking and random.random() < 0.5:
+                    # 人は姿勢を変えるときに瞬く
+                    self.next_blink = min(self.next_blink,
+                                          time.time() + random.uniform(0.15, 0.35))
                 self._catch_up(self.picture)
                 act = event.get("act") or "idle"
                 self.fidgets_off = set(event.get("fidgets_off") or ())
