@@ -225,6 +225,16 @@ def say(text: str) -> bool:
     return _to_body({"type": "say", "text": text})
 
 
+def ring(ring_id: int) -> bool:
+    """見られている画面に着信を出す。出る・出ないは向こうが決める。"""
+    return _to_body({"type": "ring", "id": ring_id})
+
+
+def hang_up() -> bool:
+    """着信を引っ込める（時間切れ・文字で返事があった）。出ていなければ何も起きない。"""
+    return _to_body({"type": "ring_end"})
+
+
 def show(picture: str, act: str, fidgets_off=()) -> bool:
     """絵を切り替えさせる。**覚えておいて、移った先にも同じものを渡す。**
 

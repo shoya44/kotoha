@@ -1453,3 +1453,67 @@ body.frame-mode .mini-avatar img { height: 100%; max-height: 52dvh; width: auto;
 #growthText { white-space: pre-wrap; margin: 0 0 8px; }
 #growthActions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
 #frameReturn { width: auto; flex: none; font-size: 13px; padding: 8px 12px; min-height: 44px; }
+
+/* ===== 着信 =====
+   ことはのほうから電話してきたとき。電話アプリの着信と同じ並び（左で断り、右で出る）。 */
+#ringScreen {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding:
+    calc(24px + env(safe-area-inset-top))
+    24px
+    calc(32px + env(safe-area-inset-bottom));
+  background: var(--bg);
+}
+#ringScreen[hidden] { display: none; }
+.ring-face {
+  width: 112px;
+  height: 112px;
+  border-radius: 50%;
+  object-fit: cover;
+  margin-bottom: 12px;
+}
+#ringScreen.ringing .ring-face { animation: ring-pulse 1.6s ease-in-out infinite; }
+@keyframes ring-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 var(--accent); }
+  50% { box-shadow: 0 0 0 14px transparent; }
+}
+@media (prefers-reduced-motion: reduce) {
+  #ringScreen.ringing .ring-face { animation: none; }
+}
+.ring-title { font-size: 28px; font-weight: 600; }
+.ring-note { color: var(--muted); font-size: 15px; }
+.ring-buttons {
+  display: flex;
+  gap: 64px;
+  margin-top: 48px;
+}
+.ring-button {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  padding: 0;
+  background: none;
+  color: var(--ink);
+  font-size: 13px;
+}
+.ring-circle {
+  display: grid;
+  place-items: center;
+  width: 68px;
+  height: 68px;
+  border-radius: 50%;
+  color: var(--on-fill);
+  transition: transform .1s ease;
+}
+.ring-button:active .ring-circle { transform: scale(.94); }
+.ring-button:disabled { opacity: .5; }
+.ring-button.decline .ring-circle { background: var(--danger); }
+.ring-button.answer .ring-circle { background: var(--success); }
+.ring-circle svg { width: 30px; height: 30px; fill: currentColor; }

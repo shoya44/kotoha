@@ -117,7 +117,7 @@ class MigrationTests(DbCase):
             self.old_node("消えない", None)
             db.migrate(self.conn)
             rows = {r["text"]: r for r in self.conn.execute("SELECT * FROM memory_nodes")}
-            self.assertEqual(self.conn.execute("PRAGMA user_version").fetchone()[0], 2)
+            self.assertEqual(self.conn.execute("PRAGMA user_version").fetchone()[0], db.MIGRATIONS[-1][0])
             half, dying, endless = rows["半分"], rows["切れかけ"], rows["消えない"]
             self.assertLess(config.STRENGTH_FLOOR, half["strength"])
             self.assertLess(half["strength"], 1.0)
@@ -130,7 +130,7 @@ class MigrationTests(DbCase):
     def test_migrating_twice_does_nothing_more(self):
         db.migrate(self.conn)
         db.migrate(self.conn)
-        self.assertEqual(self.conn.execute("PRAGMA user_version").fetchone()[0], 2)
+        self.assertEqual(self.conn.execute("PRAGMA user_version").fetchone()[0], db.MIGRATIONS[-1][0])
 
 
 if __name__ == "__main__":

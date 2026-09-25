@@ -47,6 +47,8 @@ SETTINGS = [
      "note": "根を詰めすぎ・夜更かしに気づいたら声をかける"},
     {"group": "ことはから", "key": "KOTOHA_REACH_OUT_ENABLED", "label": "暇なときの声かけ", "type": "bool",
      "note": "しばらく間が空いたら、ことはのほうから"},
+    {"group": "ことはから", "key": "KOTOHA_REACH_CALL_ENABLED", "label": "ときどき電話", "type": "bool",
+     "note": "声かけの代わりに、話題を持って電話してくる（1日1回まで）"},
 ]
 _BY_KEY = {item["key"]: item for item in SETTINGS}
 
