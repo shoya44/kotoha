@@ -586,7 +586,7 @@ class Turn(NamedTuple):
 
     reply: str
     mode: str
-    kept: list = []      # この回に預かった頼まれごと [(時刻, 用件, 繰り返し), …]
+    kept: list = []      # この回に預かった頼まれごと [(時刻, 用件, 繰り返し, 電話か), …]
     dropped: list = []   # この回に取り消した頼まれごと [(id, 用件, 繰り返し), …]
 
 
@@ -596,8 +596,8 @@ def _keep_reminders(conn, clean: str):
     ここで捨てると、本人は「覚えとくね」と言ったのに何も残らない。
     """
     clean, later = remind.parse(clean)
-    for when, what, repeat in later:
-        remind.add(conn, when, what, repeat)
+    for when, what, repeat, phone in later:
+        remind.add(conn, when, what, repeat, phone=phone)
     return clean, later
 
 
@@ -631,6 +631,26 @@ REACH_OUT_CLOSING = (
     "いまは話しかけられていない。しばらく間が空いたので、そちらから一声かける。\n"
     "一行だけ、短く。用がなくてもいい。記憶にある小さなことに触れてもいい。\n"
     "返事を求めすぎない。責めない。"
+)
+
+# 電話の第一声。**出た相手にそのまま声で言う**ので、読み上げて自然な長さにする。
+REACH_CALL_CLOSING = (
+    "いまは話しかけられていない。しばらく間が空いたので、こちらから電話をかけた。"
+    "相手が出たときの第一声を書く。\n"
+    "**話題を1つ持ってくる。** 記憶・日記・天気・予定・最近の話の続きから、具体的な"
+    "ことを1つ選ぶ。「なんとなく」「声が聞きたくて」だけで終わらせない。\n"
+    "一〜二文。最後は相手が答えやすい問いかけにする。責めない。記号や絵文字は使わない。"
+)
+
+RING_ASKED_CLOSING = (
+    "前に「{what}」のことで、電話してほしいと頼まれていた。その時刻になったので"
+    "電話をかけた。相手が出たときの第一声を、用件に沿って一〜二文。"
+    "声に出して自然に。記号や絵文字は使わない。"
+)
+
+RING_AGAIN_CLOSING = (
+    "「{what}」で電話したが出なかったので、少しおいてかけ直した。"
+    "相手が出たときの第一声を一〜二文。責めない。記号や絵文字は使わない。"
 )
 
 AFTERTHOUGHT_CLOSING = (
@@ -683,7 +703,7 @@ def speak(conn, closing: str, extra: str = "", keep: bool = True, chain: int = N
     clean, _ = parse_action(clean)   # 頼まれてもいないのに動かさない
     clean, later = remind.parse(clean)
     if chain is not None:            # 追いかけだけは、自分で入れてよい
-        for when, what, _ in later:
+        for when, what, _, _ in later:
             remind.follow_up(conn, chain, when, what)
     clean = strip_tags(clean)
     if not clean:

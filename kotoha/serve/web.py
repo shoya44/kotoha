@@ -14,7 +14,7 @@ from fastapi.staticfiles import StaticFiles
 from .. import config, notify
 from ..memory import db, diary, growth, habits, remind, strength, vessels
 from ..talk import chat, living, llm, myself, presence
-from . import admin, hub, jobs, voice
+from . import admin, announce, hub, jobs, voice
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 # 記憶本文の上限。層ごとに、整理が作るときと同じにしてある（consolidate）。
@@ -182,8 +182,8 @@ async def api_chat_stream(request: Request, payload: dict):
                             "last_id": conn.execute(
                                 "SELECT MAX(id) AS id FROM messages").fetchone()["id"],
                             "kept": [{"due_at": when.strftime(remind.STAMP), "text": what,
-                                      "repeat": repeat}
-                                     for when, what, repeat in turn.kept],
+                                      "repeat": repeat, "phone": phone}
+                                     for when, what, repeat, phone in turn.kept],
                             "dropped": [{"id": i, "text": what, "repeat": repeat}
                                         for i, what, repeat in turn.dropped],
                         }})
@@ -236,8 +236,8 @@ def api_chat(request: Request, payload: dict):
     if turn.kept:
         # 預かったことを画面にも出す。ことはの言葉は変えず、印だけ足す。
         answer["kept"] = [{"due_at": when.strftime(remind.STAMP), "text": what,
-                           "repeat": repeat}
-                          for when, what, repeat in turn.kept]
+                           "repeat": repeat, "phone": phone}
+                          for when, what, repeat, phone in turn.kept]
     if turn.dropped:
         answer["dropped"] = [{"id": i, "text": what, "repeat": repeat}
                              for i, what, repeat in turn.dropped]
@@ -270,6 +270,60 @@ def call_release(request: Request):
     """通話を終わらせる。自分の器でも、置いてきた器でも同じ。"""
     _check_token(request)
     return {"calling": False, "mine": False, "released": hub.end_call()}
+
+
+@app.get("/api/ring")
+def ring_state(request: Request):
+    """いま鳴っている着信。画面は開くたびにここを見る（通知から来たとは限らない）。
+
+    第一声はここでは渡さない。出てから言う。
+    """
+    _check_token(request)
+    with db.session() as conn:
+        ring = announce.ringing(conn)
+    return {"ring": {"id": ring["id"], "kind": ring["kind"]} if ring else None}
+
+
+def _ring_id(payload: dict) -> int:
+    ring_id = payload.get("id")
+    if not isinstance(ring_id, int):
+        raise HTTPException(status_code=400, detail="着信の番号がない")
+    return ring_id
+
+
+@app.post("/api/ring/answer")
+def ring_answer(request: Request, payload: dict):
+    """出た。第一声を返す。**もう切れていたら 410**（不在着信になったあと）。"""
+    _check_token(request)
+    ring_id = _ring_id(payload)
+    # 順番待ちには並ばない。巡回が Gemini を待っているあいだ「出る」が止まる。
+    # 触るのは着信の印1つだけ。
+    with db.session() as conn:
+        text = announce.answer(conn, ring_id)
+    if text is None:
+        raise HTTPException(status_code=410, detail="もう切れています")
+    return {"text": text}
+
+
+@app.post("/api/ring/pickup")
+def ring_pickup(request: Request):
+    """通話を始めた。ことはから掛けた電話（鳴っている・さっき出られなかった）なら
+    第一声を返す。無ければ空で、相手から話す。"""
+    _check_token(request)
+    with db.session() as conn:          # 並ばない理由は ring_answer と同じ
+        text = announce.pick_up(conn)
+    return {"text": text}
+
+
+@app.post("/api/ring/decline")
+def ring_decline(request: Request, payload: dict):
+    """「あとで」。出なかったのと同じに扱う（頼まれた電話なら掛け直す）。"""
+    _check_token(request)
+    ring_id = _ring_id(payload)
+    with db.session() as conn:          # 並ばない理由は ring_answer と同じ
+        ring = announce.ringing(conn)
+        missed = bool(ring and ring["id"] == ring_id and announce.miss(conn, ring))
+    return {"missed": missed}
 
 
 @app.get("/api/presence/stream")

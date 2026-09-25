@@ -7,7 +7,8 @@
 入れる**（追いかけ）。何度言うか、いつ諦めるかは用件の重さで本人が決める。
 こちらで決めるのは、際限なく続かないための上限だけ。
 繰り返し（毎日・平日・休日・曜日の組）は、言い終わるたびに次の日のぶんを
-入れ直す。取り消しは画面からでも、会話の中でことはが判断してでもできる。
+入れ直す。「電話で」と頼まれたもの（モーニングコールなど）は、時刻が来たら
+着信にする（serve/announce.ring）。取り消しは画面からでも、会話の中でことはが判断してでもできる。
 """
 
 import re
@@ -18,6 +19,8 @@ from ..talk import schedule
 from . import db
 
 TAG = re.compile(r"\[REMIND:\s*([^\]|]+?)\s*\|\s*([^\]|]+?)\s*(?:\|\s*([^\]]*?)\s*)?\]")
+# 3つ目以降に置く「電話で」の印。繰り返しと並べても、単独で置いてもよい。
+PHONE = "電話"
 STAMP = "%Y-%m-%d %H:%M"
 # 起動していなかった間に過ぎたものを、まとめて言われても困る。
 LATE_LIMIT = timedelta(hours=12)
@@ -37,17 +40,21 @@ CHAIN_LIMIT = 6
 def parse(text: str):
     """文から頼まれごとを取り出し、タグを消した文と一緒に返す。
 
-    (時刻, 用件, 繰り返し) の並び。繰り返しは無ければ None。
+    (時刻, 用件, 繰り返し, 電話か) の並び。繰り返しは無ければ None。
+    3つ目から先は `|` で区切って読む。「電話」はどこにあっても印として拾う。
     時刻の読み替え（「明日の9時」→ 絶対時刻）は向こうに任せている。
     いまが何時かはプロンプトに入っているので、そこで書かせるほうが確実。
     """
     found = []
-    for when, what, repeat in TAG.findall(text):
+    for when, what, rest in TAG.findall(text):
         try:
             when = datetime.strptime(when, STAMP)
         except ValueError:
             continue        # 読めない時刻は黙って捨てる。妙な予定を残さない。
-        found.append((when, what, normalize_repeat(repeat)))
+        words = [w.strip() for w in rest.split("|") if w.strip()]
+        phone = PHONE in words
+        repeat = next((w for w in words if w != PHONE), None)
+        found.append((when, what, normalize_repeat(repeat), phone))
     return TAG.sub("", text).strip(), found
 
 
@@ -81,11 +88,13 @@ def falls_on(repeat: str, day) -> bool:
     return WEEKDAYS[day.weekday()] in repeat
 
 
-def add(conn, due: datetime, text: str, repeat: str = None, chain: int = 0) -> None:
+def add(conn, due: datetime, text: str, repeat: str = None, chain: int = 0,
+        phone: bool = False) -> None:
     """預かる。chain は追いかけの何段目か（本人に頼まれたものは 0）。"""
     conn.execute(
-        "INSERT INTO reminders(due_at, text, created_at, repeat, chain) VALUES (?,?,?,?,?)",
-        (due.strftime(STAMP), text, db.now_utc(), repeat, chain),
+        "INSERT INTO reminders(due_at, text, created_at, repeat, chain, phone) "
+        "VALUES (?,?,?,?,?,?)",
+        (due.strftime(STAMP), text, db.now_utc(), repeat, chain, 1 if phone else 0),
     )
 
 
@@ -110,7 +119,7 @@ def next_due(due: datetime, repeat: str, now=None):
 def pending(conn, limit: int = 5):
     """まだ来ていない頼まれごと。近い順に。"""
     return conn.execute(
-        "SELECT id, due_at, text, repeat, chain FROM reminders WHERE done_at IS NULL "
+        "SELECT id, due_at, text, repeat, chain, phone FROM reminders WHERE done_at IS NULL "
         "ORDER BY due_at LIMIT ?", (limit,),
     ).fetchall()
 
@@ -119,7 +128,7 @@ def due(conn, now=None):
     """いま言うべきもの。遅れすぎたものは、黙って畳む。"""
     now = now or datetime.now()
     rows = conn.execute(
-        "SELECT id, due_at, text, repeat, chain FROM reminders "
+        "SELECT id, due_at, text, repeat, chain, phone FROM reminders "
         "WHERE done_at IS NULL AND due_at <= ? ORDER BY due_at", (now.strftime(STAMP),),
     ).fetchall()
     speak, stale = [], []
@@ -148,7 +157,7 @@ def done(conn, reminder_id: int) -> None:
 
     畳む道はどれも同じ。言えた日も、寝ていて過ぎた日も、明日はまた来る。
     """
-    row = conn.execute("SELECT due_at, text, repeat FROM reminders WHERE id = ? "
+    row = conn.execute("SELECT due_at, text, repeat, phone FROM reminders WHERE id = ? "
                        "AND done_at IS NULL", (reminder_id,)).fetchone()
     conn.execute("UPDATE reminders SET done_at = ? WHERE id = ?",
                  (db.now_utc(), reminder_id))
@@ -158,7 +167,7 @@ def done(conn, reminder_id: int) -> None:
         due = datetime.strptime(row["due_at"], STAMP)
     except ValueError:
         return
-    add(conn, next_due(due, row["repeat"]), row["text"], row["repeat"])
+    add(conn, next_due(due, row["repeat"]), row["text"], row["repeat"], phone=row["phone"])
 
 
 def answered(conn) -> int:
@@ -171,13 +180,13 @@ def answered(conn) -> int:
     return cursor.rowcount
 
 
-def follow_up(conn, parent_chain: int, due: datetime, text: str) -> bool:
+def follow_up(conn, parent_chain: int, due: datetime, text: str, phone: bool = False) -> bool:
     """ことはが自分で入れる「もう一度言う」。上限に当たったら入れない。"""
     chain = parent_chain + 1
     if chain > CHAIN_LIMIT:
         notify.log(f"追いかけが上限に達したので手を引いた: {text[:40]}")
         return False
-    add(conn, due, text, chain=chain)
+    add(conn, due, text, chain=chain, phone=phone)
     return True
 
 
@@ -227,10 +236,10 @@ def snooze(conn, ids, minutes: int):
     due = datetime.now() + timedelta(minutes=minutes)
     moved = 0
     for one in ids:
-        row = conn.execute("SELECT text FROM reminders WHERE id = ?", (one,)).fetchone()
+        row = conn.execute("SELECT text, phone FROM reminders WHERE id = ?", (one,)).fetchone()
         if not row:
             continue
-        add(conn, due, row["text"])
+        add(conn, due, row["text"], phone=row["phone"])
         moved += 1
     if moved:
         answered(conn)            # 「あとで」も返事のうち。追いかけは要らない
@@ -266,6 +275,7 @@ def block(conn) -> str:
         return ""
     items = "、".join(
         f"#{r['id']} {r['due_at']} {r['text']}" + (f"（{r['repeat']}）" if r["repeat"] else "")
+        + ("（電話で）" if r["phone"] else "")
         + ("（自分で決めた追いかけ）" if r["chain"] else "")
         for r in rows)
     return f"預かっている頼まれごと: {items}"

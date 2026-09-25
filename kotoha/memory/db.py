@@ -157,6 +157,8 @@ MIGRATIONS: list = [
     # 既存の記憶には、残り日数から逆算した強さを入れる（migrate の後段）。
     (2, ["ALTER TABLE memory_nodes ADD COLUMN strength REAL NOT NULL DEFAULT 1.0",
          "ALTER TABLE memory_nodes ADD COLUMN strength_at TEXT"]),
+    # 電話で知らせる頼まれごと（モーニングコールなど）。1 なら着信にする。
+    (3, ["ALTER TABLE reminders ADD COLUMN phone INTEGER NOT NULL DEFAULT 0"]),
 ]
 
 
@@ -376,6 +378,11 @@ QUIET_UNTIL = "quiet_until"
 GROWTH = "growth"
 HELD_ANNOUNCEMENTS = "held_announcements"
 HELD_FAILS = "held_fails"
+# いま鳴らしている着信（JSON）。出るか、出ないまま時間が来たら消える。
+RING = "ring"
+# 出てもらえなかった着信（JSON）。かけ直してもらったとき、ことはが先に話すのに使う。
+MISSED_RING = "missed_ring"
+LAST_REACH_CALL_ON = "last_reach_call_on"
 FRONT_TALLY = "front_tally"
 FRONT_TALLY_HOUR = "front_tally_hour"
 FRONT_STREAK_APP = "front_streak_app"

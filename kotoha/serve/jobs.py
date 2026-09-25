@@ -5,6 +5,7 @@
 時間のかかるものを並ばせると、そのあいだ会話が止まる。**
 """
 
+import random
 import threading
 import time
 from datetime import datetime, timedelta
@@ -13,6 +14,7 @@ from .. import config, notify
 from ..memory import consolidate, db, diary, embed, habits, remind, retrieve, review
 from ..talk import chat, coding, garbage, living, llm, myself, presence, quake, schedule, upkeep, weather
 from . import hub
+from . import announce as calls
 from .announce import announce, can_speak, collecting, flush_held
 
 # 会話と巡回が共有する順番待ち。同時にDBを触らせないための1本。
@@ -54,6 +56,10 @@ def run_periodic_jobs(conn, outside=None) -> None:
     """
     myself.heartbeat(conn)   # 生きている印。止まれば、次に起きたとき長さが分かる
     presence.sample(conn)
+    try:
+        calls.check_ring(conn)   # 鳴らしっぱなしの着信を畳む。APIは使わない
+    except Exception as error:
+        notify.log(f"着信の片づけで失敗: {error!r}")
     conn.commit()            # 切り上げても、ここまでは残す
     unprocessed = _unprocessed_turns(conn)
     idle = db.overdue(conn, db.LAST_CONVERSATION_AT, config.IDLE_SECONDS)
@@ -184,7 +190,26 @@ def maybe_reach_out(conn) -> None:
         return
     db.set_state(conn, db.LAST_REACH_OUT_AT, db.now_utc())
     conn.commit()
+    if _call_this_time(conn):
+        today = datetime.now().strftime("%Y-%m-%d")
+        db.mark_today(conn, db.LAST_REACH_CALL_ON, today)
+        if calls.ring(conn, chat.REACH_CALL_CLOSING, calls.REACH):
+            return
+        # 鳴らせなかった（通話中・届け先なし）。いつもの一声に戻す。
     announce(conn, chat.REACH_OUT_CLOSING, casual=True)
+
+
+def _call_this_time(conn) -> bool:
+    """今回の声かけを電話にするか。数回に1回、1日1回まで。
+
+    **通知の間が空いていないときは掛けない。** 着信は預かっておけない
+    （あとでまとめて鳴らす電話はない）。
+    """
+    if not config.REACH_CALL_ENABLED or random.random() >= config.REACH_CALL_SHARE:
+        return False
+    if db.done_today(conn, db.LAST_REACH_CALL_ON, datetime.now().strftime("%Y-%m-%d")):
+        return False
+    return not calls._too_soon(conn)
 
 
 def maybe_afterthought(conn) -> None:
@@ -286,6 +311,10 @@ def maybe_reminders(conn) -> None:
         return
     for row in remind.due(conn):
         chain = row["chain"] or 0
+        if row["phone"] and _ring_for(conn, row, chain):
+            remind.done(conn, row["id"])
+            conn.commit()
+            continue
         if chain:
             closing = (f"「{row['text']}」。前に自分で決めた、もう一度言う時刻になった"
                        f"（追いかけの{chain}回目）。まだ返事がない。{_seen_at_pc()}"
@@ -299,6 +328,19 @@ def maybe_reminders(conn) -> None:
         if spoken or chain:
             remind.done(conn, row["id"])
             conn.commit()
+
+
+def _ring_for(conn, row, chain: int) -> bool:
+    """電話でと頼まれた頼まれごとを、着信にする。鳴らせなければ False（ふつうに言う）。
+
+    掛け直しは1回だけで、ことはに自分で決めさせない（announce.miss が入れる）。
+    """
+    if chain:
+        closing = chat.RING_AGAIN_CLOSING.format(what=row["text"])
+    else:
+        closing = chat.RING_ASKED_CLOSING.format(what=row["text"])
+    return bool(calls.ring(conn, closing, calls.ASKED, plain=f"{row['text']}の時間だよ",
+                           remind_text=row["text"], chain=chain))
 
 
 # 日記が書けなかったときの間と回数。**一度の失敗でその日を捨てない。**
