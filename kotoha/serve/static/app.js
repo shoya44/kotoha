@@ -1615,7 +1615,9 @@ function splitSentences(text) {
 let speakChain = Promise.resolve();
 
 function enqueueSpeech(text) {
-  if (!text || !text.trim()) return speakChain;
+  // 保留中に届いた続きは読まない。戻ったときに途中から鳴り出すと話が飛ぶ。
+  // 言葉は画面に残っている。
+  if (!text || !text.trim() || heldAt) return speakChain;
   const mine = speakGeneration;
   const pending = fetchVoice(text).catch(() => null);
   speakChain = speakChain.then(async () => {
@@ -1938,7 +1940,8 @@ function fillPause(pending) {
 }
 
 function listen() {
-  if (!calling || callBusy || !recognition) return;
+  // 保留中に開き直しても、iOS は裏のマイクを渡さない。戻ってから開く。
+  if (!calling || callBusy || !recognition || heldAt) return;
   try {
     recognition.start();
   } catch {
@@ -1962,7 +1965,7 @@ async function onHeard(text) {
   } finally {
     callBusy = false;
   }
-  if (calling) {
+  if (calling && !heldAt) {
     setStatus("通話中", "calling");
     listen();
   }
@@ -2006,9 +2009,11 @@ function updateCallButton() {
 async function startCall() {
   if (calling) return;
   calling = true;
+  heldAt = 0;
   recognition = createRecognition();
   updateCallButton();
   setStatus("通話中", "calling");
+  keepScreenOn();
   prepareFillers();  // 待たない。間に合ったぶんから使う。
   listen();
   try {
@@ -2023,16 +2028,91 @@ function endCall({ release = true } = {}) {
   calling = false;
   callBusy = false;
   speechEndedAt = 0;
+  heldAt = 0;
   stopSpeaking();
   if (recognition) {
     recognition.abort();
     recognition = null;
   }
+  letScreenSleep();
   updateCallButton();
   setStatus("いるよ");
   // 取り上げられた側は消さない。新しい持ち主の記録まで消してしまう。
   if (release) api("/api/call", { method: "DELETE" }).catch(() => {});
 }
+
+// ===== 通話を落とさない =====
+// iPhone は画面が消えると PWA ごと止まり、マイクも聞き取りも死ぬ。
+// 裏へ回すのは止められない（却下済み）。できるのは、消えないようにすることと、
+// 戻ったときに黙って死んだままにしないことだけ。
+
+// 保留のまま、これより長く戻らなければ切る。戻った時点で数える
+// （裏ではタイマーが動かない）。
+const HOLD_LIMIT_MS = 10 * 60 * 1000;
+// 保留から戻ったときの一言。脳は呼ばない（APIの枠を食う話ではない）。
+const RESUME_LINES = ["おかえり", "あ、戻ってきた", "おかえりー"];
+let heldAt = 0;
+let screenLock = null;
+
+// 画面を点けておく。通話の開始（指の操作の中）で取る。
+// **見えなくなると OS が勝手に手放す**ので、戻るたびに取り直す。
+async function keepScreenOn() {
+  if (!navigator.wakeLock || screenLock || document.hidden) return;
+  try {
+    screenLock = await navigator.wakeLock.request("screen");
+    screenLock.addEventListener("release", () => { screenLock = null; });
+    // 取っているあいだに通話が終わっていたら、すぐ返す。
+    if (!calling) letScreenSleep();
+  } catch {
+    screenLock = null;  // 省電力モードなどで断られる。通話は続ける。
+  }
+}
+
+function letScreenSleep() {
+  const lock = screenLock;
+  screenLock = null;
+  lock?.release().catch(() => {});
+}
+
+function holdCall() {
+  if (!calling || heldAt) return;
+  heldAt = Date.now();
+  // 裏で鳴らし続けても聞かれていない。聞き取りも iOS が止める。
+  stopSpeaking();
+  if (recognition) {
+    recognition.abort();
+    recognition = null;
+  }
+  setStatus("保留中", "calling");
+}
+
+function resumeCall() {
+  if (!calling || !heldAt) return;
+  const away = Date.now() - heldAt;
+  if (away > HOLD_LIMIT_MS) {
+    addMessage("system", "[通話] 保留が長かったので切りました");
+    endCall();
+    return;
+  }
+  heldAt = 0;
+  // 止めた聞き取りは使い回さない。iOS では abort したものが開き直せないことがある。
+  recognition = createRecognition();
+  keepScreenOn();
+  setStatus("通話中", "calling");
+  // 返事を作っている途中なら、そちらが終わってから聞き直す（onHeard）。
+  if (callBusy) return;
+  const line = RESUME_LINES[Math.floor(Math.random() * RESUME_LINES.length)];
+  // 言い終えてから聞く。自分の声を拾わない方針（読み上げ中はマイクを開かない）。
+  callBusy = true;
+  Promise.resolve(speak(line)).catch(() => {}).finally(() => {
+    callBusy = false;
+    if (calling && !heldAt) listen();
+  });
+}
+
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) holdCall(); else resumeCall();
+});
 
 // ===== Events =====
 elements.gateButton.addEventListener("click", unlock);
