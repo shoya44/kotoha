@@ -142,6 +142,11 @@ REACH_OUT_AFTER_HOURS = _number("KOTOHA_REACH_OUT_AFTER_HOURS", float, minimum=0
 REACH_OUT_INTERVAL_HOURS = _number("KOTOHA_REACH_OUT_INTERVAL_HOURS", float, minimum=0.1)
 REACH_OUT_FROM_HOUR = _number("KOTOHA_REACH_OUT_FROM_HOUR", minimum=0, maximum=23)
 REACH_OUT_TO_HOUR = _number("KOTOHA_REACH_OUT_TO_HOUR", minimum=0, maximum=23)
+# 声かけのかわりに電話。着信は serve/announce.ring。
+REACH_CALL_ENABLED = _boolean("KOTOHA_REACH_CALL_ENABLED")
+REACH_CALL_SHARE = _number("KOTOHA_REACH_CALL_SHARE", float, minimum=0, maximum=1)
+RING_MINUTES = _number("KOTOHA_RING_MINUTES", float, minimum=0.5)
+RING_RETRY_MINUTES = _number("KOTOHA_RING_RETRY_MINUTES", float, minimum=1)
 # 後から思い出す。想起で床のすぐ下だった記憶を1つ預かり、会話が途切れてから言う（1日1回）。
 AFTERTHOUGHT_ENABLED = _boolean("KOTOHA_AFTERTHOUGHT_ENABLED")
 AFTERTHOUGHT_MARGIN = _number("KOTOHA_AFTERTHOUGHT_MARGIN", float, minimum=0, maximum=0.5)

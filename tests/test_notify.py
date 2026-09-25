@@ -109,7 +109,8 @@ class ReachOutTests(DbCase):
         super().setUp()
         for name, value in (("REACH_OUT_ENABLED", True), ("REACH_OUT_AFTER_HOURS", 5),
                             ("REACH_OUT_INTERVAL_HOURS", 6),
-                            ("REACH_OUT_FROM_HOUR", 0), ("REACH_OUT_TO_HOUR", 24)):
+                            ("REACH_OUT_FROM_HOUR", 0), ("REACH_OUT_TO_HOUR", 24),
+                            ("REACH_CALL_ENABLED", False)):   # 電話は test_ring で見る
             self.addCleanup(setattr, config, name, getattr(config, name))
             setattr(config, name, value)
         self.addCleanup(setattr, notify, "ready", notify.ready)

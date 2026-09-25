@@ -11,7 +11,7 @@ import contextlib
 import json
 from datetime import datetime, timedelta
 
-from .. import config, notify
+from .. import clock, config, notify
 from ..memory import db, remind
 from ..talk import chat, presence, living
 from . import hub
@@ -297,3 +297,124 @@ def flush_held(conn) -> str:
     db.set_state(conn, db.HELD_FAILS, fails)
     conn.commit()
     return ""
+
+
+# ===== 電話 =====
+# 通話の入口をこちらから開ける。**第一声は出てから声で言う。** 通知には
+# 「電話」としか出さない。中身を先に読ませたら、電話にした意味がない。
+# 着信の中身は app_state（db.RING）に1つだけ持つ。同時に2本は鳴らさない。
+
+# 着信の種類。自分から掛けたものと、頼まれて掛けたもの（モーニングコールなど）。
+REACH = "reach"
+ASKED = "asked"
+RING_TITLE = "📞 ことはから電話"
+MISSED_TEXT = "📞 不在着信"
+
+
+def ringing(conn):
+    """いま鳴っている着信。無ければ None。"""
+    try:
+        ring = json.loads(db.get_state(conn, db.RING) or "null")
+    except ValueError:
+        return None
+    return ring if isinstance(ring, dict) and ring.get("id") else None
+
+
+def _rings_on_screen() -> bool:
+    """着信を画面に出せるか。会話画面が見られているときだけ。
+
+    デスクトップのドットには着信画面が無い。PCの前に居ても、電話は電話として
+    スマホへ鳴らす（出ればそちらへ実体が移る）。
+    """
+    return reaches_the_person() and hub.body_kind() == "web"
+
+
+def ring(conn, closing: str, kind: str, keep: bool = True, plain: str = "",
+         remind_text: str = "", chain: int = 0) -> str:
+    """ことはのほうから電話をかける。第一声を作って履歴に残し、着信を鳴らす。
+
+    **iOS は通知を開いただけではマイクも声も使えない。** 着信画面の「出る」を
+    押してもらうのが、そのまま許可になる。第一声はそこで声にする。
+
+    鳴らせなければ空を返す（通話中、鳴らしている最中、届ける先が無い、言葉が
+    作れない）。呼び出し側は、ふつうの言葉に切り替えてよい。
+    """
+    if hub.calling() or ringing(conn) or not can_speak():
+        return ""
+    on_screen = _rings_on_screen()
+    if not on_screen and not notify.ready():
+        return ""
+    text = ""
+    try:
+        text = chat.speak(conn, closing, keep=keep)
+    except Exception as error:
+        notify.log(f"電話の第一声が作れなかった: {error!r}")
+    if not text and plain:
+        text = plain
+        chat.remember(conn, text, keep=keep)
+    if not text:
+        return ""
+    ring_id = int(clock.utc_now().timestamp() * 1000)
+    _put_ring(conn, {"id": ring_id, "at": db.now_utc(), "kind": kind, "text": text,
+                     "remind_text": remind_text, "chain": chain})
+    db.set_state(conn, db.LAST_NOTIFY_AT, db.now_utc())
+    conn.commit()
+    if on_screen:
+        hub.ring(ring_id)
+    elif not notify.push("ことは", RING_TITLE, quiet_body=RING_TITLE):
+        notify.log("着信の通知が届かなかった")
+    notify.trace("電話", f"{kind}: {text[:40]}")
+    return text
+
+
+def _put_ring(conn, ring) -> None:
+    db.set_state(conn, db.RING, json.dumps(ring, ensure_ascii=False) if ring else "")
+
+
+def answer(conn, ring_id: int):
+    """出た。第一声を返す。鳴っていない（もう切れた）なら None。"""
+    ring = ringing(conn)
+    if not ring or ring["id"] != ring_id:
+        return None
+    _put_ring(conn, None)
+    remind.answered(conn)          # 出たのは返事のうち。追いかけは要らない
+    conn.commit()
+    return ring["text"]
+
+
+def miss(conn, ring=None) -> bool:
+    """出なかった（「あとで」も同じ）。不在着信を残し、頼まれた電話なら1回だけ掛け直す。
+
+    **自分から掛けた電話は掛け直さない。** 用があって掛けたわけではない。
+    """
+    ring = ring or ringing(conn)
+    if not ring:
+        return False
+    _put_ring(conn, None)
+    chat.remember(conn, MISSED_TEXT, keep=False)
+    if ring.get("kind") == ASKED and not ring.get("chain") and ring.get("remind_text"):
+        when = datetime.now() + timedelta(minutes=config.RING_RETRY_MINUTES)
+        remind.add(conn, when, ring["remind_text"], chain=1, phone=True)
+    conn.commit()
+    hub.hang_up()
+    return True
+
+
+def check_ring(conn) -> None:
+    """鳴らしたまま時間が来た着信を畳む。巡回から毎回呼ぶ（APIは使わない）。
+
+    **出ないまま文字で返事をくれたなら、それで用は済んでいる。** 不在着信も
+    掛け直しも出さず、黙って畳む。
+    """
+    ring = ringing(conn)
+    if not ring:
+        return
+    spoke = db.get_state(conn, db.LAST_CONVERSATION_AT) or ""
+    if spoke > ring.get("at", ""):
+        _put_ring(conn, None)
+        remind.answered(conn)
+        conn.commit()
+        hub.hang_up()
+        return
+    if db.seconds_since(ring.get("at")) >= config.RING_MINUTES * 60:
+        miss(conn, ring)

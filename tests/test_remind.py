@@ -60,7 +60,7 @@ class TagTests(unittest.TestCase):
     def test_a_repeat_rides_in_the_third_slot(self):
         clean, found = remind.parse("わかった。[REMIND: 2026-09-18 22:00|薬を飲んだか聞く|毎日]")
         self.assertEqual(clean, "わかった。")
-        self.assertEqual(found[0][1:], ("薬を飲んだか聞く", "毎日"))
+        self.assertEqual(found[0][1:], ("薬を飲んだか聞く", "毎日", False))
 
     def test_no_repeat_means_once(self):
         _, found = remind.parse("うん。[REMIND: 2026-09-18 09:00|歯医者]")
@@ -69,7 +69,15 @@ class TagTests(unittest.TestCase):
     def test_a_repeat_it_does_not_know_means_once(self):
         """知らない言葉で妙な繰り返しを抱え込まない。用件は預かる。"""
         _, found = remind.parse("うん。[REMIND: 2026-09-18 09:00|歯医者|隔週]")
-        self.assertEqual(found[0][1:], ("歯医者", None))
+        self.assertEqual(found[0][1:], ("歯医者", None, False))
+
+    def test_a_phone_mark_can_stand_alone(self):
+        _, found = remind.parse("うん。[REMIND: 2026-09-19 07:00|起こす|電話]")
+        self.assertEqual(found[0][1:], ("起こす", None, True))
+
+    def test_a_phone_mark_rides_after_the_repeat(self):
+        _, found = remind.parse("うん。[REMIND: 2026-09-19 07:00|起こす|平日|電話]")
+        self.assertEqual(found[0][1:], ("起こす", "平日", True))
 
 
 class KeepingTests(DbCase):
@@ -575,7 +583,7 @@ class KeptAnswerTests(DbCase):
         answer = self.send()
         self.assertEqual(answer["reply"], "仕方ないなー。")      # 言葉は変わらない
         self.assertEqual(answer["kept"], [{"due_at": "2026-09-18 09:00", "text": "歯医者",
-                                           "repeat": None}])
+                                           "repeat": None, "phone": False}])
 
     def test_a_repeat_comes_back_with_the_mark(self):
         """毎日か一度きりかは、印で見分けられないと確かめようがない。"""

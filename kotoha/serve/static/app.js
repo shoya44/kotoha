@@ -411,7 +411,7 @@ async function loadDiary() {
 // ===== 預かっているもの =====
 // 繰り返し（毎日・平日）は、そう見えないと「一度きり」と区別がつかない。
 function repeatMark(item) {
-  return item.repeat ? `（${item.repeat}）` : "";
+  return (item.repeat ? `（${item.repeat}）` : "") + (item.phone ? " 📞" : "");
 }
 
 function reminderWhen(due) {
@@ -1354,6 +1354,8 @@ function connectPresence() {
     if (message.type === "here") setEmbodied(true);
     else if (message.type === "away") setEmbodied(false, message.where);
     else if (message.type === "act") showBrainPicture(message.picture, message.act, message.fidgets_off);
+    else if (message.type === "ring") showRing(message.id);
+    else if (message.type === "ring_end") { if (ringId && !ringMissed) showMissed(); }
     else if (message.type === "say") {
       $("frameBubble").textContent = message.text || "";
       // 本文は履歴から取る。並べ方を1か所にしておく。
@@ -2006,7 +2008,8 @@ function updateCallButton() {
   );
 }
 
-async function startCall() {
+// greeting は、ことはのほうから掛けてきた電話の第一声。言い終えてから聞く。
+async function startCall({ greeting = "" } = {}) {
   if (calling) return;
   calling = true;
   heldAt = 0;
@@ -2015,7 +2018,15 @@ async function startCall() {
   setStatus("通話中", "calling");
   keepScreenOn();
   prepareFillers();  // 待たない。間に合ったぶんから使う。
-  listen();
+  if (greeting) {
+    callBusy = true;
+    Promise.resolve(speak(greeting)).catch(() => {}).finally(() => {
+      callBusy = false;
+      if (calling && !heldAt) listen();
+    });
+  } else {
+    listen();
+  }
   try {
     await api("/api/call", { method: "POST", body: { vessel: VESSEL } });
   } catch {
@@ -2040,6 +2051,100 @@ function endCall({ release = true } = {}) {
   // 取り上げられた側は消さない。新しい持ち主の記録まで消してしまう。
   if (release) api("/api/call", { method: "DELETE" }).catch(() => {});
 }
+
+// ===== 着信 =====
+// ことはのほうから電話してきたとき。**第一声は「出る」を押してから受け取る。**
+// 鳴っているかどうかは、開くたびに脳へ聞く（通知から来たとは限らない）。
+// 開いている画面には脳のほうから ring が届く。
+const RING_CHECK_MS = 15000;
+let ringId = null;
+let ringMissed = false;
+let ringCheck = null;
+
+async function checkRing() {
+  if (!token || calling) return;
+  try {
+    const data = await (await api("/api/ring")).json();
+    if (data.ring) showRing(data.ring.id);
+    else if (ringId && !ringMissed) showMissed();
+  } catch {
+    // 繋がらないなら、鳴っているかも分からない。次に開いたときに見る。
+  }
+}
+
+function showRing(id) {
+  if (calling || (ringId === id && !ringMissed)) return;
+  ringId = id;
+  ringMissed = false;
+  const screen = $("ringScreen");
+  screen.hidden = false;
+  screen.classList.add("ringing");
+  $("ringNote").textContent = "電話がかかってきています";
+  $("ringAnswerLabel").textContent = "出る";
+  $("ringDeclineLabel").textContent = "あとで";
+  $("ringAnswer").disabled = $("ringDecline").disabled = false;
+  clearInterval(ringCheck);
+  ringCheck = setInterval(checkRing, RING_CHECK_MS);
+}
+
+// 出ないまま切れた。掛け直せるようにしておく。
+function showMissed() {
+  ringMissed = true;
+  clearInterval(ringCheck);
+  const screen = $("ringScreen");
+  screen.classList.remove("ringing");
+  $("ringNote").textContent = "不在着信";
+  $("ringAnswerLabel").textContent = "かけ直す";
+  $("ringDeclineLabel").textContent = "閉じる";
+  $("ringAnswer").disabled = $("ringDecline").disabled = false;
+}
+
+function closeRing() {
+  clearInterval(ringCheck);
+  ringCheck = null;
+  ringId = null;
+  ringMissed = false;
+  $("ringScreen").hidden = true;
+  $("ringScreen").classList.remove("ringing");
+}
+
+async function answerRing() {
+  // **指の流れの中で音を起こす。** iOS はここを逃すと声を出させない。
+  audioReady();
+  if (ringMissed) {
+    closeRing();
+    startCall();
+    return;
+  }
+  const id = ringId;
+  $("ringAnswer").disabled = $("ringDecline").disabled = true;
+  let data;
+  try {
+    const response = await api("/api/ring/answer", { method: "POST", body: { id } });
+    if (response.status === 410) {
+      showMissed();
+      return;
+    }
+    data = await response.json();
+  } catch {
+    $("ringNote").textContent = "繋がりませんでした";
+    $("ringAnswer").disabled = $("ringDecline").disabled = false;
+    return;
+  }
+  closeRing();
+  catchUp();  // 第一声はもう履歴にある
+  startCall({ greeting: data.text || "" });
+}
+
+function declineRing() {
+  if (!ringMissed && ringId) {
+    api("/api/ring/decline", { method: "POST", body: { id: ringId } }).catch(() => {});
+  }
+  closeRing();
+}
+
+$("ringAnswer").addEventListener("click", answerRing);
+$("ringDecline").addEventListener("click", declineRing);
 
 // ===== 通話を落とさない =====
 // iPhone は画面が消えると PWA ごと止まり、マイクも聞き取りも死ぬ。
@@ -2111,7 +2216,11 @@ function resumeCall() {
 }
 
 document.addEventListener("visibilitychange", () => {
-  if (document.hidden) holdCall(); else resumeCall();
+  if (document.hidden) holdCall();
+  else {
+    resumeCall();
+    checkRing();
+  }
 });
 
 // ===== Events =====
@@ -2584,6 +2693,7 @@ window.addEventListener("pagehide", sayGoodbye);
       watchHistory();
       connectPresence();
       answerTheCall();         // 通知やドットから開かれたとき
+      checkRing();             // 着信の通知から開かれたとき（開いただけのときも）
       handleSnoozeLink();      // Chromeの通知ボタンから開かれたとき
       offerSnooze();           // 頼まれごとの通知から開かれたとき
       return;
