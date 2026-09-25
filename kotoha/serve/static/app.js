@@ -2125,7 +2125,9 @@ function closeRing() {
 
 async function answerRing() {
   // **指の流れの中で音を起こす。** iOS はここを逃すと声を出させない。
-  audioReady();
+  // 通話ボタンと同じく無音を1つ鳴らし、消音スイッチでも鳴る設定にする。
+  // audioReady() だけでは、通知から開いたばかりの画面で第一声が鳴らなかった。
+  openAudio();
   if (ringMissed) {
     startCall();  // かけ直し。出られなかった話は、ことはが先に言う
     return;
