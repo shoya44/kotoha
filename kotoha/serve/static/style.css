@@ -166,7 +166,8 @@ body.typing .mini-avatar { height: 0; }
   object-fit: contain;
   object-position: center bottom;
   transform-origin: center bottom;
-  transition: opacity var(--duration) ease;
+  /* rotate はマウスの方へ傾くぶん（app.js の LEAN_DEG）。ゆっくり向いて、ゆっくり戻る。 */
+  transition: opacity var(--duration) ease, rotate .8s ease-out;
   /* 呼吸。足元を留めて、胸から上がわずかに縮む（トレイの1ドットと同じ量感）。
      速さは絵ごとに app.js が --breath で渡す（寝ているときは遅く、はしゃいでいるときは速く）。 */
   animation: avatar-breathe var(--breath, 3.4s) ease-in-out infinite;
@@ -221,8 +222,19 @@ body.typing .mini-avatar { height: 0; }
   30%, 70% { transform: rotate(1.2deg); }
 }
 
+/* 相槌。話しかけられたら、小さく2回うなずく（首から上が沈んで戻る）。 */
+.mini-avatar img.avatar-nod {
+  animation: avatar-nod .7s ease-in-out;
+}
+
+@keyframes avatar-nod {
+  0%, 50%, 100% { transform: translateY(0) scaleY(1); }
+  22%           { transform: translateY(1.5px) scaleY(.99); }
+  72%           { transform: translateY(1px) scaleY(.994); }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .mini-avatar img, .mini-avatar img.avatar-hop,
+  .mini-avatar img, .mini-avatar img.avatar-hop, .mini-avatar img.avatar-nod,
   .mini-avatar img.avatar-sway, .mini-avatar img.avatar-tilt { animation: none; }
 }
 

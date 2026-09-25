@@ -1175,7 +1175,7 @@ async function showPicture(name, { fade = true } = {}) {
   crossfade(image, src, fade && !FADE_INSTANT.has(name));
   image.style.setProperty("--breath", `${BREATH_BY_NAME[name] || BREATH_SECONDS}s`);
   currentPicture = name;
-  scheduleBlink();
+  scheduleBlink(Math.random() < 0.5);
 }
 
 // 姿の切り替えを、前の絵から次の絵へ短く溶かす（トレイの mascot/fade.py と同じ癖）。
@@ -1285,6 +1285,26 @@ avatarImage.addEventListener("click", async () => {
     scheduleFidget();
   }, REACT_MS);
 });
+
+// マウスが動くと、体ごと少しそちらへ傾く（目を動かす絵が無いので、視線の代わり）。
+// **マウスのある端末だけ。** 指の端末には向ける先が無い。止まって数秒したら戻る。
+// 量は首かしげ（avatar-tilt）と同じくらいに抑える。戻り方は style.css の transition。
+const LEAN_DEG = 1.5, LEAN_REACH_PX = 500, LEAN_REST_MS = 3000;
+let leanTimer = null;
+
+if (window.matchMedia?.("(pointer: fine)").matches
+    && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+  document.addEventListener("pointermove", event => {
+    if (!embodied || document.hidden) return;
+    const box = avatarImage.getBoundingClientRect();
+    if (!box.width) return;
+    const dx = event.clientX - (box.left + box.width / 2);
+    const lean = Math.max(-1, Math.min(1, dx / LEAN_REACH_PX));
+    avatarImage.style.rotate = `${(lean * LEAN_DEG).toFixed(2)}deg`;
+    clearTimeout(leanTimer);
+    leanTimer = setTimeout(() => { avatarImage.style.rotate = ""; }, LEAN_REST_MS);
+  }, { passive: true });
+}
 
 function setEmbodied(here, where = "") {
   // **実体が移れば通話も終わる。** 向こうで話しているのに、こちらのマイクが
@@ -1396,7 +1416,17 @@ async function callHer() {
   }
 }
 
-function scheduleBlink() {
+// まばたきの間。**人の間はばらつく**: たいていは数秒、ときどき長く見つめ、
+// ときどき2回続ける。トレイ（mascot/__main__.py の blink_gap）と同じ配り方。
+function blinkGap() {
+  const roll = Math.random();
+  if (roll < 0.15) return 180 + Math.random() * 120;     // 続けてもう1回
+  if (roll < 0.85) return 2500 + Math.random() * 3500;
+  return 6000 + Math.random() * 5000;                    // じっと見ている
+}
+
+// soon を付けると、すぐ（姿が替わった直後に）まばたく。人は視線や姿勢を変えるとき瞬く。
+function scheduleBlink(soon = false) {
   clearTimeout(blinkTimer);
   if (!blinkable.has(currentPicture)) return;
 
@@ -1410,11 +1440,11 @@ function scheduleBlink() {
       setTimeout(() => {
         image.src = open;
         scheduleBlink();
-      }, 130);
+      }, 100 + Math.random() * 60);
     } catch {
       scheduleBlink();
     }
-  }, 4000 + Math.random() * 6000);
+  }, soon ? 150 + Math.random() * 200 : blinkGap());
 }
 
 function reactAvatar(className = "avatar-react") {
@@ -1427,7 +1457,8 @@ function reactAvatar(className = "avatar-react") {
 
 // 一度きりの動き（跳ね・触られた・揺れ・首かしげ）は、終わったら class を外す。
 // 残したままだと animation が上書きされたままで、**呼吸が止まる**（2026-09-24 に気づいた）。
-const ONE_SHOT_MOTIONS = ["avatar-hop", "avatar-tap", "avatar-react", "avatar-sway", "avatar-tilt"];
+const ONE_SHOT_MOTIONS = ["avatar-hop", "avatar-tap", "avatar-react", "avatar-sway", "avatar-tilt",
+                          "avatar-nod"];
 $("miniAvatarImage").addEventListener("animationend", event => {
   if (event.animationName !== "avatar-breathe") event.target.classList.remove(...ONE_SHOT_MOTIONS);
 });
@@ -1517,7 +1548,7 @@ function playAudio(sound) {
   return new Promise(resolve => {
     const source = context.createBufferSource();
     source.buffer = sound;
-    source.connect(volumeKnob || context.destination);
+    source.connect(voiceMeter(context) || volumeKnob || context.destination);
     const stopMouth = startMouth();
     // stopで止めたときも鳴り終わりとして届くので、待ち続けることはない。
     source.addEventListener("ended", () => {
@@ -1530,33 +1561,73 @@ function playAudio(sound) {
   });
 }
 
-// 口パク。声が鳴っているあいだ、口を開けた差分と本体を交互に出す。差分の無い絵は動かない。
+// 声の大きさを測る耳。鳴らす声はみな、ここを通ってからつまみへ行く。
+// つまみの手前で測るので、音量を絞っても口の動きは変わらない。
+let meter = null;
+let meterSamples = null;
+
+function voiceMeter(context) {
+  if (!context.createAnalyser || !volumeKnob) return null;
+  if (!meter) {
+    meter = context.createAnalyser();
+    meter.fftSize = 512;
+    meterSamples = new Float32Array(meter.fftSize);
+    meter.connect(volumeKnob);
+  }
+  return meter;
+}
+
+// いま鳴っている声の大きさ（二乗平均）。無音で 0、ことはの声で 0.05〜0.2 ほど。
+function voiceLevel() {
+  if (!meter) return 0;
+  meter.getFloatTimeDomainData(meterSamples);
+  let sum = 0;
+  for (const value of meterSamples) sum += value * value;
+  return Math.sqrt(sum / meterSamples.length);
+}
+
+// 口パク。**声が出ているあいだだけ口を開ける。** 一定の間で開け閉めすると、
+// 息継ぎや「、」の間でも口が動き続けていた。差分の無い絵は口が動かない。
 // まばたきは口が動いているあいだ止める（両方が src を触ると取り合いになる）。
-// 速いとパクパクして違和感がある（120ms は速すぎた）。ゆっくり、ときどき開く程度にする。
-const MOUTH_MS = 260;
+// 開け閉めが速いとパクパクして見える（120ms は速すぎた）。一度替えたら MOUTH_HOLD_MS は保つ。
+const MOUTH_HOLD_MS = 150;
+const MOUTH_OPEN_AT = 0.05, MOUTH_CLOSE_AT = 0.025;
+// 差分のほうが口を閉じている絵（本体が口を開けている）。
+const MOUTH_DIFF_CLOSED = new Set(["surprised", "laugh", "happy"]);
+// 声を測る間。話しながら体を弾ませるのは試して不自然だったのでやめた（2026-09-25）。
+const TALK_TICK_MS = 33;
 
 function startMouth() {
   const name = currentPicture;
   if (!mouthable.has(name)) return () => {};
   const image = $("miniAvatarImage");
-  const open = `${SPRITE_URL}${name}.png`;
-  const mouth = `${SPRITE_URL}${name}-mouth.png`;
+  const base = `${SPRITE_URL}${name}.png`;
+  const diff = `${SPRITE_URL}${name}-mouth.png`;
   clearTimeout(blinkTimer);
-  let shown = false;
   let stopped = false;
   let ready = false;
-  readyPicture(mouth).then(() => { ready = true; }).catch(() => {});
+  let open = false;
+  let shown = base;
+  let changedAt = 0;
+  readyPicture(diff).then(() => { ready = true; }).catch(() => {});
   const timer = setInterval(() => {
     // 途中で絵が替わったら、その絵の口は触らない。差分が読めるまでは待つ。
     if (stopped || !ready || currentPicture !== name) return;
-    shown = !shown;
-    image.src = shown ? mouth : open;
-  }, MOUTH_MS);
+    const now = performance.now();
+    if (now - changedAt < MOUTH_HOLD_MS) return;
+    const level = voiceLevel();
+    open = open ? level > MOUTH_CLOSE_AT : level > MOUTH_OPEN_AT;
+    const src = open !== MOUTH_DIFF_CLOSED.has(name) ? diff : base;
+    if (src === shown) return;
+    shown = src;
+    changedAt = now;
+    image.src = src;
+  }, TALK_TICK_MS);
   return () => {
     stopped = true;
     clearInterval(timer);
     if (currentPicture === name) {
-      image.src = open;
+      image.src = base;
       scheduleBlink();
     }
   };
@@ -1732,7 +1803,7 @@ async function send() {
   elements.input.value = "";
   resizeInput();
   addMessage("user", text);
-  reactAvatar();
+  reactAvatar("avatar-nod");  // 聞いたよ、と小さくうなずく
   elements.sendButton.disabled = true;
   setStatus("考え中…", "thinking");
   const typingRow = addTypingIndicator();
@@ -1779,7 +1850,7 @@ async function send() {
 // まとめて受け取る /api/chat と中身は同じで、違うのは届く順番だけ。
 async function sendStream(text, onFirst) {
   addMessage("user", text);
-  reactAvatar();
+  reactAvatar("avatar-nod");  // 聞いたよ、と小さくうなずく
   elements.sendButton.disabled = true;
   // 往復のあいだは、履歴の見行きに自分の言葉を拾わせない。ユーザーの行は
   // サーバー側ではもう確定しているので、生成が長引いた回に見行き（30秒ごと）

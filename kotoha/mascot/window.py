@@ -247,6 +247,13 @@ class Dot:
     def center(self):
         return self.x + self.width // 2, self.y + self.height // 2
 
+    @staticmethod
+    def cursor():
+        """マウスの場所（画面の座標）。"""
+        point = w.POINT()
+        user32.GetCursorPos(ctypes.byref(point))
+        return point.x, point.y
+
     # --- 押された・運ばれた ---
 
     def _hit(self, screen_x: int, screen_y: int) -> bool:
